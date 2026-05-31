@@ -1,0 +1,37 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Tiny",
+    "version": "1.0"
+  },
+  "paths": {
+    "/ping": {
+      "get": {
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  },
+  "list": [
+    1,
+    2,
+    3,
+    true,
+    null,
+    "str"
+  ],
+  "nested": {
+    "a": {
+      "b": {
+        "c": [
+          {
+            "deep": "value"
+          }
+        ]
+      }
+    }
+  }
+}

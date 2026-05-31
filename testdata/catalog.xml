@@ -1,0 +1,423 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog xmlns:ex="http://example.com/ns">
+  <product id="0" sku="SKU-0000">
+    <name lang="en">Product 0</name>
+    <price currency="USD">89.23</price>
+    <!-- comment for product 0 -->
+    <tags><tag>theta</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;0&gt;</description>
+  </product>
+  <product id="1" sku="SKU-0001">
+    <name lang="en">Product 1</name>
+    <price currency="USD">46.19</price>
+    <!-- comment for product 1 -->
+    <tags><tag>gamma</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;1&gt;</description>
+  </product>
+  <product id="2" sku="SKU-0002">
+    <name lang="en">Product 2</name>
+    <price currency="USD">40.25</price>
+    <!-- comment for product 2 -->
+    <tags><tag>theta</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;2&gt;</description>
+  </product>
+  <product id="3" sku="SKU-0003">
+    <name lang="en">Product 3</name>
+    <price currency="USD">58.91</price>
+    <!-- comment for product 3 -->
+    <tags><tag>theta</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;3&gt;</description>
+  </product>
+  <product id="4" sku="SKU-0004">
+    <name lang="en">Product 4</name>
+    <price currency="USD">65.53</price>
+    <!-- comment for product 4 -->
+    <tags><tag>alpha</tag><tag>gamma</tag></tags>
+    <description>A &amp; fine product &lt;4&gt;</description>
+  </product>
+  <product id="5" sku="SKU-0005">
+    <name lang="en">Product 5</name>
+    <price currency="USD">65.08</price>
+    <!-- comment for product 5 -->
+    <tags><tag>beta</tag><tag>epsilon</tag></tags>
+    <description>A &amp; fine product &lt;5&gt;</description>
+  </product>
+  <product id="6" sku="SKU-0006">
+    <name lang="en">Product 6</name>
+    <price currency="USD">89.02</price>
+    <!-- comment for product 6 -->
+    <tags><tag>zeta</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;6&gt;</description>
+  </product>
+  <product id="7" sku="SKU-0007">
+    <name lang="en">Product 7</name>
+    <price currency="USD">8.66</price>
+    <!-- comment for product 7 -->
+    <tags><tag>alpha</tag><tag>alpha</tag></tags>
+    <description>A &amp; fine product &lt;7&gt;</description>
+  </product>
+  <product id="8" sku="SKU-0008">
+    <name lang="en">Product 8</name>
+    <price currency="USD">76.98</price>
+    <!-- comment for product 8 -->
+    <tags><tag>gamma</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;8&gt;</description>
+  </product>
+  <product id="9" sku="SKU-0009">
+    <name lang="en">Product 9</name>
+    <price currency="USD">26.86</price>
+    <!-- comment for product 9 -->
+    <tags><tag>beta</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;9&gt;</description>
+  </product>
+  <product id="10" sku="SKU-0010">
+    <name lang="en">Product 10</name>
+    <price currency="USD">68.72</price>
+    <!-- comment for product 10 -->
+    <tags><tag>zeta</tag><tag>zeta</tag></tags>
+    <description>A &amp; fine product &lt;10&gt;</description>
+  </product>
+  <product id="11" sku="SKU-0011">
+    <name lang="en">Product 11</name>
+    <price currency="USD">37.08</price>
+    <!-- comment for product 11 -->
+    <tags><tag>epsilon</tag><tag>alpha</tag></tags>
+    <description>A &amp; fine product &lt;11&gt;</description>
+  </product>
+  <product id="12" sku="SKU-0012">
+    <name lang="en">Product 12</name>
+    <price currency="USD">31.36</price>
+    <!-- comment for product 12 -->
+    <tags><tag>beta</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;12&gt;</description>
+  </product>
+  <product id="13" sku="SKU-0013">
+    <name lang="en">Product 13</name>
+    <price currency="USD">35.45</price>
+    <!-- comment for product 13 -->
+    <tags><tag>eta</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;13&gt;</description>
+  </product>
+  <product id="14" sku="SKU-0014">
+    <name lang="en">Product 14</name>
+    <price currency="USD">87.09</price>
+    <!-- comment for product 14 -->
+    <tags><tag>eta</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;14&gt;</description>
+  </product>
+  <product id="15" sku="SKU-0015">
+    <name lang="en">Product 15</name>
+    <price currency="USD">56.02</price>
+    <!-- comment for product 15 -->
+    <tags><tag>beta</tag><tag>gamma</tag></tags>
+    <description>A &amp; fine product &lt;15&gt;</description>
+  </product>
+  <product id="16" sku="SKU-0016">
+    <name lang="en">Product 16</name>
+    <price currency="USD">71.94</price>
+    <!-- comment for product 16 -->
+    <tags><tag>eta</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;16&gt;</description>
+  </product>
+  <product id="17" sku="SKU-0017">
+    <name lang="en">Product 17</name>
+    <price currency="USD">44.56</price>
+    <!-- comment for product 17 -->
+    <tags><tag>beta</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;17&gt;</description>
+  </product>
+  <product id="18" sku="SKU-0018">
+    <name lang="en">Product 18</name>
+    <price currency="USD">6.51</price>
+    <!-- comment for product 18 -->
+    <tags><tag>zeta</tag><tag>epsilon</tag></tags>
+    <description>A &amp; fine product &lt;18&gt;</description>
+  </product>
+  <product id="19" sku="SKU-0019">
+    <name lang="en">Product 19</name>
+    <price currency="USD">60.07</price>
+    <!-- comment for product 19 -->
+    <tags><tag>gamma</tag><tag>gamma</tag></tags>
+    <description>A &amp; fine product &lt;19&gt;</description>
+  </product>
+  <product id="20" sku="SKU-0020">
+    <name lang="en">Product 20</name>
+    <price currency="USD">56.26</price>
+    <!-- comment for product 20 -->
+    <tags><tag>delta</tag><tag>delta</tag></tags>
+    <description>A &amp; fine product &lt;20&gt;</description>
+  </product>
+  <product id="21" sku="SKU-0021">
+    <name lang="en">Product 21</name>
+    <price currency="USD">0.70</price>
+    <!-- comment for product 21 -->
+    <tags><tag>alpha</tag><tag>delta</tag></tags>
+    <description>A &amp; fine product &lt;21&gt;</description>
+  </product>
+  <product id="22" sku="SKU-0022">
+    <name lang="en">Product 22</name>
+    <price currency="USD">4.07</price>
+    <!-- comment for product 22 -->
+    <tags><tag>epsilon</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;22&gt;</description>
+  </product>
+  <product id="23" sku="SKU-0023">
+    <name lang="en">Product 23</name>
+    <price currency="USD">37.94</price>
+    <!-- comment for product 23 -->
+    <tags><tag>delta</tag><tag>zeta</tag></tags>
+    <description>A &amp; fine product &lt;23&gt;</description>
+  </product>
+  <product id="24" sku="SKU-0024">
+    <name lang="en">Product 24</name>
+    <price currency="USD">29.65</price>
+    <!-- comment for product 24 -->
+    <tags><tag>alpha</tag><tag>alpha</tag></tags>
+    <description>A &amp; fine product &lt;24&gt;</description>
+  </product>
+  <product id="25" sku="SKU-0025">
+    <name lang="en">Product 25</name>
+    <price currency="USD">69.45</price>
+    <!-- comment for product 25 -->
+    <tags><tag>alpha</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;25&gt;</description>
+  </product>
+  <product id="26" sku="SKU-0026">
+    <name lang="en">Product 26</name>
+    <price currency="USD">0.97</price>
+    <!-- comment for product 26 -->
+    <tags><tag>theta</tag><tag>gamma</tag></tags>
+    <description>A &amp; fine product &lt;26&gt;</description>
+  </product>
+  <product id="27" sku="SKU-0027">
+    <name lang="en">Product 27</name>
+    <price currency="USD">2.71</price>
+    <!-- comment for product 27 -->
+    <tags><tag>beta</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;27&gt;</description>
+  </product>
+  <product id="28" sku="SKU-0028">
+    <name lang="en">Product 28</name>
+    <price currency="USD">46.79</price>
+    <!-- comment for product 28 -->
+    <tags><tag>theta</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;28&gt;</description>
+  </product>
+  <product id="29" sku="SKU-0029">
+    <name lang="en">Product 29</name>
+    <price currency="USD">99.28</price>
+    <!-- comment for product 29 -->
+    <tags><tag>epsilon</tag><tag>zeta</tag></tags>
+    <description>A &amp; fine product &lt;29&gt;</description>
+  </product>
+  <product id="30" sku="SKU-0030">
+    <name lang="en">Product 30</name>
+    <price currency="USD">19.77</price>
+    <!-- comment for product 30 -->
+    <tags><tag>delta</tag><tag>zeta</tag></tags>
+    <description>A &amp; fine product &lt;30&gt;</description>
+  </product>
+  <product id="31" sku="SKU-0031">
+    <name lang="en">Product 31</name>
+    <price currency="USD">63.42</price>
+    <!-- comment for product 31 -->
+    <tags><tag>alpha</tag><tag>epsilon</tag></tags>
+    <description>A &amp; fine product &lt;31&gt;</description>
+  </product>
+  <product id="32" sku="SKU-0032">
+    <name lang="en">Product 32</name>
+    <price currency="USD">56.00</price>
+    <!-- comment for product 32 -->
+    <tags><tag>beta</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;32&gt;</description>
+  </product>
+  <product id="33" sku="SKU-0033">
+    <name lang="en">Product 33</name>
+    <price currency="USD">20.31</price>
+    <!-- comment for product 33 -->
+    <tags><tag>beta</tag><tag>epsilon</tag></tags>
+    <description>A &amp; fine product &lt;33&gt;</description>
+  </product>
+  <product id="34" sku="SKU-0034">
+    <name lang="en">Product 34</name>
+    <price currency="USD">92.76</price>
+    <!-- comment for product 34 -->
+    <tags><tag>zeta</tag><tag>gamma</tag></tags>
+    <description>A &amp; fine product &lt;34&gt;</description>
+  </product>
+  <product id="35" sku="SKU-0035">
+    <name lang="en">Product 35</name>
+    <price currency="USD">79.24</price>
+    <!-- comment for product 35 -->
+    <tags><tag>alpha</tag><tag>gamma</tag></tags>
+    <description>A &amp; fine product &lt;35&gt;</description>
+  </product>
+  <product id="36" sku="SKU-0036">
+    <name lang="en">Product 36</name>
+    <price currency="USD">54.69</price>
+    <!-- comment for product 36 -->
+    <tags><tag>beta</tag><tag>alpha</tag></tags>
+    <description>A &amp; fine product &lt;36&gt;</description>
+  </product>
+  <product id="37" sku="SKU-0037">
+    <name lang="en">Product 37</name>
+    <price currency="USD">33.32</price>
+    <!-- comment for product 37 -->
+    <tags><tag>alpha</tag><tag>epsilon</tag></tags>
+    <description>A &amp; fine product &lt;37&gt;</description>
+  </product>
+  <product id="38" sku="SKU-0038">
+    <name lang="en">Product 38</name>
+    <price currency="USD">87.87</price>
+    <!-- comment for product 38 -->
+    <tags><tag>beta</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;38&gt;</description>
+  </product>
+  <product id="39" sku="SKU-0039">
+    <name lang="en">Product 39</name>
+    <price currency="USD">3.77</price>
+    <!-- comment for product 39 -->
+    <tags><tag>alpha</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;39&gt;</description>
+  </product>
+  <product id="40" sku="SKU-0040">
+    <name lang="en">Product 40</name>
+    <price currency="USD">83.12</price>
+    <!-- comment for product 40 -->
+    <tags><tag>zeta</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;40&gt;</description>
+  </product>
+  <product id="41" sku="SKU-0041">
+    <name lang="en">Product 41</name>
+    <price currency="USD">16.30</price>
+    <!-- comment for product 41 -->
+    <tags><tag>gamma</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;41&gt;</description>
+  </product>
+  <product id="42" sku="SKU-0042">
+    <name lang="en">Product 42</name>
+    <price currency="USD">36.36</price>
+    <!-- comment for product 42 -->
+    <tags><tag>alpha</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;42&gt;</description>
+  </product>
+  <product id="43" sku="SKU-0043">
+    <name lang="en">Product 43</name>
+    <price currency="USD">79.00</price>
+    <!-- comment for product 43 -->
+    <tags><tag>eta</tag><tag>alpha</tag></tags>
+    <description>A &amp; fine product &lt;43&gt;</description>
+  </product>
+  <product id="44" sku="SKU-0044">
+    <name lang="en">Product 44</name>
+    <price currency="USD">6.72</price>
+    <!-- comment for product 44 -->
+    <tags><tag>gamma</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;44&gt;</description>
+  </product>
+  <product id="45" sku="SKU-0045">
+    <name lang="en">Product 45</name>
+    <price currency="USD">74.62</price>
+    <!-- comment for product 45 -->
+    <tags><tag>theta</tag><tag>gamma</tag></tags>
+    <description>A &amp; fine product &lt;45&gt;</description>
+  </product>
+  <product id="46" sku="SKU-0046">
+    <name lang="en">Product 46</name>
+    <price currency="USD">93.22</price>
+    <!-- comment for product 46 -->
+    <tags><tag>zeta</tag><tag>delta</tag></tags>
+    <description>A &amp; fine product &lt;46&gt;</description>
+  </product>
+  <product id="47" sku="SKU-0047">
+    <name lang="en">Product 47</name>
+    <price currency="USD">24.93</price>
+    <!-- comment for product 47 -->
+    <tags><tag>delta</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;47&gt;</description>
+  </product>
+  <product id="48" sku="SKU-0048">
+    <name lang="en">Product 48</name>
+    <price currency="USD">66.53</price>
+    <!-- comment for product 48 -->
+    <tags><tag>beta</tag><tag>alpha</tag></tags>
+    <description>A &amp; fine product &lt;48&gt;</description>
+  </product>
+  <product id="49" sku="SKU-0049">
+    <name lang="en">Product 49</name>
+    <price currency="USD">35.70</price>
+    <!-- comment for product 49 -->
+    <tags><tag>theta</tag><tag>zeta</tag></tags>
+    <description>A &amp; fine product &lt;49&gt;</description>
+  </product>
+  <product id="50" sku="SKU-0050">
+    <name lang="en">Product 50</name>
+    <price currency="USD">12.62</price>
+    <!-- comment for product 50 -->
+    <tags><tag>theta</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;50&gt;</description>
+  </product>
+  <product id="51" sku="SKU-0051">
+    <name lang="en">Product 51</name>
+    <price currency="USD">73.20</price>
+    <!-- comment for product 51 -->
+    <tags><tag>zeta</tag><tag>eta</tag></tags>
+    <description>A &amp; fine product &lt;51&gt;</description>
+  </product>
+  <product id="52" sku="SKU-0052">
+    <name lang="en">Product 52</name>
+    <price currency="USD">14.49</price>
+    <!-- comment for product 52 -->
+    <tags><tag>alpha</tag><tag>zeta</tag></tags>
+    <description>A &amp; fine product &lt;52&gt;</description>
+  </product>
+  <product id="53" sku="SKU-0053">
+    <name lang="en">Product 53</name>
+    <price currency="USD">31.23</price>
+    <!-- comment for product 53 -->
+    <tags><tag>theta</tag><tag>zeta</tag></tags>
+    <description>A &amp; fine product &lt;53&gt;</description>
+  </product>
+  <product id="54" sku="SKU-0054">
+    <name lang="en">Product 54</name>
+    <price currency="USD">20.62</price>
+    <!-- comment for product 54 -->
+    <tags><tag>gamma</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;54&gt;</description>
+  </product>
+  <product id="55" sku="SKU-0055">
+    <name lang="en">Product 55</name>
+    <price currency="USD">25.70</price>
+    <!-- comment for product 55 -->
+    <tags><tag>epsilon</tag><tag>beta</tag></tags>
+    <description>A &amp; fine product &lt;55&gt;</description>
+  </product>
+  <product id="56" sku="SKU-0056">
+    <name lang="en">Product 56</name>
+    <price currency="USD">32.84</price>
+    <!-- comment for product 56 -->
+    <tags><tag>zeta</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;56&gt;</description>
+  </product>
+  <product id="57" sku="SKU-0057">
+    <name lang="en">Product 57</name>
+    <price currency="USD">19.67</price>
+    <!-- comment for product 57 -->
+    <tags><tag>eta</tag><tag>epsilon</tag></tags>
+    <description>A &amp; fine product &lt;57&gt;</description>
+  </product>
+  <product id="58" sku="SKU-0058">
+    <name lang="en">Product 58</name>
+    <price currency="USD">87.93</price>
+    <!-- comment for product 58 -->
+    <tags><tag>beta</tag><tag>delta</tag></tags>
+    <description>A &amp; fine product &lt;58&gt;</description>
+  </product>
+  <product id="59" sku="SKU-0059">
+    <name lang="en">Product 59</name>
+    <price currency="USD">32.81</price>
+    <!-- comment for product 59 -->
+    <tags><tag>beta</tag><tag>theta</tag></tags>
+    <description>A &amp; fine product &lt;59&gt;</description>
+  </product>
+</catalog>
