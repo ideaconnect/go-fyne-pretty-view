@@ -33,6 +33,12 @@ type prettyViewRenderer struct {
 
 	selRects   []*canvas.Rectangle // pooled selection highlight rects
 	matchRects []*canvas.Rectangle // pooled search-match highlight rects
+
+	// reusable Objects backing slices, one per layer (Fyne holds Objects by
+	// reference, so these must not be shared between layers)
+	rowObjs   []fyne.CanvasObject
+	selObjs   []fyne.CanvasObject
+	matchObjs []fyne.CanvasObject
 }
 
 // CreateRenderer implements fyne.Widget. It builds the scroll + layered content
@@ -117,31 +123,49 @@ func (r *prettyViewRenderer) reflow() {
 	}
 
 	cw := pv.contentSize().Width
+	size := fyne.NewSize(cw, m.rowH)
 	for idx := first; idx <= last; idx++ {
-		rw := r.live[idx]
-		if rw == nil {
+		rw, existed := r.live[idx]
+		if !existed {
 			rw = r.rowPool.Get().(*rowWidget)
-			rw.Show()
 			r.live[idx] = rw
 		}
+		// Set the line and geometry WITHOUT refreshing, then trigger exactly one
+		// build per row. Show/Resize/Refresh each funnel into the renderer's
+		// build(), so we let only one of them fire: Show for a newly-shown row,
+		// Refresh for a reused one. Resize is skipped unless the size truly changed
+		// (all rows share one size, so this is normally a no-op).
+		rw.line = pv.doc.fold.lineAtRow(int32(idx))
 		rw.Move(fyne.NewPos(0, float32(idx)*m.rowH))
-		rw.Resize(fyne.NewSize(cw, m.rowH))
-		rw.setLine(pv.doc.fold.lineAtRow(int32(idx)))
+		if rw.Size() != size {
+			rw.Resize(size)
+		}
+		if existed {
+			rw.Refresh()
+		} else {
+			rw.Show()
+		}
 	}
 
+	// The loop above already (re)built and repainted each row exactly once. Use
+	// canvas.Refresh here (not rowLayer.Refresh, whose Container.Refresh would
+	// re-build every child a second time) to pick up the new Objects list.
 	r.rowLayer.Objects = r.liveObjects()
-	r.rowLayer.Refresh()
+	canvas.Refresh(r.rowLayer)
 
 	r.rebuildSelection(first, last)
 	r.rebuildMatches(first, last)
 }
 
+// liveObjects returns the live rows as a CanvasObject slice, reusing one backing
+// array across reflows. The slice is published as rowLayer.Objects, so it is not
+// shared with any other layer.
 func (r *prettyViewRenderer) liveObjects() []fyne.CanvasObject {
-	objs := make([]fyne.CanvasObject, 0, len(r.live))
+	r.rowObjs = r.rowObjs[:0]
 	for _, rw := range r.live {
-		objs = append(objs, rw)
+		r.rowObjs = append(r.rowObjs, rw)
 	}
-	return objs
+	return r.rowObjs
 }
 
 func (r *prettyViewRenderer) clearRows() {
@@ -153,11 +177,12 @@ func (r *prettyViewRenderer) clearRows() {
 	}
 }
 
-// scrollToOffset programmatically scrolls and reflows (ScrollToOffset does not
-// fire OnScrolled).
+// scrollToOffset programmatically scrolls and reflows. ScrollToOffset updates the
+// offset and scrollbar thumbs WITHOUT the scroll.Refresh()->Content.Refresh()
+// cascade (which would rebuild every layer redundantly with reflow), and does not
+// fire OnScrolled, so reflow is called explicitly.
 func (r *prettyViewRenderer) scrollToOffset(p fyne.Position) {
-	r.scroll.Offset = p
-	r.scroll.Refresh()
+	r.scroll.ScrollToOffset(p)
 	r.reflow()
 }
 

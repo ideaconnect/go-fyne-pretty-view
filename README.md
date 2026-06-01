@@ -75,18 +75,51 @@ pv := prettyview.New(
 )
 ```
 
+### Controls: use the built-ins, hook your own, or both
+
+The widget itself is just the viewer — it has **no built-in buttons**. The package
+*optionally* provides ready-made controls bound to a `PrettyView`; every control
+is individually opt-in, so a host app can use the provided ones as-is, disable
+them and drive the public API from its own widgets, or mix the two.
+
+```go
+pv := prettyview.New()
+
+// (a) Drop in the built-in control bar — pick exactly which controls appear.
+bar := prettyview.NewToolbar(pv, prettyview.ToolbarConfig{
+    ShowOpen:           true,   // "Open…" file dialog (needs Window or OnOpen)
+    ShowFormat:         true,   // format selector (re-parses current source)
+    ShowExpandCollapse: true,   // Expand all / Collapse all
+    ShowSearch:         true,   // find box + prev/next + match counter
+    Window:             w,      // enables the Open dialog and Ctrl/Cmd+F focus
+})
+w.SetContent(container.NewBorder(bar, nil, nil, nil, pv))
+```
+
+```go
+// (b) Or omit the toolbar and wire your own controls to the public API:
+myFind.OnChanged   = func(s string) { pv.Search(prettyview.SearchQuery{Text: s}) }
+myExpandButton.OnTapped = pv.ExpandAll
+```
+
+À-la-carte constructors let you place individual built-ins anywhere:
+`prettyview.NewSearchBar(pv)`, `prettyview.NewFormatSelect(pv)`,
+`prettyview.NewFoldButtons(pv)`. To keep host controls in sync, register
+`pv.SetOnSearchChanged(fn)` (match counter) and `pv.SetOnDataChanged(fn)` (format).
+
 ### Key methods
 
 | Method | Purpose |
 |---|---|
 | `SetData(src, format)` / `SetText(s)` | load content |
+| `Reparse(format)` / `Source()` | re-parse the current bytes under another format / read them back |
 | `ExpandAll()` / `CollapseAll()` | fold control |
 | `ExpandTo(byteOffset)` | reveal & scroll to a node |
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
 | `CopySelection()` / `CopySubtree(byteOffset)` | clipboard |
 | `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `SearchStatus()` | search |
 | `SetSyntaxColors(variant, SyntaxColors{...})` | theming |
-| `SetOnSearchRequested(fn)` | host hook for `Ctrl/Cmd+F` |
+| `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
 
 ## Demo
 
@@ -95,8 +128,9 @@ go run ./cmd/prettyview-demo               # loads testdata/openapi.json
 go run ./cmd/prettyview-demo path/to/file  # or any file
 ```
 
-The demo provides a file picker, a format selector, expand/collapse buttons, and
-a search box with a match counter.
+The demo shows both control styles at once: the built-in `NewToolbar` (Open,
+format, expand/collapse, search) used as-is, plus an app-supplied fixture
+dropdown that drives the public API directly.
 
 ## Design
 

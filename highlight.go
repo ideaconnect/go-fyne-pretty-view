@@ -16,12 +16,12 @@ import (
 func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 	pv := r.pv
 	if pv.doc == nil {
-		r.applyRects(r.selLayer, &r.selRects, 0)
+		r.applyRects(r.selLayer, &r.selRects, &r.selObjs, 0)
 		return
 	}
 	a, b, ok := pv.ordered()
 	if !ok {
-		r.applyRects(r.selLayer, &r.selRects, 0)
+		r.applyRects(r.selLayer, &r.selRects, &r.selObjs, 0)
 		return
 	}
 	m := pv.met
@@ -64,7 +64,7 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 		rect.Show()
 		n++
 	}
-	r.applyRects(r.selLayer, &r.selRects, n)
+	r.applyRects(r.selLayer, &r.selRects, &r.selObjs, n)
 }
 
 // rebuildMatches draws search-match highlights for the rows in [first, last].
@@ -108,7 +108,7 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 			}
 		}
 	}
-	r.applyRects(r.matchLayer, &r.matchRects, n)
+	r.applyRects(r.matchLayer, &r.matchRects, &r.matchObjs, n)
 }
 
 // poolRect grows the slice on demand and returns the i-th rectangle.
@@ -119,16 +119,18 @@ func poolRect(pool *[]*canvas.Rectangle, i int) *canvas.Rectangle {
 	return (*pool)[i]
 }
 
-// applyRects hides surplus pooled rects and publishes the first n on a layer.
-func (r *prettyViewRenderer) applyRects(layer *fyne.Container, pool *[]*canvas.Rectangle, n int) {
+// applyRects hides surplus pooled rects and publishes the first n on a layer,
+// reusing the layer's backing Objects slice (objs) to avoid a per-call alloc.
+func (r *prettyViewRenderer) applyRects(layer *fyne.Container, pool *[]*canvas.Rectangle, objs *[]fyne.CanvasObject, n int) {
 	for i := n; i < len(*pool); i++ {
 		(*pool)[i].Hide()
 	}
-	objs := make([]fyne.CanvasObject, n)
+	buf := (*objs)[:0]
 	for i := 0; i < n; i++ {
-		objs[i] = (*pool)[i]
+		buf = append(buf, (*pool)[i])
 	}
-	layer.Objects = objs
+	*objs = buf
+	layer.Objects = buf
 	layer.Refresh()
 }
 

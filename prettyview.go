@@ -46,9 +46,12 @@ type PrettyView struct {
 
 	// search state
 	search            searchState
+	searchTimer       *time.Timer // debounce timer for keystroke-driven search
 	matchColor        color.Color
 	activeMatchColor  color.Color
 	onSearchRequested func() // invoked on Ctrl+F (e.g. to focus a search box)
+	onSearchChanged   func() // invoked after the match set / active match changes
+	onDataChanged     func() // invoked after SetData/Reparse swaps the document
 
 	// multi-click tracking for word/line selection
 	lastClickAt  time.Time
@@ -70,16 +73,41 @@ func New(opts ...Option) *PrettyView {
 // SetData parses src under format (FormatAuto detects) and refreshes the view.
 // Parsing is synchronous; the model it builds is compact (~5x the source) so this
 // is fast even for multi-megabyte input.
+//
+// The src slice is retained: the model holds zero-copy byte ranges into it, so
+// callers must not mutate src after this call (copy it first if it may change).
 func (pv *PrettyView) SetData(src []byte, format Format) {
 	if format == FormatAuto {
 		format = pv.cfg.format
 	}
 	pv.doc = parseDocument(src, format, pv.cfg.collapseDepth)
+	pv.ClearSearch()
 	pv.Refresh()
+	if pv.onDataChanged != nil {
+		pv.onDataChanged()
+	}
 }
 
 // SetText is shorthand for SetData([]byte(s), FormatAuto).
 func (pv *PrettyView) SetText(s string) { pv.SetData([]byte(s), FormatAuto) }
+
+// Reparse re-parses the current source under a different format (e.g. when a UI
+// lets the user override auto-detection). No-op if no document is loaded.
+func (pv *PrettyView) Reparse(format Format) {
+	if pv.doc == nil {
+		return
+	}
+	pv.SetData(pv.doc.Src, format)
+}
+
+// Source returns the bytes of the current document (the originally supplied
+// input), or nil.
+func (pv *PrettyView) Source() []byte {
+	if pv.doc == nil {
+		return nil
+	}
+	return pv.doc.Src
+}
 
 // Format reports the format actually used for the current document.
 func (pv *PrettyView) Format() Format {
@@ -88,6 +116,16 @@ func (pv *PrettyView) Format() Format {
 	}
 	return pv.doc.Format
 }
+
+// SetOnDataChanged registers a callback invoked whenever the document is
+// replaced (SetData/SetText/Reparse). Use it to keep host controls (such as a
+// format selector) in sync. Setting it replaces any previous callback.
+func (pv *PrettyView) SetOnDataChanged(fn func()) { pv.onDataChanged = fn }
+
+// SetOnSearchChanged registers a callback invoked whenever the search match set
+// or active match changes. Use it to keep a host match counter in sync. Setting
+// it replaces any previous callback.
+func (pv *PrettyView) SetOnSearchChanged(fn func()) { pv.onSearchChanged = fn }
 
 // NewWithData constructs a PrettyView and immediately parses src under format.
 func NewWithData(src []byte, format Format, opts ...Option) *PrettyView {

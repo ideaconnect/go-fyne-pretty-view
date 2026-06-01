@@ -41,11 +41,18 @@ func litSeg(role ColorRole, lit string) Seg {
 
 func newBuilder(src []byte, format Format, collapseDepth int) *Builder {
 	d := &Document{Src: src, Format: format}
+	// Pre-size the arenas from the source length so they don't repeatedly grow and
+	// copy during parsing (these divisors are calibrated not to under-allocate for
+	// pretty-printed JSON; Aux is left unsized because interning keeps it tiny).
+	n := len(src)
+	d.Nodes = make([]Node, 0, n/16+8)
+	d.Lines = make([]Line, 0, n/16+8)
+	d.Segs = make([]Segment, 0, n/5+16)
 	d.Nodes = append(d.Nodes, Node{
 		Parent: NoNode, Subtree: 1, ChildCount: 0,
 		HeadLine: -1, CloseLine: -1, Kind: KindRoot, Depth: 0,
 	})
-	b := &Builder{doc: d, litCache: map[string][2]uint32{}, collapseDepth: collapseDepth}
+	b := &Builder{doc: d, litCache: make(map[string][2]uint32, 64), collapseDepth: collapseDepth}
 	b.stack = append(b.stack, 0)
 	return b
 }

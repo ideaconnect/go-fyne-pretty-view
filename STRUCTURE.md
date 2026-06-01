@@ -28,9 +28,10 @@ parsed arenas. See [docs/DESIGN.md](docs/DESIGN.md) for the full rationale.
 ### Public surface
 | File | Responsibility |
 |---|---|
-| `prettyview.go` | The `PrettyView` widget: constructors, `SetData`/`SetText`, fold/selection/search public methods, struct fields. |
+| `prettyview.go` | The `PrettyView` widget: constructors, `SetData`/`SetText`/`Reparse`, fold/selection/search public methods, host-hook setters, struct fields. |
 | `options.go` | `config`, functional `Option`s (`WithFormat`, `WithWrap`, …), `SearchConfig`. |
 | `theme.go` | `SyntaxColors`, the default dark/light palettes, `buildPalette`, theme-color helpers. |
+| `controls.go` | **Optional** ready-made controls bound to a `PrettyView`: `NewToolbar` (+ `ToolbarConfig`), `NewSearchBar`, `NewFormatSelect`, `NewFoldButtons`, `ShowOpenDialog`. Nothing here is required to use the viewer. |
 
 ### Document model (the source of truth)
 | File | Responsibility |

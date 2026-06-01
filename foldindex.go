@@ -100,10 +100,18 @@ func newFoldIndex(d *Document) *foldIndex {
 	return fi
 }
 
-// buildFenwick rebuilds the Fenwick tree from vis in O(n).
+// buildFenwick rebuilds the Fenwick tree from vis in O(n). It reuses the existing
+// backing array when the size is unchanged (the common case for fold-state
+// rebuilds), avoiding a fresh allocation per rebuild.
 func (fi *foldIndex) buildFenwick() {
 	n := len(fi.vis)
-	fi.bit = newFenwick(n)
+	if len(fi.bit.tree) == n+1 {
+		for i := range fi.bit.tree {
+			fi.bit.tree[i] = 0
+		}
+	} else {
+		fi.bit = newFenwick(n)
+	}
 	for i := 0; i < n; i++ {
 		fi.bit.tree[i+1] += fi.vis[i]
 		j := (i + 1) + ((i + 1) & -(i + 1))
@@ -247,36 +255,38 @@ func (fi *foldIndex) expandAll(d *Document) {
 }
 
 // revealLine expands every collapsed ancestor that hides line, making it visible.
-// Returns true if anything changed.
+// Returns true if anything changed. It unfolds incrementally (O(touched lines)
+// per ancestor) rather than rebuilding the whole projection.
 func (fi *foldIndex) revealLine(d *Document, line int32) bool {
 	if line < 0 || fi.vis[line] == 1 {
 		return false
 	}
-	changed := false
-	for a := d.Lines[line].Owner; a != NoNode; a = d.Nodes[a].Parent {
-		if fi.collapsed.get(a) {
-			fi.collapsed.clear(a)
-			changed = true
-		}
-	}
-	if changed {
-		fi.rebuild(d)
-	}
-	return changed
+	return fi.unfoldAncestors(d, d.Lines[line].Owner)
 }
 
 // expandAncestors expands every collapsed ancestor of node so that node's head
 // line becomes visible. Returns true if anything changed.
 func (fi *foldIndex) expandAncestors(d *Document, node NodeID) bool {
-	changed := false
-	for a := d.Nodes[node].Parent; a != NoNode; a = d.Nodes[a].Parent {
+	return fi.unfoldAncestors(d, d.Nodes[node].Parent)
+}
+
+// unfoldAncestors unfolds every collapsed node on the chain from start up to the
+// root, OUTERMOST-FIRST. Order is load-bearing: unfold's precondition is that the
+// node is currently visible and it only restores lines whose nearest collapsed
+// ancestor is that node, so the outermost collapsed ancestor must be unfolded
+// before the ones nested inside it.
+func (fi *foldIndex) unfoldAncestors(d *Document, start NodeID) bool {
+	var collapsed []NodeID // innermost..outermost as we walk toward the root
+	for a := start; a != NoNode; a = d.Nodes[a].Parent {
 		if fi.collapsed.get(a) {
-			fi.collapsed.clear(a)
-			changed = true
+			collapsed = append(collapsed, a)
 		}
 	}
-	if changed {
-		fi.rebuild(d)
+	if len(collapsed) == 0 {
+		return false
 	}
-	return changed
+	for i := len(collapsed) - 1; i >= 0; i-- { // outermost first
+		fi.unfold(d, collapsed[i])
+	}
+	return true
 }

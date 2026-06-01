@@ -2,13 +2,29 @@ package prettyview
 
 import (
 	"image/color"
+	"sync/atomic"
+	"unicode/utf8"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
 )
 
+// runeByteOffset returns the byte index of the n-th rune in b (n <= rune count).
+func runeByteOffset(b []byte, n int) int {
+	i := 0
+	for c := 0; c < n && i < len(b); c++ {
+		_, sz := utf8.DecodeRune(b[i:])
+		i += sz
+	}
+	return i
+}
+
 const maxIndentGuides = 32
+
+// debugRowBuilds counts rowRenderer.build() invocations; used only by tests to
+// assert each visible row is built once per reflow.
+var debugRowBuilds int64
 
 // rowWidget renders exactly one display line. It is the only object that ever
 // holds document text, and only ~viewport-many of them exist at once (they are
@@ -27,12 +43,6 @@ func newRowWidget(pv *PrettyView) *rowWidget {
 	r := &rowWidget{pv: pv, line: -1}
 	r.ExtendBaseWidget(r)
 	return r
-}
-
-// setLine binds the row to a display line and repaints it.
-func (r *rowWidget) setLine(line int32) {
-	r.line = line
-	r.Refresh()
 }
 
 func (r *rowWidget) CreateRenderer() fyne.WidgetRenderer {
@@ -85,6 +95,7 @@ func (rr *rowRenderer) Refresh() {
 // culling text to the visible column window so no single canvas.Text is ever
 // wider than the viewport (invariant M-2).
 func (rr *rowRenderer) build() {
+	atomic.AddInt64(&debugRowBuilds, 1)
 	r := rr.row
 	pv := r.pv
 	rr.objects = rr.objects[:0]
@@ -121,9 +132,10 @@ func (rr *rowRenderer) build() {
 	col := 0
 	emitted := 0
 	for _, seg := range pv.doc.displaySegs(r.line) {
-		runes := []rune(string(pv.doc.segBytes(seg)))
+		sb := pv.doc.segBytes(seg)
 		segStart := col
-		segEnd := col + len(runes)
+		runeLen := utf8.RuneCount(sb)
+		segEnd := col + runeLen
 		col = segEnd
 		// Intersect [segStart,segEnd) with the visible column window.
 		a, b := segStart, segEnd
@@ -136,7 +148,17 @@ func (rr *rowRenderer) build() {
 		if a >= b {
 			continue
 		}
-		text := string(runes[a-segStart : b-segStart])
+		// Fast path: the whole segment is visible (the common, no-horizontal-scroll
+		// case) — emit it directly without a []rune round-trip. Only slice on the
+		// rune boundary when the segment straddles the column window.
+		var text string
+		if a == segStart && b == segEnd {
+			text = string(sb)
+		} else {
+			lo := runeByteOffset(sb, a-segStart)
+			hi := runeByteOffset(sb, b-segStart)
+			text = string(sb[lo:hi])
+		}
 		t := rr.text(ti)
 		ti++
 		t.Text = text
@@ -144,7 +166,10 @@ func (rr *rowRenderer) build() {
 		t.TextStyle = fyne.TextStyle{Monospace: true}
 		t.Color = pv.palette[seg.Role]
 		t.Move(fyne.NewPos(m.colX(depth, a), m.textY()))
-		t.Resize(t.MinSize())
+		// The view is a strict monospace grid with integral charWidth, so size the
+		// run directly instead of asking Fyne to measure (which hashes + shapes the
+		// whole string and churns the font cache under horizontal scroll).
+		t.Resize(fyne.NewSize(float32(b-a)*m.charWidth, m.rowH))
 		t.Show()
 		emitted += b - a
 		if emitted >= hardCap {
