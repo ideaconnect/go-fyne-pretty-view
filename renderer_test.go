@@ -33,9 +33,9 @@ func TestVirtualizationRowCount(t *testing.T) {
 
 	total := int(pv.doc.TotalVisibleRows())
 	live := len(pv.r.live)
-	bound := int(600/pv.met.rowH) + 4
+	bound := int(600/pv.met.RowH) + 4
 	t.Logf("total visible rows=%d, live row widgets=%d, viewport bound=%d, rowH=%.1f",
-		total, live, bound, pv.met.rowH)
+		total, live, bound, pv.met.RowH)
 
 	if total < 1000 {
 		t.Fatalf("big.json should have many rows, got %d", total)
@@ -56,13 +56,13 @@ func TestScrollRecyclesRows(t *testing.T) {
 	pv, win := renderInWindow(t, src, FormatJSON, 800, 600)
 	defer win.Close()
 
-	bound := int(600/pv.met.rowH) + 4
+	bound := int(600/pv.met.RowH) + 4
 
 	// Scroll through the whole document in viewport-sized steps; the live row
 	// count must stay bounded the entire time.
 	total := int(pv.doc.TotalVisibleRows())
 	maxLive := 0
-	for y := float32(0); y < float32(total)*pv.met.rowH; y += 500 {
+	for y := float32(0); y < float32(total)*pv.met.RowH; y += 500 {
 		pv.r.scrollToOffset(fyne.NewPos(0, y))
 		if n := len(pv.r.live); n > maxLive {
 			maxLive = n

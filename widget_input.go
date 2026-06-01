@@ -40,7 +40,7 @@ func (pv *PrettyView) foldNodeAt(contentX, contentY float32) model.NodeID {
 	if total == 0 {
 		return model.NoNode
 	}
-	row := pv.met.rowAtY(contentY)
+	row := pv.met.RowAtY(contentY)
 	if row < 0 || int32(row) >= total {
 		return model.NoNode
 	}
@@ -51,8 +51,8 @@ func (pv *PrettyView) foldNodeAt(contentX, contentY float32) model.NodeID {
 	}
 	// Hot-zone: the triangle gutter just left of the text, plus the text origin
 	// slack, so clicks slightly off the glyph still register.
-	x0 := pv.met.triangleX(line.Depth)
-	x1 := pv.met.textOriginX(line.Depth)
+	x0 := pv.met.TriangleX(line.Depth)
+	x1 := pv.met.TextOriginX(line.Depth)
 	if contentX >= x0-2 && contentX <= x1 {
 		return line.Fold
 	}

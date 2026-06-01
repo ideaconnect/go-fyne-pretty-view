@@ -1,0 +1,155 @@
+// Package geometry holds the integer-rounded layout math that maps between model
+// positions (line, rune column) and content-space pixels. It is a leaf: it
+// depends only on internal/model and the standard library, with no Fyne or view
+// state, so the coordinate convention lives in exactly one testable place.
+//
+// There is exactly one convention, used by the renderer, the hit-test, and the
+// selection/match rectangle builders alike:
+//
+//	RowY(row)        = row * RowH                       (top padding is zero)
+//	TextOriginX(d)   = leftPad + triangleSlot + d*step  (where a line's text begins)
+//	ColX(d, col)     = TextOriginX(d) + col*CharWidth   (a column's left edge)
+//
+// Fold triangles live in the gutter at [TextOriginX-triangleSlot, TextOriginX],
+// so text always aligns at TextOriginX regardless of whether a row is foldable.
+//
+// These are CONTENT-space coordinates. The enclosing container.Scroll translates
+// content by -Offset on both axes, so nothing here ever adds or subtracts the
+// scroll offset; callers convert a viewport pixel to content space once, by
+// adding Offset, before calling in.
+package geometry
+
+import (
+	"math"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+)
+
+// Metrics holds the measured, integer-rounded cell layout. CharWidth and RowH are
+// rounded to whole pixels (matching widget.TextGrid) so selection rectangles
+// align with glyphs on long lines and never drift sub-pixel.
+type Metrics struct {
+	CharWidth float32
+	RowH      float32
+	TextSize  float32 // font size the cell was measured at
+
+	textH        float32 // measured glyph height (for vertical centering)
+	leftPad      float32
+	triangleSlot float32
+	indentStep   float32
+	tabWidth     int
+}
+
+func roundf(x float32) float32 { return float32(math.Round(float64(x))) }
+
+// NewMetrics builds Metrics from a measured monospace cell (the advance width of
+// one glyph and the glyph height), the indent step, and the tab width.
+func NewMetrics(charWidth, glyphH, indentStep float32, tabWidth int) Metrics {
+	cw := roundf(charWidth)
+	if cw < 1 {
+		cw = 1
+	}
+	rh := roundf(glyphH)
+	if rh < 1 {
+		rh = 1
+	}
+	step := roundf(indentStep)
+	if step < 1 {
+		step = 1
+	}
+	if tabWidth < 1 {
+		tabWidth = 4
+	}
+	return Metrics{
+		CharWidth:    cw,
+		RowH:         rh + 4, // a little vertical breathing room
+		textH:        rh,
+		leftPad:      6,
+		triangleSlot: roundf(cw * 1.4),
+		indentStep:   step,
+		tabWidth:     tabWidth,
+	}
+}
+
+// TextY centers a line of text vertically within a row.
+func (m Metrics) TextY() float32 { return roundf((m.RowH - m.textH) / 2) }
+
+// TextOriginX is the content-space x where a line's text begins at the given depth.
+func (m Metrics) TextOriginX(depth uint8) float32 {
+	return m.leftPad + m.triangleSlot + float32(depth)*m.indentStep
+}
+
+// TriangleX is the left edge of the fold-triangle gutter for a depth.
+func (m Metrics) TriangleX(depth uint8) float32 {
+	return m.TextOriginX(depth) - m.triangleSlot
+}
+
+// ColX is the content-space left edge of a column on a line of given depth.
+func (m Metrics) ColX(depth uint8, col int) float32 {
+	return m.TextOriginX(depth) + float32(col)*m.CharWidth
+}
+
+// ColAtX maps a content-space x to a rune column using half-glyph rounding.
+func (m Metrics) ColAtX(depth uint8, x float32) int {
+	rel := x - m.TextOriginX(depth)
+	if rel <= 0 {
+		return 0
+	}
+	return int(math.Round(float64(rel / m.CharWidth)))
+}
+
+func (m Metrics) RowY(row int) float32 { return float32(row) * m.RowH }
+func (m Metrics) RowAtY(y float32) int { return int(math.Floor(float64(y / m.RowH))) }
+
+// FirstVisibleCol / LastVisibleCol bound the columns intersecting a horizontal
+// window [x0, x1) (viewport in content space) for a line of given depth. Used by
+// the renderer to cull text to the visible column range.
+func (m Metrics) FirstVisibleCol(depth uint8, x0 float32) int {
+	rel := x0 - m.TextOriginX(depth)
+	if rel <= 0 {
+		return 0
+	}
+	return int(math.Floor(float64(rel / m.CharWidth)))
+}
+
+func (m Metrics) LastVisibleCol(depth uint8, x1 float32) int {
+	rel := x1 - m.TextOriginX(depth)
+	if rel <= 0 {
+		return 0
+	}
+	return int(math.Ceil(float64(rel / m.CharWidth)))
+}
+
+// HitTest maps a content-space pixel to a model position (display line + rune
+// column). Out-of-range rows clamp to the document's start/end. A returned line
+// of -1 means the document is empty.
+func HitTest(d *model.Document, m Metrics, contentX, contentY float32) (line int32, col int) {
+	total := d.TotalVisibleRows()
+	if total == 0 {
+		return -1, 0
+	}
+	row := m.RowAtY(contentY)
+	if row < 0 {
+		row = 0
+	}
+	if int32(row) >= total {
+		li := d.LineAtRow(total - 1)
+		return li, d.LineRuneLen(li)
+	}
+	li := d.LineAtRow(int32(row))
+	col = m.ColAtX(d.Lines[li].Depth, contentX)
+	if n := d.LineRuneLen(li); col > n {
+		col = n
+	}
+	if col < 0 {
+		col = 0
+	}
+	return li, col
+}
+
+// CellOrigin returns the content-space top-left pixel of (line, col): the inverse
+// of HitTest at a column's left edge.
+func CellOrigin(d *model.Document, m Metrics, line int32, col int) (x, y float32) {
+	row := d.RowOfLine(line)
+	return m.ColX(d.Lines[line].Depth, col), m.RowY(int(row))
+}

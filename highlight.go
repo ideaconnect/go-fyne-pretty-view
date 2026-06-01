@@ -41,26 +41,26 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 		if row == rb {
 			e = clampInt(b.col, 0, runeLen)
 		}
-		x1 := m.colX(depth, s)
+		x1 := m.ColX(depth, s)
 		var x2 float32
 		if row < rb {
 			// Rows fully inside the selection bleed a little past the line end to
 			// signal that the trailing newline is included (Bruno behavior).
-			x2 = m.colX(depth, runeLen) + m.charWidth*0.6
+			x2 = m.ColX(depth, runeLen) + m.CharWidth*0.6
 		} else {
-			x2 = m.colX(depth, e)
+			x2 = m.ColX(depth, e)
 		}
 		if x2 <= x1 {
 			if row < rb {
-				x2 = x1 + m.charWidth*0.6
+				x2 = x1 + m.CharWidth*0.6
 			} else {
 				continue
 			}
 		}
 		rect := poolRect(&r.selRects, n)
 		rect.FillColor = pv.selColor
-		rect.Move(fyne.NewPos(x1, m.rowY(row)))
-		rect.Resize(fyne.NewSize(x2-x1, m.rowH))
+		rect.Move(fyne.NewPos(x1, m.RowY(row)))
+		rect.Resize(fyne.NewSize(x2-x1, m.RowH))
 		rect.Show()
 		n++
 	}
@@ -101,8 +101,8 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 				} else {
 					rect.FillColor = pv.matchColor
 				}
-				rect.Move(fyne.NewPos(m.colX(depth, s), m.rowY(row)))
-				rect.Resize(fyne.NewSize(m.colX(depth, e)-m.colX(depth, s), m.rowH))
+				rect.Move(fyne.NewPos(m.ColX(depth, s), m.RowY(row)))
+				rect.Resize(fyne.NewSize(m.ColX(depth, e)-m.ColX(depth, s), m.RowH))
 				rect.Show()
 				n++
 			}

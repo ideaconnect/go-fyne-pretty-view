@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
 
 	"fyne.io/fyne/v2"
@@ -121,7 +122,7 @@ func TestSelectionRectCountBounded(t *testing.T) {
 	pv.SelectAll()
 	pv.r.reflow() // selection spans the whole 440k-row doc
 	rects := len(pv.r.selLayer.Objects)
-	bound := int(600/pv.met.rowH) + 4
+	bound := int(600/pv.met.RowH) + 4
 	t.Logf("selection rects for select-all of 7.5MB doc = %d (bound %d)", rects, bound)
 	if rects > bound {
 		t.Errorf("selection rect count %d exceeds visible bound %d", rects, bound)
@@ -135,8 +136,8 @@ func TestDragSelectionIntegration(t *testing.T) {
 	// Press near the start of row 1's content, drag to row 2's end.
 	li1 := pv.doc.LineAtRow(1)
 	li2 := pv.doc.LineAtRow(2)
-	x1, y1 := cellOrigin(pv.doc, pv.met, li1, 0)
-	x2, y2 := cellOrigin(pv.doc, pv.met, li2, pv.doc.LineRuneLen(li2))
+	x1, y1 := geometry.CellOrigin(pv.doc, pv.met, li1, 0)
+	x2, y2 := geometry.CellOrigin(pv.doc, pv.met, li2, pv.doc.LineRuneLen(li2))
 
 	pv.MouseDown(desktopMouse(x1, y1+1))
 	pv.Dragged(&fyne.DragEvent{PointEvent: fyne.PointEvent{Position: fyne.NewPos(x2, y2+1)}})

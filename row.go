@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
@@ -81,7 +82,7 @@ type rowRenderer struct {
 func (rr *rowRenderer) Destroy()                     {}
 func (rr *rowRenderer) Objects() []fyne.CanvasObject { return rr.objects }
 func (rr *rowRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(0, rr.row.pv.met.rowH)
+	return fyne.NewSize(0, rr.row.pv.met.RowH)
 }
 
 // Layout is a no-op: children are positioned absolutely in content space by build.
@@ -122,8 +123,8 @@ func (rr *rowRenderer) build() {
 	}
 
 	// Colored, horizontally-culled text runs.
-	firstCol := m.firstVisibleCol(depth, pv.viewOffX)
-	lastCol := m.lastVisibleCol(depth, pv.viewOffX+pv.viewW)
+	firstCol := m.FirstVisibleCol(depth, pv.viewOffX)
+	lastCol := m.LastVisibleCol(depth, pv.viewOffX+pv.viewW)
 	if lastCol <= firstCol {
 		lastCol = firstCol + 1
 	}
@@ -163,14 +164,14 @@ func (rr *rowRenderer) build() {
 		t := rr.text(ti)
 		ti++
 		t.Text = text
-		t.TextSize = m.textSize
+		t.TextSize = m.TextSize
 		t.TextStyle = fyne.TextStyle{Monospace: true}
 		t.Color = pv.palette[seg.Role]
-		t.Move(fyne.NewPos(m.colX(depth, a), m.textY()))
+		t.Move(fyne.NewPos(m.ColX(depth, a), m.TextY()))
 		// The view is a strict monospace grid with integral charWidth, so size the
 		// run directly instead of asking Fyne to measure (which hashes + shapes the
 		// whole string and churns the font cache under horizontal scroll).
-		t.Resize(fyne.NewSize(float32(b-a)*m.charWidth, m.rowH))
+		t.Resize(fyne.NewSize(float32(b-a)*m.CharWidth, m.RowH))
 		t.Show()
 		emitted += b - a
 		if emitted >= hardCap {
@@ -193,24 +194,24 @@ func (rr *rowRenderer) build() {
 	}
 }
 
-func (rr *rowRenderer) layoutGuides(depth uint8, m metrics, c color.Color) {
+func (rr *rowRenderer) layoutGuides(depth uint8, m geometry.Metrics, c color.Color) {
 	n := int(depth)
 	if n > maxIndentGuides {
 		n = maxIndentGuides
 	}
 	for i := 0; i < n; i++ {
 		g := rr.guide(i)
-		x := m.textOriginX(uint8(i)) - m.triangleSlot + 1
+		x := m.TriangleX(uint8(i)) + 1 // left edge of this level's gutter
 		g.StrokeColor = c
 		g.StrokeWidth = 1
 		g.Position1 = fyne.NewPos(x, 0)
-		g.Position2 = fyne.NewPos(x, m.rowH)
+		g.Position2 = fyne.NewPos(x, m.RowH)
 		g.Show()
 	}
 	rr.hideGuides(n)
 }
 
-func (rr *rowRenderer) layoutTriangle(depth uint8, m metrics, collapsed bool, c color.Color) {
+func (rr *rowRenderer) layoutTriangle(depth uint8, m geometry.Metrics, collapsed bool, c color.Color) {
 	if rr.triangle == nil {
 		rr.triangle = canvas.NewText("", c)
 	}
@@ -219,9 +220,9 @@ func (rr *rowRenderer) layoutTriangle(depth uint8, m metrics, collapsed bool, c 
 	} else {
 		rr.triangle.Text = "▼"
 	}
-	rr.triangle.TextSize = m.textSize * 0.8
+	rr.triangle.TextSize = m.TextSize * 0.8
 	rr.triangle.Color = c
-	rr.triangle.Move(fyne.NewPos(m.triangleX(depth), m.textY()))
+	rr.triangle.Move(fyne.NewPos(m.TriangleX(depth), m.TextY()))
 	rr.triangle.Resize(rr.triangle.MinSize())
 	rr.triangle.Show()
 }

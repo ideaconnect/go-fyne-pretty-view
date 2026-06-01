@@ -25,13 +25,24 @@ func defaultSearchConfig() SearchConfig {
 
 // config holds all construction-time settings. It is populated by Options.
 type config struct {
-	format          Format
-	wrap            WrapMode
-	search          SearchConfig
-	collapseDepth   int // auto-collapse containers deeper than this on load (0 = never)
-	tabWidth        int
-	indentStep      float32
-	syntaxOverrides map[fyne.ThemeVariant]SyntaxColors
+	format        Format
+	wrap          WrapMode
+	search        SearchConfig
+	collapseDepth int // auto-collapse containers deeper than this on load (0 = never)
+	tabWidth      int
+	indentStep    float32
+	themeOverride map[fyne.ThemeVariant]Theme
+}
+
+// setThemeOverride merges t's non-nil fields into the per-variant override, so
+// WithTheme / WithSyntaxColors / SetTheme compose rather than clobber.
+func (c *config) setThemeOverride(variant fyne.ThemeVariant, t Theme) {
+	if c.themeOverride == nil {
+		c.themeOverride = map[fyne.ThemeVariant]Theme{}
+	}
+	cur := c.themeOverride[variant]
+	t.mergeInto(&cur)
+	c.themeOverride[variant] = cur
 }
 
 func defaultConfig() config {
@@ -78,12 +89,15 @@ func WithIndentStep(px float32) Option {
 	}
 }
 
-// WithSyntaxColors overrides the syntax palette for a theme variant.
+// WithTheme overrides any of the viewer's colors for a theme variant. Nil fields
+// keep their (Fyne-theme-tracking) defaults; calls compose. Pass the variant your
+// app uses (theme.VariantDark / theme.VariantLight), or set both.
+func WithTheme(v fyne.ThemeVariant, t Theme) Option {
+	return func(c *config) { c.setThemeOverride(v, t) }
+}
+
+// WithSyntaxColors overrides just the syntax token colors for a theme variant
+// (shorthand for WithTheme with only the token fields set).
 func WithSyntaxColors(v fyne.ThemeVariant, s SyntaxColors) Option {
-	return func(c *config) {
-		if c.syntaxOverrides == nil {
-			c.syntaxOverrides = map[fyne.ThemeVariant]SyntaxColors{}
-		}
-		c.syntaxOverrides[v] = s
-	}
+	return func(c *config) { c.setThemeOverride(v, s.asTheme()) }
 }

@@ -1,28 +1,35 @@
 # Codebase structure
 
 A map of `go-fyne-pretty-view` for anyone (human or agent) navigating the code.
-The project is split into three packages by layer: the document **model** and the
-**parsers** live under `internal/`, and the **view** (the importable widget +
-public API) is the repo-root `prettyview` package. A demo binary lives under
-`cmd/`.
+The project is split into packages by layer. Three small leaf/logic packages live
+under `internal/` (`model`, `parse`, `geometry`); the **view** (the importable
+widget + public API) is the repo-root `prettyview` package. A demo binary lives
+under `cmd/`.
 
 ## Layering
 
 ```
   prettyview/  (repo root, package prettyview) ── the view + public API
-      │  imports
-      ├──────────────► internal/parse  (package parse) ── bytes → *model.Document
-      │                       │ imports
-      └──────────────► internal/model  (package model) ── the document model
-                              ▲ imports
-                       internal/parse ─┘
+      │ imports
+      ├──► internal/parse     (package parse)    ── bytes → *model.Document
+      ├──► internal/geometry  (package geometry) ── Metrics, HitTest, CellOrigin
+      └──► internal/model     (package model)    ── the document model
+                  ▲ ▲
+   parse ─────────┘ │   geometry ────────────────┘   (both depend on model only)
 ```
 
-Dependency direction is strictly one-way: **model ← parse ← view.** `model` knows
-nothing about parsing or Fyne; `parse` drives `model.Builder` and knows nothing
-about the view; the view reads the model and renders it. Input (mouse/keyboard)
-mutates only fold state and selection/search state, never the parsed arenas. See
-[docs/DESIGN.md](docs/DESIGN.md) for the full rationale.
+Dependency direction is strictly one-way: **`model` is the base**; `parse` and
+`geometry` each depend only on `model`; the view depends on all three. `model`
+knows nothing about parsing, geometry, or Fyne; `parse` drives `model.Builder`;
+`geometry` is pure coordinate math; the view reads the model and renders it. Input
+(mouse/keyboard) mutates only fold state and selection/search state, never the
+parsed arenas. See [docs/DESIGN.md](docs/DESIGN.md) for the full rationale.
+
+The view is intentionally a **single** package: its renderer, rows, selection,
+search, highlight, and input handlers are mutually recursive around the
+`PrettyView` struct, so splitting them into sub-packages would create import
+cycles and force exporting internals. Only genuine leaves (`model`, `parse`,
+`geometry`) are separate packages.
 
 The model is exposed to the view through a deliberately small public surface
 (`internal/model/api.go`): the fold index itself stays unexported, and the view
@@ -48,6 +55,11 @@ drives folding/projection through delegating `Document` methods
 | `parse_html.go` | HTML via the tolerant `golang.org/x/net/html` tokenizer. |
 | `parse_raw.go` | Line-splitting fallback for plain text / malformed input. |
 
+## `internal/geometry` — the coordinate math (a leaf)
+| File | Responsibility |
+|---|---|
+| `geometry.go` | `Metrics` (the **one coordinate convention**: `ColX`/`RowY`/`TextOriginX`/…), `NewMetrics`, and `HitTest`/`CellOrigin` over `*model.Document`. Pure math; no Fyne, no view state — a single testable place for pixel↔model mapping. |
+
 ## Root `prettyview` — the view + public API
 | File | Responsibility |
 |---|---|
@@ -58,9 +70,8 @@ drives folding/projection through delegating `Document` methods
 | `controls.go` | **Optional** ready-made controls: `NewToolbar` (+ `ToolbarConfig`), `NewSearchBar`, `NewFormatSelect`, `NewFoldButtons`, `ShowOpenDialog`. |
 | `renderer.go` | `prettyViewRenderer`: manual `container.Scroll` virtualization, `reflow`, `contentLayout`, `contentSize`, metric/palette recompute. |
 | `row.go` | `rowWidget` + `rowRenderer`: per-row colored text (horizontally culled), indent guides, fold triangle. |
-| `geometry.go` | `metrics` and the **one coordinate convention**; `hitTest`/`cellOrigin` (free functions over `*model.Document`); `modelPos`. |
 | `widget_input.go` | Input-interface assertions, `Tapped` (fold toggle), `Cursor`, coordinate conversion. |
-| `selection.go` | Char-level selection state + mouse/drag/focus/shortcut handlers, copy, select-all. |
+| `selection.go` | `modelPos` + the `hitTest` wrapper over `geometry`; char-level selection state + mouse/drag/focus/shortcut handlers, copy, select-all. |
 | `selection_words.go` | Word / line bounds for double- and triple-click. |
 | `search.go` | `SearchQuery`/`Match`, the (byte-scan, debounced) scan, reveal-into-folds, navigation, status. |
 | `highlight.go` | Pooled selection and search-match rectangles (visible-window only). |
@@ -78,12 +89,14 @@ drives folding/projection through delegating `Document` methods
 - `internal/parse/`: `parse_test` (format detection, raw fallback), `model_test`
   (parser → node/segment/summary output, zero-copy), `foldindex_test` (projection
   round-trip, fold/unfold, expand/collapse-all) — all via the exported model API.
-- root `prettyview`: `geometry_test` (golden hit-test round-trip), `selection_test`,
-  `search_test`, `renderer_test` (virtualization bound), `memory_test` (heap
-  ceiling + long-line culling), `perf_test` (single-build-per-reflow, incremental
-  reveal), `fold_tap_test`, `controls_test`, `theme_test`, `bench_test`,
-  `screenshot_test` (software-rendered PNGs, gated by `PV_SHOTS=1`), and
-  `testhelpers_test` (shared helpers built on the exported model API).
+- `internal/geometry/`: `geometry_test` (metric round-trips + the **golden
+  hit-test** round-trip — the single most important correctness guard).
+- root `prettyview`: `selection_test`, `search_test`, `renderer_test`
+  (virtualization bound), `memory_test` (heap ceiling + long-line culling),
+  `perf_test` (single-build-per-reflow, incremental reveal), `fold_tap_test`,
+  `controls_test`, `theme_test`, `bench_test`, `screenshot_test`
+  (software-rendered PNGs, gated by `PV_SHOTS=1`), and `testhelpers_test`
+  (shared helpers built on the exported model API).
 
 ## Mental model in one paragraph
 

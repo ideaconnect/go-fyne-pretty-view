@@ -77,7 +77,7 @@ The code is three packages (`internal/model` ← `internal/parse` ← root
 3. Emit it from the relevant parser via `model.LitSeg`/`model.SrcSeg`.
 
 ### Touch the rendering / hit-testing math
-All pixel↔model mapping lives in `geometry.go` and obeys **one** coordinate
+All pixel↔model mapping lives in `internal/geometry` and obeys **one** coordinate
 convention (documented at the top of that file). If you change it, run the
 golden round-trip test (`TestHitTestGoldenRoundTrip`) — it catches origin and
 offset mistakes that otherwise show up as off-by-one selection drift.

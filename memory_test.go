@@ -51,7 +51,7 @@ func TestLongLineTextureCulled(t *testing.T) {
 	defer win.Close()
 
 	// Scroll horizontally into the middle of the long line.
-	pv.r.scrollToOffset(fyne.NewPos(50000, pv.met.rowH)) // row 1 is the long value
+	pv.r.scrollToOffset(fyne.NewPos(50000, pv.met.RowH)) // row 1 is the long value
 
 	viewport := pv.r.scroll.Size().Width
 	var worst float32
@@ -77,8 +77,8 @@ func TestHeapCeilingScrollingBigJSON(t *testing.T) {
 	defer win.Close()
 
 	total := int(pv.doc.TotalVisibleRows())
-	step := pv.met.rowH * 200
-	for y := float32(0); y < float32(total)*pv.met.rowH; y += step {
+	step := pv.met.RowH * 200
+	for y := float32(0); y < float32(total)*pv.met.RowH; y += step {
 		pv.r.scrollToOffset(fyne.NewPos(0, y))
 	}
 

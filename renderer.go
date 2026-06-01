@@ -1,7 +1,6 @@
 package prettyview
 
 import (
-	"image/color"
 	"math"
 	"sync"
 
@@ -9,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
 )
 
 // prettyViewRenderer implements the manual visible-window virtualization. It owns
@@ -85,7 +85,7 @@ func (r *prettyViewRenderer) Refresh() {
 // fixed-height fast path.
 func (r *prettyViewRenderer) reflow() {
 	pv := r.pv
-	if pv.doc == nil || pv.met.rowH <= 0 {
+	if pv.doc == nil || pv.met.RowH <= 0 {
 		return
 	}
 	pv.viewOffX = r.scroll.Offset.X
@@ -102,11 +102,11 @@ func (r *prettyViewRenderer) reflow() {
 	}
 
 	offY := r.scroll.Offset.Y
-	first := int(math.Floor(float64(offY / m.rowH)))
+	first := int(math.Floor(float64(offY / m.RowH)))
 	if first < 0 {
 		first = 0
 	}
-	last := int(math.Ceil(float64((offY + vpH) / m.rowH)))
+	last := int(math.Ceil(float64((offY + vpH) / m.RowH)))
 	if last >= total {
 		last = total - 1
 	}
@@ -123,7 +123,7 @@ func (r *prettyViewRenderer) reflow() {
 	}
 
 	cw := pv.contentSize().Width
-	size := fyne.NewSize(cw, m.rowH)
+	size := fyne.NewSize(cw, m.RowH)
 	for idx := first; idx <= last; idx++ {
 		rw, existed := r.live[idx]
 		if !existed {
@@ -136,7 +136,7 @@ func (r *prettyViewRenderer) reflow() {
 		// Refresh for a reused one. Resize is skipped unless the size truly changed
 		// (all rows share one size, so this is normally a no-op).
 		rw.line = pv.doc.LineAtRow(int32(idx))
-		rw.Move(fyne.NewPos(0, float32(idx)*m.rowH))
+		rw.Move(fyne.NewPos(0, float32(idx)*m.RowH))
 		if rw.Size() != size {
 			rw.Resize(size)
 		}
@@ -220,47 +220,31 @@ func (cl *contentLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
 // contentSize is the full scrollable extent for the current document and fold
 // state. Width is an upper bound (widest line's runes at the deepest indent).
 func (pv *PrettyView) contentSize() fyne.Size {
-	if pv.doc == nil || pv.met.rowH <= 0 {
+	if pv.doc == nil || pv.met.RowH <= 0 {
 		return fyne.NewSize(0, 0)
 	}
 	rows := pv.doc.TotalVisibleRows()
-	h := float32(rows) * pv.met.rowH
-	w := pv.met.textOriginX(pv.doc.MaxDepth) + float32(pv.doc.MaxLineRunes)*pv.met.charWidth + pv.met.charWidth*2
+	h := float32(rows) * pv.met.RowH
+	w := pv.met.TextOriginX(pv.doc.MaxDepth) + float32(pv.doc.MaxLineRunes)*pv.met.CharWidth + pv.met.CharWidth*2
 	return fyne.NewSize(w, h)
 }
 
-// recomputeMetrics measures the monospace cell, builds the metrics, and rebuilds
-// the syntax palette for the active theme variant.
+// recomputeMetrics measures the monospace cell, builds the metrics, and resolves
+// the effective theme (palette + selection/match/guide colors) for the active
+// variant, applying any per-variant override.
 func (pv *PrettyView) recomputeMetrics() {
 	ts := float32(theme.TextSize())
 	style := fyne.TextStyle{Monospace: true}
 	sz := fyne.MeasureText("MMMMMMMMMM", ts, style)
 	cw := sz.Width / 10
-	pv.met = newMetrics(pv.cfg, cw, sz.Height)
-	pv.met.textSize = ts
+	pv.met = geometry.NewMetrics(cw, sz.Height, pv.cfg.indentStep, pv.cfg.tabWidth)
+	pv.met.TextSize = ts
 
 	variant := fyne.CurrentApp().Settings().ThemeVariant()
-	var override *SyntaxColors
-	if pv.cfg.syntaxOverrides != nil {
-		if c, ok := pv.cfg.syntaxOverrides[variant]; ok {
-			override = &c
-		}
-	}
-	pv.palette = buildPalette(variant, override)
-	pv.guideColor = guideColorFor(variant)
-	pv.selColor = selectionColorFor(variant)
-	pv.matchColor = color.NRGBA{0xff, 0xd5, 0x4f, 0x55}       // soft yellow
-	pv.activeMatchColor = color.NRGBA{0xff, 0x8c, 0x1a, 0xaa} // strong orange
-}
-
-func selectionColorFor(variant fyne.ThemeVariant) color.Color {
-	c := themeColor(theme.ColorNameSelection, variant)
-	rr, gg, bb, _ := c.RGBA()
-	return color.NRGBA{uint8(rr >> 8), uint8(gg >> 8), uint8(bb >> 8), 0x66}
-}
-
-func guideColorFor(variant fyne.ThemeVariant) color.Color {
-	fg := themeColor(theme.ColorNameForeground, variant)
-	rr, gg, bb, _ := fg.RGBA()
-	return color.NRGBA{uint8(rr >> 8), uint8(gg >> 8), uint8(bb >> 8), 0x22}
+	t := pv.resolveTheme(variant)
+	pv.palette = t.palette()
+	pv.guideColor = t.IndentGuide
+	pv.selColor = t.Selection
+	pv.matchColor = t.Match
+	pv.activeMatchColor = t.ActiveMatch
 }

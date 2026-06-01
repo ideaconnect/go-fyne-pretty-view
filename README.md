@@ -75,6 +75,37 @@ pv := prettyview.New(
 )
 ```
 
+### Theming
+
+The viewer ships a built-in dark/light palette (`theme.go`), but every color is
+overridable. The structural colors (foreground, selection, indent guides) default
+to tracking the host Fyne theme, so an un-themed viewer blends into your app.
+
+```go
+import "fyne.io/fyne/v2/theme"
+
+pv := prettyview.New(
+    // Override any subset of colors for a variant; nil fields keep the default.
+    prettyview.WithTheme(theme.VariantDark, prettyview.Theme{
+        Key:         myKeyColor,
+        String:      myStringColor,
+        Selection:   mySelectionFill,   // previously not customizable
+        Match:       myMatchFill,        // search highlight
+        ActiveMatch: myActiveMatchFill,
+        IndentGuide: myGuideColor,
+    }),
+)
+
+// …or just the syntax tokens, or change it at runtime (both compose):
+pv.SetSyntaxColors(theme.VariantDark, prettyview.SyntaxColors{Number: myNumberColor})
+pv.SetTheme(theme.VariantLight, prettyview.Theme{Selection: myLightSelection})
+```
+
+`Theme` covers the syntax tokens (`Key`, `String`, `Number`, `Bool`, `Null`,
+`Punct`, `Tag`, `Attr`, `Comment`) and the structural colors (`Foreground`,
+`Summary`, `IndentGuide`, `Selection`, `Match`, `ActiveMatch`). `SyntaxColors` is
+the token-only shorthand. Overrides merge, so repeated calls accumulate.
+
 ### Controls: use the built-ins, hook your own, or both
 
 The widget itself is just the viewer — it has **no built-in buttons**. The package
@@ -118,7 +149,7 @@ myExpandButton.OnTapped = pv.ExpandAll
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
 | `CopySelection()` / `CopySubtree(byteOffset)` | clipboard |
 | `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `SearchStatus()` | search |
-| `SetSyntaxColors(variant, SyntaxColors{...})` | theming |
+| `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
 | `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
 
 ## Demo

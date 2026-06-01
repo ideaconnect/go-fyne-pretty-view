@@ -6,8 +6,24 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
+
+// modelPos is a position in the document: a stable display-line index and a rune
+// column into that line's displayed text. Line indices never change after parse
+// (only visibility does), so a modelPos survives folding; a hidden line is
+// snapped to the nearest visible ancestor at use sites.
+type modelPos struct {
+	line int32
+	col  int
+}
+
+// hitTest maps a content-space pixel to a model position (via the geometry leaf).
+func (pv *PrettyView) hitTest(contentX, contentY float32) modelPos {
+	line, col := geometry.HitTest(pv.doc, pv.met, contentX, contentY)
+	return modelPos{line: line, col: col}
+}
 
 // selection is the model-based selection state: four integers (two positions)
 // plus flags. It is independent of which rows are on screen, so it survives
@@ -55,7 +71,7 @@ func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 		pv.r.dragArmed = false
 		return
 	}
-	pos := hitTest(pv.doc, pv.met, cx, cy)
+	pos := pv.hitTest(cx, cy)
 	if pos.line < 0 {
 		return
 	}
@@ -101,7 +117,7 @@ func (pv *PrettyView) Dragged(ev *fyne.DragEvent) {
 		return
 	}
 	cx, cy := pv.contentPos(ev.Position)
-	pos := hitTest(pv.doc, pv.met, cx, cy)
+	pos := pv.hitTest(cx, cy)
 	if pos.line < 0 {
 		return
 	}
@@ -167,7 +183,7 @@ func (pv *PrettyView) autoscrollEdge(local fyne.Position) {
 	if dx != 0 || dy != 0 {
 		pv.r.scrollBy(dx, dy)
 		cx, cy := pv.contentPos(local)
-		if pos := hitTest(pv.doc, pv.met, cx, cy); pos.line >= 0 {
+		if pos := pv.hitTest(cx, cy); pos.line >= 0 {
 			pv.sel.focus = pos
 		}
 	}

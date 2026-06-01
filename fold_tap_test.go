@@ -23,7 +23,7 @@ func TestTapTogglesFold(t *testing.T) {
 	if pv.doc.Lines[li].Fold == model.NoNode {
 		t.Fatal("expected the first row to be a fold head")
 	}
-	tx := pv.met.triangleX(pv.doc.Lines[li].Depth) + 1
+	tx := pv.met.TriangleX(pv.doc.Lines[li].Depth) + 1
 
 	// Tap the triangle: collapses the whole document to one summary row.
 	pv.Tapped(&fyne.PointEvent{Position: fyne.NewPos(tx, 1)})
@@ -38,7 +38,7 @@ func TestTapTogglesFold(t *testing.T) {
 	}
 
 	// A tap on the text area (not the gutter) must NOT toggle.
-	textX := pv.met.textOriginX(pv.doc.Lines[li].Depth) + 5
+	textX := pv.met.TextOriginX(pv.doc.Lines[li].Depth) + 5
 	pv.Tapped(&fyne.PointEvent{Position: fyne.NewPos(textX, 1)})
 	if got := int(pv.doc.TotalVisibleRows()); got != full {
 		t.Fatalf("tap on text should not fold: visible=%d, want %d", got, full)

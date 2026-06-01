@@ -8,16 +8,37 @@ import (
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
-// themeColor resolves a theme color for a specific variant via the active theme
-// interface (the package-level theme.Color only knows the current variant).
-func themeColor(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	return fyne.CurrentApp().Settings().Theme().Color(name, variant)
+// Theme is the full set of colors the viewer draws. Any nil field falls back to
+// the built-in default for the active theme variant — and the structural
+// defaults (Foreground, Summary, IndentGuide, Selection) themselves follow the
+// host Fyne app theme, so an un-themed PrettyView blends into its surroundings.
+//
+// Override per variant with WithTheme (construction) or SetTheme (at runtime).
+// Overrides compose: setting only a few fields leaves the rest at their default,
+// and repeated calls / WithSyntaxColors merge rather than replace.
+type Theme struct {
+	// Syntax token colors.
+	Key     color.Color
+	String  color.Color
+	Number  color.Color
+	Bool    color.Color
+	Null    color.Color
+	Punct   color.Color
+	Tag     color.Color
+	Attr    color.Color
+	Comment color.Color
+
+	// Structural / UI colors.
+	Foreground  color.Color // default ("plain") text and punctuation fallback
+	Summary     color.Color // fold-summary text, e.g. "{ 6 items }"
+	IndentGuide color.Color // the vertical indent guide lines
+	Selection   color.Color // free-text selection highlight fill
+	Match       color.Color // inactive search-match highlight fill
+	ActiveMatch color.Color // active search-match highlight fill
 }
 
-// SyntaxColors overrides the per-role syntax palette for a theme variant. A nil
-// color falls back to the built-in default for that role. The full theming layer
-// (wrapping theme, palette rebuild on Refresh) lands at M11; this type is the
-// stable public surface used by WithSyntaxColors / SetSyntaxColors.
+// SyntaxColors is the token-color subset of Theme, kept for the common case of
+// recoloring only the syntax. A nil field keeps the default.
 type SyntaxColors struct {
 	Key     color.Color
 	String  color.Color
@@ -30,8 +51,27 @@ type SyntaxColors struct {
 	Comment color.Color
 }
 
+// asTheme lifts a SyntaxColors into a Theme with only the token fields set.
+func (s SyntaxColors) asTheme() Theme {
+	return Theme{
+		Key: s.Key, String: s.String, Number: s.Number, Bool: s.Bool, Null: s.Null,
+		Punct: s.Punct, Tag: s.Tag, Attr: s.Attr, Comment: s.Comment,
+	}
+}
+
+// themeColor resolves a Fyne theme color for a specific variant via the active
+// theme interface (the package-level theme.Color only knows the current variant).
+func themeColor(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
+	return fyne.CurrentApp().Settings().Theme().Color(name, variant)
+}
+
+func withAlpha(c color.Color, a uint8) color.NRGBA {
+	r, g, b, _ := c.RGBA()
+	return color.NRGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), a}
+}
+
 // defaultSyntaxColors returns the built-in (Bruno-ish, VS Code Dark+ inspired)
-// palette for a theme variant.
+// token palette for a theme variant.
 func defaultSyntaxColors(variant fyne.ThemeVariant) SyntaxColors {
 	if variant == theme.VariantLight {
 		return SyntaxColors{
@@ -59,37 +99,72 @@ func defaultSyntaxColors(variant fyne.ThemeVariant) SyntaxColors {
 	}
 }
 
-// buildPalette resolves a model.ColorRole -> color.Color table for a variant, applying
-// any user override.
-func buildPalette(variant fyne.ThemeVariant, override *SyntaxColors) []color.Color {
-	c := defaultSyntaxColors(variant)
-	if override != nil {
-		mergeColor(&c.Key, override.Key)
-		mergeColor(&c.String, override.String)
-		mergeColor(&c.Number, override.Number)
-		mergeColor(&c.Bool, override.Bool)
-		mergeColor(&c.Null, override.Null)
-		mergeColor(&c.Punct, override.Punct)
-		mergeColor(&c.Tag, override.Tag)
-		mergeColor(&c.Attr, override.Attr)
-		mergeColor(&c.Comment, override.Comment)
-	}
+// defaultTheme returns the fully-resolved built-in theme for a variant. The
+// structural colors are derived from the host Fyne theme at call time, so the
+// defaults track the app's light/dark theme; the token and match colors are the
+// built-in palette.
+func defaultTheme(variant fyne.ThemeVariant) Theme {
+	sc := defaultSyntaxColors(variant)
 	fg := themeColor(theme.ColorNameForeground, variant)
-	muted := themeColor(theme.ColorNameDisabled, variant)
+	return Theme{
+		Key: sc.Key, String: sc.String, Number: sc.Number, Bool: sc.Bool, Null: sc.Null,
+		Punct: sc.Punct, Tag: sc.Tag, Attr: sc.Attr, Comment: sc.Comment,
+		Foreground:  fg,
+		Summary:     themeColor(theme.ColorNameDisabled, variant),
+		IndentGuide: withAlpha(fg, 0x22),
+		Selection:   withAlpha(themeColor(theme.ColorNameSelection, variant), 0x66),
+		Match:       color.NRGBA{0xff, 0xd5, 0x4f, 0x55}, // soft yellow
+		ActiveMatch: color.NRGBA{0xff, 0x8c, 0x1a, 0xaa}, // strong orange
+	}
+}
 
-	pal := make([]color.Color, model.NumColorRoles)
-	pal[model.RolePlain] = fg
-	pal[model.RoleKey] = c.Key
-	pal[model.RoleString] = c.String
-	pal[model.RoleNumber] = c.Number
-	pal[model.RoleBool] = c.Bool
-	pal[model.RoleNull] = c.Null
-	pal[model.RolePunct] = c.Punct
-	pal[model.RoleTag] = c.Tag
-	pal[model.RoleAttr] = c.Attr
-	pal[model.RoleComment] = c.Comment
-	pal[model.RoleMuted] = muted
-	return pal
+// mergeInto copies this theme's non-nil fields over dst (used to overlay an
+// override onto the resolved default, or to compose successive overrides).
+func (t Theme) mergeInto(dst *Theme) {
+	mergeColor(&dst.Key, t.Key)
+	mergeColor(&dst.String, t.String)
+	mergeColor(&dst.Number, t.Number)
+	mergeColor(&dst.Bool, t.Bool)
+	mergeColor(&dst.Null, t.Null)
+	mergeColor(&dst.Punct, t.Punct)
+	mergeColor(&dst.Tag, t.Tag)
+	mergeColor(&dst.Attr, t.Attr)
+	mergeColor(&dst.Comment, t.Comment)
+	mergeColor(&dst.Foreground, t.Foreground)
+	mergeColor(&dst.Summary, t.Summary)
+	mergeColor(&dst.IndentGuide, t.IndentGuide)
+	mergeColor(&dst.Selection, t.Selection)
+	mergeColor(&dst.Match, t.Match)
+	mergeColor(&dst.ActiveMatch, t.ActiveMatch)
+}
+
+// palette resolves the ColorRole -> color.Color table the renderer indexes.
+func (t Theme) palette() []color.Color {
+	p := make([]color.Color, model.NumColorRoles)
+	p[model.RolePlain] = t.Foreground
+	p[model.RoleKey] = t.Key
+	p[model.RoleString] = t.String
+	p[model.RoleNumber] = t.Number
+	p[model.RoleBool] = t.Bool
+	p[model.RoleNull] = t.Null
+	p[model.RolePunct] = t.Punct
+	p[model.RoleTag] = t.Tag
+	p[model.RoleAttr] = t.Attr
+	p[model.RoleComment] = t.Comment
+	p[model.RoleMuted] = t.Summary
+	return p
+}
+
+// resolveTheme returns the effective theme for a variant: the built-in default
+// with any per-variant override overlaid.
+func (pv *PrettyView) resolveTheme(variant fyne.ThemeVariant) Theme {
+	eff := defaultTheme(variant)
+	if pv.cfg.themeOverride != nil {
+		if ov, ok := pv.cfg.themeOverride[variant]; ok {
+			ov.mergeInto(&eff)
+		}
+	}
+	return eff
 }
 
 func mergeColor(dst *color.Color, override color.Color) {

@@ -16,6 +16,7 @@ import (
 	"image/color"
 	"time"
 
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
 
 	"fyne.io/fyne/v2"
@@ -35,7 +36,7 @@ type PrettyView struct {
 
 	// view state, owned by the Fyne goroutine
 	r          *prettyViewRenderer
-	met        metrics
+	met        geometry.Metrics
 	palette    []color.Color
 	guideColor color.Color
 	selColor   color.Color
@@ -173,12 +174,18 @@ func (pv *PrettyView) ExpandTo(off int) {
 	pv.centerOnLine(line, 0)
 }
 
-// SetSyntaxColors overrides the syntax palette for a theme variant and refreshes.
+// SetTheme overrides any of the viewer's colors for a theme variant and
+// refreshes. Nil fields keep their defaults; calls compose with earlier
+// WithTheme/WithSyntaxColors/SetTheme overrides for that variant.
+func (pv *PrettyView) SetTheme(variant fyne.ThemeVariant, t Theme) {
+	pv.cfg.setThemeOverride(variant, t)
+	pv.Refresh()
+}
+
+// SetSyntaxColors overrides just the syntax token colors for a theme variant and
+// refreshes (shorthand for SetTheme with only the token fields set).
 func (pv *PrettyView) SetSyntaxColors(variant fyne.ThemeVariant, c SyntaxColors) {
-	if pv.cfg.syntaxOverrides == nil {
-		pv.cfg.syntaxOverrides = map[fyne.ThemeVariant]SyntaxColors{}
-	}
-	pv.cfg.syntaxOverrides[variant] = c
+	pv.cfg.setThemeOverride(variant, c.asTheme())
 	pv.Refresh()
 }
 
@@ -191,7 +198,7 @@ func (pv *PrettyView) centerOnLine(line int32, col int) {
 	depth := pv.doc.Lines[line].Depth
 	vp := pv.r.scroll.Size()
 	cs := pv.contentSize()
-	y := clampf(float32(row)*pv.met.rowH-(vp.Height-pv.met.rowH)/2, 0, maxf(0, cs.Height-vp.Height))
-	x := clampf(pv.met.colX(depth, col)-vp.Width/2, 0, maxf(0, cs.Width-vp.Width))
+	y := clampf(float32(row)*pv.met.RowH-(vp.Height-pv.met.RowH)/2, 0, maxf(0, cs.Height-vp.Height))
+	x := clampf(pv.met.ColX(depth, col)-vp.Width/2, 0, maxf(0, cs.Width-vp.Width))
 	pv.r.scrollToOffset(fyne.NewPos(x, y))
 }
