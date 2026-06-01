@@ -6,15 +6,16 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/theme"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 func TestPaletteVariantsDiffer(t *testing.T) {
 	dark := buildPalette(theme.VariantDark, nil)
 	light := buildPalette(theme.VariantLight, nil)
-	if len(dark) != int(numColorRoles) || len(light) != int(numColorRoles) {
-		t.Fatalf("palette length: dark=%d light=%d want=%d", len(dark), len(light), numColorRoles)
+	if len(dark) != int(model.NumColorRoles) || len(light) != int(model.NumColorRoles) {
+		t.Fatalf("palette length: dark=%d light=%d want=%d", len(dark), len(light), model.NumColorRoles)
 	}
-	if dark[RoleString] == light[RoleString] {
+	if dark[model.RoleString] == light[model.RoleString] {
 		t.Error("string color should differ between dark and light variants")
 	}
 }
@@ -27,8 +28,8 @@ func TestSyntaxOverrideApplied(t *testing.T) {
 	win := test.NewWindow(pv)
 	defer win.Close()
 	pv.Refresh()
-	if pv.palette[RoleString] != custom.String {
-		t.Errorf("override not applied: got %v want %v", pv.palette[RoleString], custom.String)
+	if pv.palette[model.RoleString] != custom.String {
+		t.Errorf("override not applied: got %v want %v", pv.palette[model.RoleString], custom.String)
 	}
 }
 

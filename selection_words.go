@@ -26,8 +26,8 @@ func classOf(r rune) runeClass {
 // wordBounds returns the [start, end) columns of the word (same-class run) under
 // col on a line.
 func (pv *PrettyView) wordBounds(line int32, col int) (modelPos, modelPos) {
-	vl := pv.doc.visibleLine(line)
-	runes := []rune(pv.doc.displayString(vl))
+	vl := pv.doc.VisibleLine(line)
+	runes := []rune(pv.doc.DisplayString(vl))
 	n := len(runes)
 	if n == 0 {
 		return modelPos{line: vl, col: 0}, modelPos{line: vl, col: 0}
@@ -51,6 +51,6 @@ func (pv *PrettyView) wordBounds(line int32, col int) (modelPos, modelPos) {
 
 // lineBounds returns the full extent of a line.
 func (pv *PrettyView) lineBounds(line int32) (modelPos, modelPos) {
-	vl := pv.doc.visibleLine(line)
-	return modelPos{line: vl, col: 0}, modelPos{line: vl, col: pv.doc.lineRuneLen(vl)}
+	vl := pv.doc.VisibleLine(line)
+	return modelPos{line: vl, col: 0}, modelPos{line: vl, col: pv.doc.LineRuneLen(vl)}
 }

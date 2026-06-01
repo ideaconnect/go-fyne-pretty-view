@@ -93,7 +93,7 @@ func (r *prettyViewRenderer) reflow() {
 	vpH := r.scroll.Size().Height
 	m := pv.met
 
-	total := int(pv.doc.fold.TotalVisibleRows())
+	total := int(pv.doc.TotalVisibleRows())
 	if total == 0 {
 		r.clearRows()
 		r.rowLayer.Objects = nil
@@ -135,7 +135,7 @@ func (r *prettyViewRenderer) reflow() {
 		// build(), so we let only one of them fire: Show for a newly-shown row,
 		// Refresh for a reused one. Resize is skipped unless the size truly changed
 		// (all rows share one size, so this is normally a no-op).
-		rw.line = pv.doc.fold.lineAtRow(int32(idx))
+		rw.line = pv.doc.LineAtRow(int32(idx))
 		rw.Move(fyne.NewPos(0, float32(idx)*m.rowH))
 		if rw.Size() != size {
 			rw.Resize(size)
@@ -223,9 +223,9 @@ func (pv *PrettyView) contentSize() fyne.Size {
 	if pv.doc == nil || pv.met.rowH <= 0 {
 		return fyne.NewSize(0, 0)
 	}
-	rows := pv.doc.fold.TotalVisibleRows()
+	rows := pv.doc.TotalVisibleRows()
 	h := float32(rows) * pv.met.rowH
-	w := pv.met.textOriginX(pv.doc.maxDepth) + float32(pv.doc.maxLineRunes)*pv.met.charWidth + pv.met.charWidth*2
+	w := pv.met.textOriginX(pv.doc.MaxDepth) + float32(pv.doc.MaxLineRunes)*pv.met.charWidth + pv.met.charWidth*2
 	return fyne.NewSize(w, h)
 }
 

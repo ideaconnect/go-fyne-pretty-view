@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // selection is the model-based selection state: four integers (two positions)
@@ -50,11 +51,11 @@ func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 	}
 	cx, cy := pv.contentPos(ev.Position)
 	// A press on a fold triangle is a fold gesture, handled by Tapped.
-	if pv.foldNodeAt(cx, cy) != NoNode {
+	if pv.foldNodeAt(cx, cy) != model.NoNode {
 		pv.r.dragArmed = false
 		return
 	}
-	pos := pv.doc.hitTest(pv.met, cx, cy)
+	pos := hitTest(pv.doc, pv.met, cx, cy)
 	if pos.line < 0 {
 		return
 	}
@@ -100,7 +101,7 @@ func (pv *PrettyView) Dragged(ev *fyne.DragEvent) {
 		return
 	}
 	cx, cy := pv.contentPos(ev.Position)
-	pos := pv.doc.hitTest(pv.met, cx, cy)
+	pos := hitTest(pv.doc, pv.met, cx, cy)
 	if pos.line < 0 {
 		return
 	}
@@ -166,7 +167,7 @@ func (pv *PrettyView) autoscrollEdge(local fyne.Position) {
 	if dx != 0 || dy != 0 {
 		pv.r.scrollBy(dx, dy)
 		cx, cy := pv.contentPos(local)
-		if pos := pv.doc.hitTest(pv.met, cx, cy); pos.line >= 0 {
+		if pos := hitTest(pv.doc, pv.met, cx, cy); pos.line >= 0 {
 			pv.sel.focus = pos
 		}
 	}
@@ -178,7 +179,7 @@ func (pv *PrettyView) MouseIn(*desktop.MouseEvent) {}
 func (pv *PrettyView) MouseOut()                   {}
 func (pv *PrettyView) MouseMoved(ev *desktop.MouseEvent) {
 	cx, cy := pv.contentPos(ev.Position)
-	pv.overTriangle = pv.foldNodeAt(cx, cy) != NoNode
+	pv.overTriangle = pv.foldNodeAt(cx, cy) != model.NoNode
 }
 
 // --- focus / keyboard / shortcuts ---
@@ -221,14 +222,14 @@ func (pv *PrettyView) SelectAll() {
 	if pv.doc == nil {
 		return
 	}
-	total := pv.doc.fold.TotalVisibleRows()
+	total := pv.doc.TotalVisibleRows()
 	if total == 0 {
 		return
 	}
-	first := pv.doc.fold.lineAtRow(0)
-	last := pv.doc.fold.lineAtRow(total - 1)
+	first := pv.doc.LineAtRow(0)
+	last := pv.doc.LineAtRow(total - 1)
 	pv.sel.anchor = modelPos{line: first, col: 0}
-	pv.sel.focus = modelPos{line: last, col: pv.doc.lineRuneLen(last)}
+	pv.sel.focus = modelPos{line: last, col: pv.doc.LineRuneLen(last)}
 	pv.sel.active = true
 	pv.sel.grab = grabNone
 	pv.refreshSelectionView()
@@ -255,7 +256,7 @@ func (pv *PrettyView) CopySelection() {
 // whole {…}/[…]/<tag>…</tag> span), regardless of fold state.
 func (pv *PrettyView) CopySubtree(byteOffset int) {
 	node := pv.nodeAtByteOffset(byteOffset)
-	if node == NoNode {
+	if node == model.NoNode {
 		return
 	}
 	if app := fyne.CurrentApp(); app != nil {
@@ -265,30 +266,15 @@ func (pv *PrettyView) CopySubtree(byteOffset int) {
 
 // --- selection geometry / text helpers ---
 
-// visibleLine returns line itself if visible, else the head line of its nearest
-// collapsed ancestor (the row actually shown for it).
-func (d *Document) visibleLine(line int32) int32 {
-	if line < 0 {
-		return line
-	}
-	if d.fold.vis[line] == 1 {
-		return line
-	}
-	if hb := d.fold.hiddenBy[line]; hb != NoNode {
-		return d.Nodes[hb].HeadLine
-	}
-	return line
-}
-
 // snap maps a selection endpoint to a visible position: a visible line and a
 // column clamped to that line's displayed length.
 func (pv *PrettyView) snap(p modelPos) modelPos {
 	if p.line < 0 {
 		return p
 	}
-	vl := pv.doc.visibleLine(p.line)
+	vl := pv.doc.VisibleLine(p.line)
 	col := p.col
-	if n := pv.doc.lineRuneLen(vl); col > n {
+	if n := pv.doc.LineRuneLen(vl); col > n {
 		col = n
 	}
 	if col < 0 {
@@ -299,8 +285,8 @@ func (pv *PrettyView) snap(p modelPos) modelPos {
 
 // posLess reports whether p precedes q in visible (row, col) order.
 func (pv *PrettyView) posLess(p, q modelPos) bool {
-	pr := pv.doc.fold.rowOfLine(pv.doc.visibleLine(p.line))
-	qr := pv.doc.fold.rowOfLine(pv.doc.visibleLine(q.line))
+	pr := pv.doc.RowOfLine(pv.doc.VisibleLine(p.line))
+	qr := pv.doc.RowOfLine(pv.doc.VisibleLine(q.line))
 	if pr != qr {
 		return pr < qr
 	}
@@ -329,16 +315,16 @@ func (pv *PrettyView) selectedText() string {
 	if !ok {
 		return ""
 	}
-	ra := int(pv.doc.fold.rowOfLine(a.line))
-	rb := int(pv.doc.fold.rowOfLine(b.line))
+	ra := int(pv.doc.RowOfLine(a.line))
+	rb := int(pv.doc.RowOfLine(b.line))
 	if ra == rb {
-		runes := []rune(pv.doc.displayString(a.line))
+		runes := []rune(pv.doc.DisplayString(a.line))
 		return string(runes[clampInt(a.col, 0, len(runes)):clampInt(b.col, 0, len(runes))])
 	}
 	var sb strings.Builder
 	for row := ra; row <= rb; row++ {
-		li := pv.doc.fold.lineAtRow(int32(row))
-		runes := []rune(pv.doc.displayString(li))
+		li := pv.doc.LineAtRow(int32(row))
+		runes := []rune(pv.doc.DisplayString(li))
 		start, end := 0, len(runes)
 		if row == ra {
 			start = clampInt(a.col, 0, len(runes))
@@ -356,7 +342,7 @@ func (pv *PrettyView) selectedText() string {
 
 // subtreeText reconstructs the displayed text of a node's whole subtree (all
 // lines HeadLine..CloseLine), indented by depth, regardless of fold state.
-func (pv *PrettyView) subtreeText(node NodeID) string {
+func (pv *PrettyView) subtreeText(node model.NodeID) string {
 	n := &pv.doc.Nodes[node]
 	if n.HeadLine < 0 {
 		return ""
@@ -365,7 +351,7 @@ func (pv *PrettyView) subtreeText(node NodeID) string {
 	for li := n.HeadLine; li <= n.CloseLine; li++ {
 		l := &pv.doc.Lines[li]
 		sb.WriteString(strings.Repeat("  ", int(l.Depth)-int(n.Depth)))
-		sb.WriteString(pv.doc.lineString(li))
+		sb.WriteString(pv.doc.LineString(li))
 		if li < n.CloseLine {
 			sb.WriteByte('\n')
 		}
@@ -374,9 +360,9 @@ func (pv *PrettyView) subtreeText(node NodeID) string {
 }
 
 // nodeAtByteOffset returns the deepest node whose source span contains offset
-// (JSON only; XML/HTML lack offsets and return NoNode).
-func (pv *PrettyView) nodeAtByteOffset(offset int) NodeID {
-	best := NoNode
+// (JSON only; XML/HTML lack offsets and return model.NoNode).
+func (pv *PrettyView) nodeAtByteOffset(offset int) model.NodeID {
+	best := model.NoNode
 	off := uint32(offset)
 	for id := range pv.doc.Nodes {
 		n := &pv.doc.Nodes[id]
@@ -384,8 +370,8 @@ func (pv *PrettyView) nodeAtByteOffset(offset int) NodeID {
 			continue
 		}
 		if off >= n.SrcStart && off < n.SrcEnd {
-			if best == NoNode || n.Depth > pv.doc.Nodes[best].Depth {
-				best = NodeID(id)
+			if best == model.NoNode || n.Depth > pv.doc.Nodes[best].Depth {
+				best = model.NodeID(id)
 			}
 		}
 	}

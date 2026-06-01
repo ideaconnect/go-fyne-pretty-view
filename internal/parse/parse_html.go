@@ -1,8 +1,10 @@
-package prettyview
+package parse
 
 import (
 	"bytes"
 	"unicode"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 
 	"golang.org/x/net/html"
 )
@@ -35,9 +37,9 @@ func (htmlParser) Detect(src []byte) int {
 	return 0
 }
 
-func (htmlParser) Parse(src []byte, b *Builder) error {
+func (htmlParser) Parse(src []byte, b *model.Builder) error {
 	z := html.NewTokenizer(bytes.NewReader(src))
-	var names []string // open element names, mirroring the Builder's container stack
+	var names []string // open element names, mirroring the model.Builder's container stack
 
 	closeTo := func(name string) {
 		idx := -1
@@ -60,46 +62,46 @@ func (htmlParser) Parse(src []byte, b *Builder) error {
 	for {
 		tt := z.Next()
 		if tt == html.ErrorToken {
-			break // EOF or read error; finish() closes danglers
+			break // EOF or read error; Finish() closes danglers
 		}
 		tok := z.Token()
 		switch tt {
 		case html.StartTagToken:
 			if isVoidElement(tok.Data) {
-				b.Leaf(KindEmptyElement, 0, 0, htmlStartSegs(tok, false))
+				b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, false))
 			} else {
-				b.Open(KindElement, 0, htmlStartSegs(tok, false))
+				b.Open(model.KindElement, 0, htmlStartSegs(tok, false))
 				names = append(names, tok.Data)
 			}
 		case html.SelfClosingTagToken:
-			b.Leaf(KindEmptyElement, 0, 0, htmlStartSegs(tok, true))
+			b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, true))
 		case html.EndTagToken:
 			closeTo(tok.Data)
 		case html.TextToken:
 			if txt := collapseSpace(tok.Data); txt != "" {
-				b.Leaf(KindText, 0, 0, []Seg{litSeg(RoleString, txt)})
+				b.Leaf(model.KindText, 0, 0, []model.Seg{model.LitSeg(model.RoleString, txt)})
 			}
 		case html.CommentToken:
-			b.Leaf(KindComment, 0, 0, []Seg{litSeg(RoleComment, "<!-- "+collapseSpace(tok.Data)+" -->")})
+			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(tok.Data)+" -->")})
 		case html.DoctypeToken:
-			b.Leaf(KindComment, 0, 0, []Seg{litSeg(RoleComment, "<!DOCTYPE "+collapseSpace(tok.Data)+">")})
+			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!DOCTYPE "+collapseSpace(tok.Data)+">")})
 		}
 	}
 	return nil
 }
 
-func htmlStartSegs(tok html.Token, selfClose bool) []Seg {
-	segs := []Seg{litSeg(RolePunct, "<"), litSeg(RoleTag, tok.Data)}
+func htmlStartSegs(tok html.Token, selfClose bool) []model.Seg {
+	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, tok.Data)}
 	for _, a := range tok.Attr {
-		segs = append(segs, litSeg(RolePlain, " "), litSeg(RoleAttr, a.Key))
+		segs = append(segs, model.LitSeg(model.RolePlain, " "), model.LitSeg(model.RoleAttr, a.Key))
 		if a.Val != "" {
-			segs = append(segs, litSeg(RolePunct, "="), litSeg(RoleString, `"`+a.Val+`"`))
+			segs = append(segs, model.LitSeg(model.RolePunct, "="), model.LitSeg(model.RoleString, `"`+a.Val+`"`))
 		}
 	}
 	if selfClose {
-		segs = append(segs, litSeg(RolePunct, "/>"))
+		segs = append(segs, model.LitSeg(model.RolePunct, "/>"))
 	} else {
-		segs = append(segs, litSeg(RolePunct, ">"))
+		segs = append(segs, model.LitSeg(model.RolePunct, ">"))
 	}
 	return segs
 }

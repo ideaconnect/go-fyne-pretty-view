@@ -1,6 +1,10 @@
 package prettyview
 
-import "math"
+import (
+	"math"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+)
 
 // metrics holds the integer-rounded layout measurements that map between model
 // positions and content-space pixels. charWidth and rowH are rounded to whole
@@ -124,8 +128,8 @@ type modelPos struct {
 
 // hitTest maps a content-space pixel to a model position. Out-of-range rows clamp
 // to the document's start/end (mirroring Fyne's own entry/selectable behavior).
-func (d *Document) hitTest(m metrics, contentX, contentY float32) modelPos {
-	total := d.fold.TotalVisibleRows()
+func hitTest(d *model.Document, m metrics, contentX, contentY float32) modelPos {
+	total := d.TotalVisibleRows()
 	if total == 0 {
 		return modelPos{line: -1}
 	}
@@ -134,12 +138,12 @@ func (d *Document) hitTest(m metrics, contentX, contentY float32) modelPos {
 		row = 0
 	}
 	if int32(row) >= total {
-		li := d.fold.lineAtRow(total - 1)
-		return modelPos{line: li, col: d.lineRuneLen(li)}
+		li := d.LineAtRow(total - 1)
+		return modelPos{line: li, col: d.LineRuneLen(li)}
 	}
-	li := d.fold.lineAtRow(int32(row))
+	li := d.LineAtRow(int32(row))
 	col := m.colAtX(d.Lines[li].Depth, contentX)
-	if n := d.lineRuneLen(li); col > n {
+	if n := d.LineRuneLen(li); col > n {
 		col = n
 	}
 	if col < 0 {
@@ -150,7 +154,7 @@ func (d *Document) hitTest(m metrics, contentX, contentY float32) modelPos {
 
 // cellOrigin returns the content-space top-left pixel of (line, col): the inverse
 // of hitTest at a column's left edge.
-func (d *Document) cellOrigin(m metrics, line int32, col int) (float32, float32) {
-	row := d.fold.rowOfLine(line)
+func cellOrigin(d *model.Document, m metrics, line int32, col int) (float32, float32) {
+	row := d.RowOfLine(line)
 	return m.colX(d.Lines[line].Depth, col), m.rowY(int(row))
 }

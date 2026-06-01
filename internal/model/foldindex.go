@@ -1,4 +1,4 @@
-package prettyview
+package model
 
 import "math/bits"
 

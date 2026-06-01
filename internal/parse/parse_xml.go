@@ -1,10 +1,12 @@
-package prettyview
+package parse
 
 import (
 	"bytes"
 	"encoding/xml"
 	"strings"
 	"unicode"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // xmlParser parses XML via encoding/xml's tokenizer. Because the tokenizer does
@@ -38,7 +40,7 @@ func isNameStart(b byte) bool {
 	return b == '_' || b == ':' || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
-func (xmlParser) Parse(src []byte, b *Builder) error {
+func (xmlParser) Parse(src []byte, b *model.Builder) error {
 	dec := xml.NewDecoder(bytes.NewReader(src))
 	dec.Strict = false
 	dec.AutoClose = xml.HTMLAutoClose
@@ -47,20 +49,20 @@ func (xmlParser) Parse(src []byte, b *Builder) error {
 	for {
 		t, err := s.next()
 		if err != nil {
-			break // EOF or unrecoverable; Builder.finish closes danglers
+			break // EOF or unrecoverable; model.Builder.finish closes danglers
 		}
 		switch tok := t.(type) {
 		case xml.StartElement:
 			s.parseElement(tok)
 		case xml.Comment:
-			b.Leaf(KindComment, 0, 0, []Seg{litSeg(RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
+			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
 		case xml.ProcInst:
-			b.Leaf(KindComment, 0, 0, []Seg{litSeg(RoleComment, "<?"+tok.Target+" "+collapseSpace(string(tok.Inst))+"?>")})
+			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<?"+tok.Target+" "+collapseSpace(string(tok.Inst))+"?>")})
 		case xml.Directive:
-			b.Leaf(KindComment, 0, 0, []Seg{litSeg(RoleComment, "<!"+collapseSpace(string(tok))+">")})
+			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!"+collapseSpace(string(tok))+">")})
 		case xml.CharData:
 			if txt := collapseSpace(string(tok)); txt != "" {
-				b.Leaf(KindText, 0, 0, []Seg{litSeg(RoleString, txt)})
+				b.Leaf(model.KindText, 0, 0, []model.Seg{model.LitSeg(model.RoleString, txt)})
 			}
 		}
 	}
@@ -69,7 +71,7 @@ func (xmlParser) Parse(src []byte, b *Builder) error {
 
 type xmlScanner struct {
 	dec     *xml.Decoder
-	b       *Builder
+	b       *model.Builder
 	peeked  xml.Token
 	hasPeek bool
 }
@@ -103,16 +105,16 @@ func (s *xmlScanner) parseElement(start xml.StartElement) {
 	if t, ok := s.peek(); ok {
 		if end, isEnd := t.(xml.EndElement); isEnd && end.Name == start.Name {
 			s.hasPeek = false // consume the end token
-			s.b.Leaf(KindEmptyElement, 0, 0, startSegs(start, true))
+			s.b.Leaf(model.KindEmptyElement, 0, 0, startSegs(start, true))
 			return
 		}
 	}
 
-	s.b.Open(KindElement, 0, startSegs(start, false))
+	s.b.Open(model.KindElement, 0, startSegs(start, false))
 	for {
 		t, err := s.next()
 		if err != nil {
-			return // finish() closes the dangling element
+			return // Finish() closes the dangling element
 		}
 		switch tok := t.(type) {
 		case xml.StartElement:
@@ -122,41 +124,41 @@ func (s *xmlScanner) parseElement(start xml.StartElement) {
 			return
 		case xml.CharData:
 			if txt := collapseSpace(string(tok)); txt != "" {
-				s.b.Leaf(KindText, 0, 0, []Seg{litSeg(RoleString, txt)})
+				s.b.Leaf(model.KindText, 0, 0, []model.Seg{model.LitSeg(model.RoleString, txt)})
 			}
 		case xml.Comment:
-			s.b.Leaf(KindComment, 0, 0, []Seg{litSeg(RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
+			s.b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
 		case xml.ProcInst:
-			s.b.Leaf(KindComment, 0, 0, []Seg{litSeg(RoleComment, "<?"+tok.Target+"?>")})
+			s.b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<?"+tok.Target+"?>")})
 		}
 	}
 }
 
 // startSegs builds the segments for an opening (or self-closing) element line.
-func startSegs(start xml.StartElement, selfClose bool) []Seg {
-	segs := []Seg{litSeg(RolePunct, "<"), litSeg(RoleTag, start.Name.Local)}
+func startSegs(start xml.StartElement, selfClose bool) []model.Seg {
+	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, start.Name.Local)}
 	for _, a := range start.Attr {
 		name := a.Name.Local
 		if a.Name.Space != "" && (a.Name.Space == "xmlns" || a.Name.Local == "xmlns") {
 			name = a.Name.Local
 		}
 		segs = append(segs,
-			litSeg(RolePlain, " "),
-			litSeg(RoleAttr, name),
-			litSeg(RolePunct, "="),
-			litSeg(RoleString, `"`+a.Value+`"`),
+			model.LitSeg(model.RolePlain, " "),
+			model.LitSeg(model.RoleAttr, name),
+			model.LitSeg(model.RolePunct, "="),
+			model.LitSeg(model.RoleString, `"`+a.Value+`"`),
 		)
 	}
 	if selfClose {
-		segs = append(segs, litSeg(RolePunct, "/>"))
+		segs = append(segs, model.LitSeg(model.RolePunct, "/>"))
 	} else {
-		segs = append(segs, litSeg(RolePunct, ">"))
+		segs = append(segs, model.LitSeg(model.RolePunct, ">"))
 	}
 	return segs
 }
 
-func endSegs(name string) []Seg {
-	return []Seg{litSeg(RolePunct, "</"), litSeg(RoleTag, name), litSeg(RolePunct, ">")}
+func endSegs(name string) []model.Seg {
+	return []model.Seg{model.LitSeg(model.RolePunct, "</"), model.LitSeg(model.RoleTag, name), model.LitSeg(model.RolePunct, ">")}
 }
 
 // collapseSpace trims and collapses internal whitespace runs to single spaces.

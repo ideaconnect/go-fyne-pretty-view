@@ -51,22 +51,22 @@ func TestColAtXHalfGlyphRounding(t *testing.T) {
 func TestHitTestGoldenRoundTrip(t *testing.T) {
 	d := loadDoc(t, "openapi.json", FormatJSON)
 	m := testMetrics()
-	total := d.fold.TotalVisibleRows()
+	total := d.TotalVisibleRows()
 
 	rows := []int32{0, 1, 2, 5, total / 2, total - 2, total - 1}
 	for _, r := range rows {
 		if r < 0 || r >= total {
 			continue
 		}
-		li := d.fold.lineAtRow(r)
-		runeLen := d.lineRuneLen(li)
+		li := d.LineAtRow(r)
+		runeLen := d.LineRuneLen(li)
 		for _, col := range []int{0, 1, runeLen / 2, runeLen} {
 			if col < 0 || col > runeLen {
 				continue
 			}
-			cx, cy := d.cellOrigin(m, li, col)
+			cx, cy := cellOrigin(d, m, li, col)
 			// Sample slightly below the row top to avoid the exact top boundary.
-			got := d.hitTest(m, cx, cy+1)
+			got := hitTest(d, m, cx, cy+1)
 			if got.line != li || got.col != col {
 				t.Fatalf("row %d line %d col %d -> origin (%.1f,%.1f) -> {line %d col %d}",
 					r, li, col, cx, cy, got.line, got.col)
@@ -78,12 +78,12 @@ func TestHitTestGoldenRoundTrip(t *testing.T) {
 func TestHitTestClampsBeyondEnd(t *testing.T) {
 	d := loadDoc(t, "small.json", FormatJSON)
 	m := testMetrics()
-	total := d.fold.TotalVisibleRows()
+	total := d.TotalVisibleRows()
 	// Click far below the last row clamps to the last line's end column.
-	got := d.hitTest(m, 9999, m.rowY(int(total))+500)
-	lastLine := d.fold.lineAtRow(total - 1)
-	if got.line != lastLine || got.col != d.lineRuneLen(lastLine) {
+	got := hitTest(d, m, 9999, m.rowY(int(total))+500)
+	lastLine := d.LineAtRow(total - 1)
+	if got.line != lastLine || got.col != d.LineRuneLen(lastLine) {
 		t.Errorf("clamp-to-end = {line %d col %d}, want {line %d col %d}",
-			got.line, got.col, lastLine, d.lineRuneLen(lastLine))
+			got.line, got.col, lastLine, d.LineRuneLen(lastLine))
 	}
 }

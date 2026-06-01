@@ -55,20 +55,26 @@ invariants in [AGENTS.md](AGENTS.md).
 
 ## Extending the widget
 
+The code is three packages (`internal/model` ← `internal/parse` ← root
+`prettyview`); see [STRUCTURE.md](STRUCTURE.md).
+
 ### Add or change a format parser
-1. Implement the `Parser` interface (`Format`, `Detect`, `Parse`) in a new
-   `parse_<fmt>.go` — drive the `Builder` (`Open`/`Leaf`/`Close`/`AppendComma`),
-   keeping data tokens as zero-copy `srcSeg` ranges where source offsets exist.
-2. Register it in `parsers()` and `parserFor()` in `parse.go`.
+1. In `internal/parse/`, implement the `Parser` interface (`Format`, `Detect`,
+   `Parse`) in a new `parse_<fmt>.go` — drive `model.Builder`
+   (`Open`/`Leaf`/`Close`/`AppendComma`), keeping data tokens as zero-copy
+   `model.SrcSeg` ranges where source offsets exist.
+2. Register it in `parsers()` and `parserFor()` in `internal/parse/parse.go`.
 3. Give `Detect` a confidence score that doesn't collide with siblings (see how
    XML vs HTML and JSON vs JSONC are disambiguated).
-4. Add a fixture under `testdata/` and a dump/assert test in `parse_test.go`.
+4. Add a fixture under `testdata/` and a dump/assert test in
+   `internal/parse/parse_test.go` (fixtures load via `../../testdata/`).
 
 ### Add a syntax color role
-1. Add the `ColorRole` constant in `model.go` (before `numColorRoles`).
-2. Map it in `buildPalette` (`theme.go`) for dark and light, and in
+1. Add the `ColorRole` constant in `internal/model/model.go` (before
+   `NumColorRoles`).
+2. Map it in `buildPalette` (root `theme.go`) for dark and light, and in
    `SyntaxColors` if it should be user-overridable.
-3. Emit it from the relevant parser via `litSeg`/`srcSeg`.
+3. Emit it from the relevant parser via `model.LitSeg`/`model.SrcSeg`.
 
 ### Touch the rendering / hit-testing math
 All pixel↔model mapping lives in `geometry.go` and obeys **one** coordinate

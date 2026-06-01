@@ -1,53 +1,30 @@
-package prettyview
+// Package parse turns raw bytes into a model.Document. It hosts the format
+// parsers (JSON/JSONC, XML, HTML, raw) and format auto-detection. It depends on
+// internal/model and is depended on by the top-level prettyview package.
+package parse
 
 import (
 	"bytes"
 	"unicode"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
-// Format selects (or, with FormatAuto, detects) the input grammar.
-type Format uint8
+// Format and its constants live in the model package (Document records its
+// format); aliased here for terse use within the parsers.
+type Format = model.Format
 
 const (
-	FormatAuto  Format = iota // run AutoDetect heuristics
-	FormatRaw                 // plain text, split into physical lines
-	FormatJSON                // strict JSON
-	FormatJSONC               // JSON with // and /* */ comments
-	FormatXML                 // XML
-	FormatHTML                // HTML (tolerant)
+	FormatAuto  = model.FormatAuto
+	FormatRaw   = model.FormatRaw
+	FormatJSON  = model.FormatJSON
+	FormatJSONC = model.FormatJSONC
+	FormatXML   = model.FormatXML
+	FormatHTML  = model.FormatHTML
 )
 
-// String returns a short human-readable name for the format.
-func (f Format) String() string {
-	switch f {
-	case FormatAuto:
-		return "auto"
-	case FormatRaw:
-		return "raw"
-	case FormatJSON:
-		return "json"
-	case FormatJSONC:
-		return "jsonc"
-	case FormatXML:
-		return "xml"
-	case FormatHTML:
-		return "html"
-	default:
-		return "unknown"
-	}
-}
-
-// WrapMode controls long-line handling. The default, WrapNone, matches Bruno:
-// long lines overflow and are reached by horizontal scrolling.
-type WrapMode uint8
-
-const (
-	WrapNone WrapMode = iota // long lines overflow; horizontal scroll (default)
-	WrapWord                 // soft-wrap to viewport width
-)
-
-// Parser turns a byte buffer into a Document by driving a Builder. A parser must
-// be tolerant: on malformed input it emits whatever partial structure it has
+// Parser turns a byte buffer into a Document by driving a model.Builder. A parser
+// must be tolerant: on malformed input it emits whatever partial structure it has
 // recovered rather than failing outright.
 type Parser interface {
 	// Format reports the concrete format this parser produces.
@@ -55,7 +32,7 @@ type Parser interface {
 	// Detect returns a 0..100 confidence that src is of this parser's format.
 	Detect(src []byte) int
 	// Parse consumes src and appends nodes/segments via b.
-	Parse(src []byte, b *Builder) error
+	Parse(src []byte, b *model.Builder) error
 }
 
 // parsers returns the registered parsers in detection-priority order. Raw is the
@@ -87,9 +64,9 @@ func parserFor(f Format) Parser {
 	}
 }
 
-// parseDocument parses src under format (FormatAuto detects). On a structured
-// parse failure it falls back to a raw document so content always displays.
-func parseDocument(src []byte, format Format, collapseDepth int) *Document {
+// Parse parses src under format (FormatAuto detects). On a structured parse
+// failure it falls back to a raw document so content always displays.
+func Parse(src []byte, format Format, collapseDepth int) *model.Document {
 	if format == FormatAuto {
 		format = AutoDetect(src)
 	}
@@ -97,11 +74,11 @@ func parseDocument(src []byte, format Format, collapseDepth int) *Document {
 	if p == nil { // FormatRaw (or anything without a parser)
 		return parseRaw(src, collapseDepth)
 	}
-	b := newBuilder(src, format, collapseDepth)
+	b := model.NewBuilder(src, format, collapseDepth)
 	if err := p.Parse(src, b); err != nil {
 		return parseRaw(src, collapseDepth)
 	}
-	return b.finish()
+	return b.Finish()
 }
 
 // AutoDetect picks the most likely format for src. It returns FormatRaw when no

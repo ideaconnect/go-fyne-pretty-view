@@ -16,8 +16,11 @@ import (
 	"image/color"
 	"time"
 
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/widget"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // PrettyView is the virtualized structured-data viewer widget.
@@ -28,7 +31,7 @@ type PrettyView struct {
 	widget.BaseWidget
 
 	cfg config
-	doc *Document
+	doc *model.Document
 
 	// view state, owned by the Fyne goroutine
 	r          *prettyViewRenderer
@@ -65,7 +68,7 @@ func New(opts ...Option) *PrettyView {
 	for _, o := range opts {
 		o(&pv.cfg)
 	}
-	pv.doc = emptyDocument()
+	pv.doc = model.EmptyDocument()
 	pv.ExtendBaseWidget(pv)
 	return pv
 }
@@ -80,7 +83,7 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 	if format == FormatAuto {
 		format = pv.cfg.format
 	}
-	pv.doc = parseDocument(src, format, pv.cfg.collapseDepth)
+	pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth)
 	pv.ClearSearch()
 	pv.Refresh()
 	if pv.onDataChanged != nil {
@@ -137,7 +140,7 @@ func NewWithData(src []byte, format Format, opts ...Option) *PrettyView {
 // ExpandAll expands every node.
 func (pv *PrettyView) ExpandAll() {
 	if pv.doc != nil {
-		pv.doc.fold.expandAll(pv.doc)
+		pv.doc.ExpandAll()
 		pv.Refresh()
 	}
 }
@@ -145,7 +148,7 @@ func (pv *PrettyView) ExpandAll() {
 // CollapseAll collapses every node below the top level.
 func (pv *PrettyView) CollapseAll() {
 	if pv.doc != nil {
-		pv.doc.fold.collapseAll(pv.doc)
+		pv.doc.CollapseAll()
 		pv.Refresh()
 	}
 }
@@ -161,11 +164,11 @@ func (pv *PrettyView) ExpandTo(off int) {
 		return
 	}
 	node := pv.nodeAtByteOffset(off)
-	if node == NoNode {
+	if node == model.NoNode {
 		return
 	}
 	line := pv.doc.Nodes[node].HeadLine
-	pv.doc.fold.revealLine(pv.doc, line)
+	pv.doc.RevealLine(line)
 	pv.refreshContent()
 	pv.centerOnLine(line, 0)
 }
@@ -184,7 +187,7 @@ func (pv *PrettyView) centerOnLine(line int32, col int) {
 	if pv.r == nil || line < 0 {
 		return
 	}
-	row := int(pv.doc.fold.rowOfLine(line))
+	row := int(pv.doc.RowOfLine(line))
 	depth := pv.doc.Lines[line].Depth
 	vp := pv.r.scroll.Size()
 	cs := pv.contentSize()

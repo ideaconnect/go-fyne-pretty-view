@@ -155,7 +155,7 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 	// lowercase allocation on the common ASCII path.
 	var scratch []byte
 	for li := int32(0); li < int32(len(pv.doc.Lines)); li++ {
-		scratch = pv.doc.assembleLine(li, scratch[:0])
+		scratch = pv.doc.AssembleLine(li, scratch[:0])
 		switch {
 		case re != nil:
 			for _, loc := range re.FindAllIndex(scratch, -1) {
@@ -229,15 +229,6 @@ func (pv *PrettyView) addMatchB(li int32, hay []byte, bs, be int) {
 	pv.search.matches = append(pv.search.matches, Match{Line: li, ColStart: cs, ColEnd: ce})
 }
 
-// assembleLine appends a line's expanded display bytes into buf (reused; pass
-// buf[:0]).
-func (d *Document) assembleLine(li int32, buf []byte) []byte {
-	for _, s := range d.lineSegs(li) {
-		buf = append(buf, d.segBytes(s)...)
-	}
-	return buf
-}
-
 func isASCII(b []byte) bool {
 	for _, c := range b {
 		if c >= 0x80 {
@@ -271,7 +262,7 @@ func (pv *PrettyView) revealActive() {
 		return
 	}
 	m := pv.search.matches[pv.search.active]
-	pv.doc.fold.revealLine(pv.doc, m.Line)
+	pv.doc.RevealLine(m.Line)
 
 	if pv.r == nil {
 		return

@@ -1,4 +1,4 @@
-package prettyview
+package parse
 
 import (
 	"strings"
@@ -51,17 +51,17 @@ func TestAutoDetect(t *testing.T) {
 }
 
 func TestRawFallback(t *testing.T) {
-	d := parseDocument([]byte("just some\nplain text\nlines"), FormatAuto, 0)
+	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {
 		t.Errorf("format = %v, want raw", d.Format)
 	}
-	if got := int(d.fold.TotalVisibleRows()); got != 3 {
+	if got := int(d.TotalVisibleRows()); got != 3 {
 		t.Errorf("raw lines = %d, want 3", got)
 	}
 }
 
 func TestMalformedJSONFallsBackToRaw(t *testing.T) {
-	d := parseDocument([]byte(`{"broken": `), FormatJSON, 0)
+	d := Parse([]byte(`{"broken": `), FormatJSON, 0)
 	if d.Format != FormatRaw {
 		t.Errorf("malformed JSON should fall back to raw, got %v", d.Format)
 	}

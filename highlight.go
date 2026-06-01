@@ -25,14 +25,14 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 		return
 	}
 	m := pv.met
-	ra := int(pv.doc.fold.rowOfLine(a.line))
-	rb := int(pv.doc.fold.rowOfLine(b.line))
+	ra := int(pv.doc.RowOfLine(a.line))
+	rb := int(pv.doc.RowOfLine(b.line))
 
 	n := 0
 	for row := maxInt(ra, first); row <= minInt(rb, last); row++ {
-		li := pv.doc.fold.lineAtRow(int32(row))
+		li := pv.doc.LineAtRow(int32(row))
 		depth := pv.doc.Lines[li].Depth
-		runeLen := pv.doc.lineRuneLen(li)
+		runeLen := pv.doc.LineRuneLen(li)
 
 		s, e := 0, runeLen
 		if row == ra {
@@ -76,18 +76,18 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 	n := 0
 	if pv.doc != nil && len(pv.search.matches) > 0 {
 		m := pv.met
-		total := pv.doc.fold.TotalVisibleRows()
+		total := pv.doc.TotalVisibleRows()
 		for row := first; row <= last; row++ {
 			if row < 0 || int32(row) >= total {
 				continue
 			}
-			li := pv.doc.fold.lineAtRow(int32(row))
+			li := pv.doc.LineAtRow(int32(row))
 			idxs := pv.search.byLine[li]
-			if len(idxs) == 0 || pv.doc.isCollapsed(li) {
+			if len(idxs) == 0 || pv.doc.IsCollapsed(li) {
 				continue
 			}
 			depth := pv.doc.Lines[li].Depth
-			runeLen := pv.doc.lineRuneLen(li)
+			runeLen := pv.doc.LineRuneLen(li)
 			for _, mi := range idxs {
 				mt := pv.search.matches[mi]
 				s := clampInt(mt.ColStart, 0, runeLen)

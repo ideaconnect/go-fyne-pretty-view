@@ -5,6 +5,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/theme"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // themeColor resolves a theme color for a specific variant via the active theme
@@ -58,7 +59,7 @@ func defaultSyntaxColors(variant fyne.ThemeVariant) SyntaxColors {
 	}
 }
 
-// buildPalette resolves a ColorRole -> color.Color table for a variant, applying
+// buildPalette resolves a model.ColorRole -> color.Color table for a variant, applying
 // any user override.
 func buildPalette(variant fyne.ThemeVariant, override *SyntaxColors) []color.Color {
 	c := defaultSyntaxColors(variant)
@@ -76,18 +77,18 @@ func buildPalette(variant fyne.ThemeVariant, override *SyntaxColors) []color.Col
 	fg := themeColor(theme.ColorNameForeground, variant)
 	muted := themeColor(theme.ColorNameDisabled, variant)
 
-	pal := make([]color.Color, numColorRoles)
-	pal[RolePlain] = fg
-	pal[RoleKey] = c.Key
-	pal[RoleString] = c.String
-	pal[RoleNumber] = c.Number
-	pal[RoleBool] = c.Bool
-	pal[RoleNull] = c.Null
-	pal[RolePunct] = c.Punct
-	pal[RoleTag] = c.Tag
-	pal[RoleAttr] = c.Attr
-	pal[RoleComment] = c.Comment
-	pal[RoleMuted] = muted
+	pal := make([]color.Color, model.NumColorRoles)
+	pal[model.RolePlain] = fg
+	pal[model.RoleKey] = c.Key
+	pal[model.RoleString] = c.String
+	pal[model.RoleNumber] = c.Number
+	pal[model.RoleBool] = c.Bool
+	pal[model.RoleNull] = c.Null
+	pal[model.RolePunct] = c.Punct
+	pal[model.RoleTag] = c.Tag
+	pal[model.RoleAttr] = c.Attr
+	pal[model.RoleComment] = c.Comment
+	pal[model.RoleMuted] = muted
 	return pal
 }
 

@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // runeByteOffset returns the byte index of the n-th rune in b (n <= rune count).
@@ -113,9 +114,9 @@ func (rr *rowRenderer) build() {
 	rr.layoutGuides(depth, m, pv.guideColor)
 
 	// Fold triangle in the gutter.
-	if line.Fold != NoNode {
-		collapsed := pv.doc.fold.collapsed.get(line.Fold)
-		rr.layoutTriangle(depth, m, collapsed, pv.palette[RoleMuted])
+	if line.Fold != model.NoNode {
+		collapsed := pv.doc.Collapsed(line.Fold)
+		rr.layoutTriangle(depth, m, collapsed, pv.palette[model.RoleMuted])
 	} else {
 		rr.triangleHide()
 	}
@@ -131,8 +132,8 @@ func (rr *rowRenderer) build() {
 	ti := 0
 	col := 0
 	emitted := 0
-	for _, seg := range pv.doc.displaySegs(r.line) {
-		sb := pv.doc.segBytes(seg)
+	for _, seg := range pv.doc.DisplaySegs(r.line) {
+		sb := pv.doc.SegBytes(seg)
 		segStart := col
 		runeLen := utf8.RuneCount(sb)
 		segEnd := col + runeLen

@@ -3,6 +3,7 @@ package prettyview
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // Input interfaces implemented by PrettyView. Fold toggling rides on Tapped;
@@ -30,23 +31,23 @@ func (pv *PrettyView) contentPos(local fyne.Position) (float32, float32) {
 }
 
 // foldNodeAt returns the foldable node whose triangle gutter contains the given
-// content-space point, or NoNode.
-func (pv *PrettyView) foldNodeAt(contentX, contentY float32) NodeID {
+// content-space point, or model.NoNode.
+func (pv *PrettyView) foldNodeAt(contentX, contentY float32) model.NodeID {
 	if pv.doc == nil {
-		return NoNode
+		return model.NoNode
 	}
-	total := pv.doc.fold.TotalVisibleRows()
+	total := pv.doc.TotalVisibleRows()
 	if total == 0 {
-		return NoNode
+		return model.NoNode
 	}
 	row := pv.met.rowAtY(contentY)
 	if row < 0 || int32(row) >= total {
-		return NoNode
+		return model.NoNode
 	}
-	li := pv.doc.fold.lineAtRow(int32(row))
+	li := pv.doc.LineAtRow(int32(row))
 	line := &pv.doc.Lines[li]
-	if line.Fold == NoNode {
-		return NoNode
+	if line.Fold == model.NoNode {
+		return model.NoNode
 	}
 	// Hot-zone: the triangle gutter just left of the text, plus the text origin
 	// slack, so clicks slightly off the glyph still register.
@@ -55,21 +56,21 @@ func (pv *PrettyView) foldNodeAt(contentX, contentY float32) NodeID {
 	if contentX >= x0-2 && contentX <= x1 {
 		return line.Fold
 	}
-	return NoNode
+	return model.NoNode
 }
 
 // Tapped toggles a fold when the tap lands on a fold triangle. Other taps are
 // left to the selection layer (M8).
 func (pv *PrettyView) Tapped(e *fyne.PointEvent) {
 	cx, cy := pv.contentPos(e.Position)
-	if node := pv.foldNodeAt(cx, cy); node != NoNode {
+	if node := pv.foldNodeAt(cx, cy); node != model.NoNode {
 		pv.toggleFold(node)
 	}
 }
 
 // toggleFold flips a node's fold state and refreshes the view.
-func (pv *PrettyView) toggleFold(node NodeID) {
-	pv.doc.fold.toggle(pv.doc, node)
+func (pv *PrettyView) toggleFold(node model.NodeID) {
+	pv.doc.Toggle(node)
 	pv.refreshContent()
 }
 

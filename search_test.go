@@ -4,11 +4,13 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
-func lineContaining(d *Document, sub string) int32 {
+func lineContaining(d *model.Document, sub string) int32 {
 	for li := range d.Lines {
-		if strings.Contains(d.lineString(int32(li)), sub) {
+		if strings.Contains(d.LineString(int32(li)), sub) {
 			return int32(li)
 		}
 	}
@@ -27,7 +29,7 @@ func TestSearchPlain(t *testing.T) {
 	}
 	// Verify the first match slices back to the needle.
 	m := pv.search.matches[0]
-	runes := []rune(pv.doc.displayString(m.Line))
+	runes := []rune(pv.doc.DisplayString(m.Line))
 	if got := string(runes[m.ColStart:m.ColEnd]); got != "alpha" {
 		t.Errorf("match text = %q, want %q", got, "alpha")
 	}
@@ -64,18 +66,18 @@ func TestSearchBadRegex(t *testing.T) {
 func TestSearchRevealsFolded(t *testing.T) {
 	pv := docPV(`{"outer":{"deep":"needle"}}`, FormatJSON)
 	o := findFoldHead(pv.doc, `"outer"`)
-	pv.doc.fold.fold(pv.doc, o)
+	pv.doc.Fold(o)
 
 	deep := lineContaining(pv.doc, "needle")
 	if deep < 0 {
 		t.Fatal("could not find the deep line")
 	}
-	if pv.doc.fold.vis[deep] != 0 {
+	if pv.doc.Visible(deep) {
 		t.Fatal("precondition: deep line should be hidden before search")
 	}
 
 	pv.Search(SearchQuery{Text: "needle"})
-	if pv.doc.fold.vis[deep] != 1 {
+	if !pv.doc.Visible(deep) {
 		t.Error("search did not reveal the match inside the folded node")
 	}
 }
@@ -111,7 +113,7 @@ func TestSearchMultibyteColumns(t *testing.T) {
 		t.Fatalf("matches = %d, want 1", len(pv.search.matches))
 	}
 	m := pv.search.matches[0]
-	runes := []rune(pv.doc.displayString(m.Line))
+	runes := []rune(pv.doc.DisplayString(m.Line))
 	if got := string(runes[m.ColStart:m.ColEnd]); got != "wörld" {
 		t.Errorf("multibyte match = %q, want %q (rune columns wrong)", got, "wörld")
 	}
