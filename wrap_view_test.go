@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 )
 
 // rowWidgetText concatenates a live row's visible text runs in emission
@@ -116,5 +117,137 @@ func TestWrapVirtualizationRowCount(t *testing.T) {
 	t.Logf("wrapped big.json: %d visual rows, peak live widgets=%d (bound %d)", total, maxLive, bound)
 	if maxLive > bound {
 		t.Errorf("wrapped live rows peaked at %d, exceeding bound %d", maxLive, bound)
+	}
+}
+
+// TestWrapLongLineTextureCulled is the M-2 invariant under soft-wrap: a 2 MB
+// unbreakable value char-wraps, and every continuation row must paint a canvas.Text
+// no wider than the viewport — wrapping makes culling automatic.
+func TestWrapLongLineTextureCulled(t *testing.T) {
+	huge := make([]byte, 0, 2<<20+32)
+	huge = append(huge, `{"x":"`...)
+	for i := 0; i < 2<<20; i++ {
+		huge = append(huge, 'a')
+	}
+	huge = append(huge, `","y":1}`...)
+
+	pv, win := renderInWindow(t, huge, FormatJSON, 800, 600)
+	defer win.Close()
+	pv.SetWrap(WrapWord)
+
+	// The long value is line 1; scroll vertically well onto its continuation rows.
+	pv.r.scrollToOffset(fyne.NewPos(0, 60*pv.met.RowH))
+
+	viewport := pv.r.scroll.Size().Width
+	var worst float32
+	onContinuation := false
+	for _, rw := range pv.r.live {
+		if rw.sub > 0 {
+			onContinuation = true
+		}
+		if w := rw.maxTextWidth(); w > worst {
+			worst = w
+		}
+	}
+	if !onContinuation {
+		t.Fatal("expected to be scrolled onto wrapped continuation rows")
+	}
+	t.Logf("wrapped widest canvas.Text = %.0f px, viewport = %.0f px", worst, viewport)
+	if worst > viewport {
+		t.Errorf("wrapped text run %.0f px exceeds viewport %.0f — wrap culling broken", worst, viewport)
+	}
+}
+
+// TestCopyAcrossWrappedLinesHasNoSoftBreaks is the headline correctness property:
+// wrapping is presentational, so copying a selection spanning several wrapped lines
+// must yield one newline per LOGICAL line boundary and none for soft-breaks.
+func TestCopyAcrossWrappedLinesHasNoSoftBreaks(t *testing.T) {
+	long := strings.Repeat("wxyz ", 60)
+	src := []byte(`{"a":"` + long + `","b":"` + long + `","c":1}`)
+	pv, win := renderInWindow(t, src, FormatJSON, 400, 600)
+	defer win.Close()
+
+	pv.SetWrap(WrapWord)
+	// Confirm at least one selected line actually wraps (otherwise the test is moot).
+	if _, rows := widestWrappedLine(pv); rows < 2 {
+		t.Fatal("fixture did not wrap; cannot test soft-break exclusion")
+	}
+	pv.SelectAll()
+	txt := pv.SelectedText()
+	wantNL := pv.doc.TotalLines() - 1 // 5 logical lines -> 4 newlines
+	if got := strings.Count(txt, "\n"); got != wantNL {
+		t.Errorf("SelectedText has %d newlines, want %d (soft-breaks must not appear)", got, wantNL)
+	}
+}
+
+// TestMatchHighlightOnContinuationRow checks a search match that falls past the
+// first soft-break is highlighted on the correct continuation visual row.
+func TestMatchHighlightOnContinuationRow(t *testing.T) {
+	src := []byte(`{"k":"` + strings.Repeat("ab ", 90) + `ZZZ"}`) // ZZZ near the end
+	pv, win := renderInWindow(t, src, FormatJSON, 400, 600)
+	defer win.Close()
+	pv.SetWrap(WrapWord)
+	pv.Search(SearchQuery{Text: "ZZZ"})
+
+	if len(pv.search.matches) == 0 {
+		t.Fatal("no match found")
+	}
+	mt := pv.search.matches[0]
+	var dst []int32
+	dst = pv.doc.WrapBreaks(mt.Line, dst[:0])
+	if len(dst) < 3 {
+		t.Fatal("match line did not wrap")
+	}
+	sub := 0
+	for sub < len(dst)-2 && mt.ColStart >= int(dst[sub+1]) {
+		sub++
+	}
+	if sub == 0 {
+		t.Fatal("match landed on the first row; fixture too short to test continuation")
+	}
+	wantY := pv.met.RowY(int(pv.doc.FirstVisualRowOfLine(mt.Line)) + sub)
+	found := false
+	for _, rc := range pv.r.matchRects {
+		if rc.Visible() {
+			if dy := rc.Position().Y - wantY; dy < 0.5 && dy > -0.5 {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("no visible match highlight at continuation row y=%.1f (sub %d)", wantY, sub)
+	}
+}
+
+// TestWrapToggleRoundTrip checks SetWrap(WrapWord) then SetWrap(WrapNone) restores
+// the projection, the scroll direction, and the visual-row total exactly.
+func TestWrapToggleRoundTrip(t *testing.T) {
+	src := []byte(`{"k":"` + strings.Repeat("wxyz ", 60) + `","n":2}`)
+	pv, win := renderInWindow(t, src, FormatJSON, 400, 600)
+	defer win.Close()
+
+	noneTotal := pv.doc.TotalVisibleRows()
+	noneDir := pv.r.scroll.Direction
+
+	pv.SetWrap(WrapWord)
+	if !pv.doc.WrapActive() {
+		t.Fatal("wrap did not activate")
+	}
+	if pv.r.scroll.Direction != container.ScrollVerticalOnly {
+		t.Errorf("scroll direction = %v under wrap, want vertical-only", pv.r.scroll.Direction)
+	}
+	if pv.doc.TotalVisibleRows() <= noneTotal {
+		t.Errorf("wrap added no visual rows (%d <= %d)", pv.doc.TotalVisibleRows(), noneTotal)
+	}
+
+	pv.SetWrap(WrapNone)
+	if pv.doc.WrapActive() {
+		t.Fatal("wrap still active after SetWrap(WrapNone)")
+	}
+	if got := pv.doc.TotalVisibleRows(); got != noneTotal {
+		t.Errorf("toggle back changed total: %d != %d", got, noneTotal)
+	}
+	if pv.r.scroll.Direction != noneDir {
+		t.Errorf("scroll direction not restored: %v != %v", pv.r.scroll.Direction, noneDir)
 	}
 }

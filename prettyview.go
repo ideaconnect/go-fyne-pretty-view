@@ -294,16 +294,22 @@ func (pv *PrettyView) SetSyntaxColors(variant fyne.ThemeVariant, c SyntaxColors)
 	pv.Refresh()
 }
 
-// centerOnLine scrolls so that (line, col) is centered in the viewport.
+// centerOnLine scrolls so that (line, col) is centered in the viewport. Under
+// soft-wrap the target may be on a continuation sub-row, so the cell's exact
+// content-space origin (via geometry.CellOrigin) drives the vertical centering and
+// there is no horizontal scroll. The upper-bound guard keeps a stale line index
+// (e.g. from a match recorded before a fold change) from indexing out of range.
 func (pv *PrettyView) centerOnLine(line int32, col int) {
-	if pv.r == nil || line < 0 {
+	if pv.r == nil || line < 0 || int(line) >= pv.doc.TotalLines() {
 		return
 	}
-	row := int(pv.doc.RowOfLine(line))
-	depth := pv.doc.Lines[line].Depth
 	vp := pv.r.scroll.Size()
 	cs := pv.contentSize()
-	y := clampf(float32(row)*pv.met.RowH-(vp.Height-pv.met.RowH)/2, 0, max(0, cs.Height-vp.Height))
-	x := clampf(pv.met.ColX(depth, col)-vp.Width/2, 0, max(0, cs.Width-vp.Width))
+	cx, cy := geometry.CellOrigin(pv.doc, pv.met, line, col)
+	y := clampf(cy-(vp.Height-pv.met.RowH)/2, 0, max(0, cs.Height-vp.Height))
+	x := float32(0)
+	if !pv.doc.WrapActive() {
+		x = clampf(cx-vp.Width/2, 0, max(0, cs.Width-vp.Width))
+	}
 	pv.r.scrollToOffset(fyne.NewPos(x, y))
 }
