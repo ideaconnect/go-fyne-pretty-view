@@ -32,8 +32,14 @@ func (d *Document) CollapseAll() { d.fold.collapseAll(d) }
 // Collapsed reports whether node is collapsed.
 func (d *Document) Collapsed(node NodeID) bool { return d.fold.collapsed.get(node) }
 
-// Visible reports whether a display line is currently visible.
-func (d *Document) Visible(line int32) bool { return d.fold.vis[line] == 1 }
+// Visible reports whether a display line is currently visible. An out-of-range
+// line reports false (matching the guards on its sibling accessors).
+func (d *Document) Visible(line int32) bool {
+	if line < 0 || int(line) >= len(d.fold.vis) {
+		return false
+	}
+	return d.fold.vis[line] == 1
+}
 
 // Rebuild recomputes the projection from the collapsed bitset (used by tests and
 // after bulk fold changes).

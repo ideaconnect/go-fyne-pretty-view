@@ -61,13 +61,23 @@ func (s SyntaxColors) asTheme() Theme {
 
 // themeColor resolves a Fyne theme color for a specific variant via the active
 // theme interface (the package-level theme.Color only knows the current variant).
+// It falls back to the bundled default theme when no app/settings exist yet (e.g.
+// SetData called before app.New()), so headless construction never panics.
 func themeColor(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	return fyne.CurrentApp().Settings().Theme().Color(name, variant)
+	if app := fyne.CurrentApp(); app != nil && app.Settings() != nil && app.Settings().Theme() != nil {
+		return app.Settings().Theme().Color(name, variant)
+	}
+	return theme.DefaultTheme().Color(name, variant)
 }
 
+// withAlpha returns c with its alpha replaced by a, preserving the source hue.
+// It converts through the straight (non-premultiplied) NRGBA model first: reading
+// c.RGBA() directly would give alpha-PREMULTIPLIED channels, so a non-opaque input
+// (e.g. Fyne's selection color, alpha ~0x40) would come back darkened/desaturated.
 func withAlpha(c color.Color, a uint8) color.NRGBA {
-	r, g, b, _ := c.RGBA()
-	return color.NRGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), a}
+	nc := color.NRGBAModel.Convert(c).(color.NRGBA)
+	nc.A = a
+	return nc
 }
 
 // defaultSyntaxColors returns the built-in (Bruno-ish, VS Code Dark+ inspired)

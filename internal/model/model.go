@@ -114,14 +114,6 @@ type Node struct {
 	_          uint8 // padding
 }
 
-// firstChild returns the id of the node's first direct child, or NoNode.
-func (n *Node) firstChild(id NodeID) NodeID {
-	if n.ChildCount == 0 {
-		return NoNode
-	}
-	return id + 1
-}
-
 // Line is one display row. 24 bytes, no pointers.
 type Line struct {
 	Owner     NodeID // the structural node this line belongs to
@@ -150,6 +142,8 @@ type Document struct {
 
 	MaxLineRunes int   // widest expanded line, in runes (for content width)
 	MaxDepth     uint8 // deepest indentation level present
+
+	lineRunes []int32 // cached expanded displayed-rune-length per line (computeExtent)
 }
 
 // SegBytes returns the raw bytes a segment references.
@@ -195,9 +189,22 @@ func (d *Document) DisplayString(li int32) string {
 }
 
 // LineRuneLen returns the number of runes in a line's currently-displayed text.
+// The expanded length is cached at build time (computeExtent); a collapsed
+// fold-head's rendering is short (head + summary + close), so it is counted
+// directly rather than cached.
 func (d *Document) LineRuneLen(li int32) int {
+	if d.IsCollapsed(li) {
+		return countRunes(d, d.CollapsedSegs(li))
+	}
+	if int(li) < len(d.lineRunes) {
+		return int(d.lineRunes[li])
+	}
+	return countRunes(d, d.LineSegs(li)) // fallback for docs not built via Builder
+}
+
+func countRunes(d *Document, segs []Segment) int {
 	n := 0
-	for _, s := range d.DisplaySegs(li) {
+	for _, s := range segs {
 		n += utf8.RuneCount(d.SegBytes(s))
 	}
 	return n

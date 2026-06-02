@@ -1,6 +1,7 @@
 package prettyview
 
 import (
+	"image/color"
 	"testing"
 
 	"fyne.io/fyne/v2"
@@ -8,6 +9,18 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
+
+// TestWithAlphaPreservesHue is the regression for the premultiplied-RGB bug: for a
+// non-opaque source color, withAlpha must keep the straight R/G/B and only replace
+// the alpha. Reading c.RGBA() directly (premultiplied) would darken/desaturate it.
+func TestWithAlphaPreservesHue(t *testing.T) {
+	src := color.NRGBA{R: 0x00, G: 0x6c, B: 0xff, A: 0x40} // Fyne-like semi-transparent blue
+	got := withAlpha(src, 0x66)
+	want := color.NRGBA{R: 0x00, G: 0x6c, B: 0xff, A: 0x66}
+	if got != want {
+		t.Errorf("withAlpha = %v, want %v (must preserve straight RGB, only set alpha)", got, want)
+	}
+}
 
 func TestPaletteVariantsDiffer(t *testing.T) {
 	test.NewApp()
@@ -70,6 +83,39 @@ func TestThemeOverrideApplied(t *testing.T) {
 	pv.SetTheme(variant, Theme{ActiveMatch: testColor{1, 1, 1, 255}})
 	if pv.matchColor != match {
 		t.Error("SetTheme clobbered an earlier override")
+	}
+}
+
+// TestRecomputeMetricsMemoized verifies the metrics/palette are rebuilt only on a
+// theme change, not on every data/fold/search refresh, and that a runtime override
+// correctly forces a rebuild.
+func TestRecomputeMetricsMemoized(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON)
+	win := test.NewWindow(pv)
+	defer win.Close()
+	pv.Refresh()
+	if !pv.metricsReady {
+		t.Fatal("metrics should be ready after a render")
+	}
+	met0 := pv.met
+	palette0 := pv.palette
+
+	// A plain refresh (no theme/variant/text-size change) must reuse the measured
+	// cell and the same palette backing array — no MeasureText, no realloc.
+	pv.Refresh()
+	if pv.met != met0 {
+		t.Error("metrics changed on a non-theme refresh")
+	}
+	if &pv.palette[0] != &palette0[0] {
+		t.Error("palette was reallocated on a non-theme refresh (memo missed)")
+	}
+
+	// A runtime syntax override must rebuild the palette.
+	variant := fyne.CurrentApp().Settings().ThemeVariant()
+	pv.SetSyntaxColors(variant, SyntaxColors{Number: testColor{1, 2, 3, 255}})
+	if pv.palette[model.RoleNumber] != (testColor{1, 2, 3, 255}) {
+		t.Error("SetSyntaxColors did not rebuild the palette")
 	}
 }
 

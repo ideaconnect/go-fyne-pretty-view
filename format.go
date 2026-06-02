@@ -16,11 +16,12 @@ const (
 	FormatHTML  = model.FormatHTML  // HTML (tolerant)
 )
 
-// WrapMode controls long-line handling. The default, WrapNone, matches Bruno:
-// long lines overflow and are reached by horizontal scrolling.
+// WrapMode controls long-line handling. Only WrapNone is implemented today (long
+// lines overflow and are reached by horizontal scrolling, matching Bruno); WrapWord
+// is reserved for a future soft-wrap mode.
 type WrapMode uint8
 
 const (
-	WrapNone WrapMode = iota // long lines overflow; horizontal scroll (default)
-	WrapWord                 // soft-wrap to viewport width
+	WrapNone WrapMode = iota // long lines overflow; horizontal scroll (default, and the only mode implemented)
+	WrapWord                 // reserved: soft-wrap to viewport width is not yet implemented (behaves as WrapNone)
 )

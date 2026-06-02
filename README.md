@@ -152,6 +152,23 @@ myExpandButton.OnTapped = pv.ExpandAll
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
 | `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
 
+### Threading
+
+`PrettyView` follows the usual Fyne widget rule: it is **not safe for concurrent
+use** — call its methods (`SetData`, `Search`, `ExpandAll`, the selection and theme
+mutators, …) on the goroutine that runs the Fyne event loop. To drive it from
+another goroutine (e.g. after a network fetch), marshal the call with `fyne.Do`:
+
+```go
+go func() {
+    data := fetch()
+    fyne.Do(func() { pv.SetData(data, prettyview.FormatAuto) })
+}()
+```
+
+The widget holds no locks by design; its one internal background task — the search
+debounce — already marshals back onto the Fyne goroutine.
+
 ## Demo
 
 ```sh

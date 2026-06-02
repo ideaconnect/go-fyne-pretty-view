@@ -2,8 +2,11 @@ package prettyview
 
 import (
 	"os"
+	"strings"
 	"testing"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/test"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
@@ -79,5 +82,42 @@ func BenchmarkSearch(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pv.runSearch(SearchQuery{Text: "type"})
+	}
+}
+
+// BenchmarkHorizontalScrollHugeLine measures one reflow (rebuild of the visible
+// rows) of a document whose single value is a ~2 MB line, scrolled horizontally to
+// column 1000. This is the case build()'s cull must bound: the old code paid a full
+// utf8.RuneCount over the whole segment every reflow; the rewrite decodes only up to
+// the visible window.
+func BenchmarkHorizontalScrollHugeLine(b *testing.B) {
+	test.NewApp()
+	long := strings.Repeat("abcdefghij", 200_000) // 2 MB single line
+	pv := NewWithData([]byte(`["`+long+`"]`), FormatJSON)
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(400, 300))
+	pv.Refresh()
+	li := pv.doc.LineAtRow(1)
+	depth := pv.doc.Lines[li].Depth
+	row := int(pv.doc.RowOfLine(li))
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(depth, 1000), pv.met.RowY(row)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.r.reflow()
+	}
+}
+
+// BenchmarkSearchManyMatchesOneLine measures a search where thousands of matches
+// land on a single (raw) line — the O(K*L) case the addMatchB rune cursor fixes.
+func BenchmarkSearchManyMatchesOneLine(b *testing.B) {
+	line := strings.Repeat("needle ", 5000) // one raw line, 5000 matches
+	pv := New()
+	pv.doc = parse.Parse([]byte(line), FormatRaw, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.runSearch(SearchQuery{Text: "needle"})
 	}
 }

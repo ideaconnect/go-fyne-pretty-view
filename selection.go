@@ -33,6 +33,7 @@ type selection struct {
 	anchor, focus modelPos
 	active        bool // there is a non-empty selection
 	dragging      bool
+	placed        bool // a caret/anchor has been established by user interaction
 
 	grab         grabMode
 	grabA, grabB modelPos // the word/line originally grabbed (for double/triple-drag)
@@ -89,8 +90,18 @@ func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 	shift := ev.Modifier&fyne.KeyModifierShift != 0
 	switch {
 	case shift:
-		pv.sel.focus = pos
-		pv.sel.active = true
+		// Extend the selection from the established caret/anchor. If no caret has
+		// been placed yet (fresh widget, or just after ClearSelection), a stray
+		// shift-click must not select from the document origin — place the caret
+		// at the click instead. A real prior click at (0,0) sets placed, so
+		// shift-selecting from the top still works.
+		if pv.sel.placed {
+			pv.sel.focus = pos
+			pv.sel.active = true
+		} else {
+			pv.sel.anchor, pv.sel.focus = pos, pos
+			pv.sel.active = false
+		}
 		pv.sel.grab = grabNone
 	case pv.clickCount >= 3:
 		a, b := pv.lineBounds(pos.line)
@@ -107,6 +118,7 @@ func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 		pv.sel.grab = grabNone
 		pv.sel.active = false
 	}
+	pv.sel.placed = true // a caret/anchor now exists for subsequent shift-clicks
 	pv.refreshSelectionView()
 }
 
@@ -121,6 +133,20 @@ func (pv *PrettyView) Dragged(ev *fyne.DragEvent) {
 	if pos.line < 0 {
 		return
 	}
+	pv.applyHit(pos)
+	pv.sel.active = true
+	pv.sel.dragging = true
+	pv.autoscrollEdge(ev.Position)
+	pv.refreshSelectionView()
+}
+
+// applyHit moves the drag focus to pos, honoring the active grab mode: a word- or
+// line-grab (double/triple-click drag) extends the selection to the whole word or
+// line under pos via extendGrab, while a plain drag just moves the focus. Both the
+// pointer-driven Dragged and the edge auto-scroll go through here so a drag that
+// reaches the viewport edge keeps extending by word/line instead of collapsing to
+// a single character. The anchor is set authoritatively in MouseDown.
+func (pv *PrettyView) applyHit(pos modelPos) {
 	switch pv.sel.grab {
 	case grabWord:
 		a, b := pv.wordBounds(pos.line, pos.col)
@@ -129,13 +155,8 @@ func (pv *PrettyView) Dragged(ev *fyne.DragEvent) {
 		a, b := pv.lineBounds(pos.line)
 		pv.extendGrab(a, b)
 	default:
-		// Anchor is set authoritatively in MouseDown and never recomputed here.
 		pv.sel.focus = pos
 	}
-	pv.sel.active = true
-	pv.sel.dragging = true
-	pv.autoscrollEdge(ev.Position)
-	pv.refreshSelectionView()
 }
 
 func (pv *PrettyView) DragEnd() {
@@ -184,7 +205,7 @@ func (pv *PrettyView) autoscrollEdge(local fyne.Position) {
 		pv.r.scrollBy(dx, dy)
 		cx, cy := pv.contentPos(local)
 		if pos := pv.hitTest(cx, cy); pos.line >= 0 {
-			pv.sel.focus = pos
+			pv.applyHit(pos) // honor word/line grab during edge auto-scroll, not just plain focus
 		}
 	}
 }
@@ -248,6 +269,7 @@ func (pv *PrettyView) SelectAll() {
 	pv.sel.focus = modelPos{line: last, col: pv.doc.LineRuneLen(last)}
 	pv.sel.active = true
 	pv.sel.grab = grabNone
+	pv.sel.placed = true
 	pv.refreshSelectionView()
 }
 
@@ -377,21 +399,32 @@ func (pv *PrettyView) subtreeText(node model.NodeID) string {
 
 // nodeAtByteOffset returns the deepest node whose source span contains offset
 // (JSON only; XML/HTML lack offsets and return model.NoNode).
+//
+// Nodes are emitted in depth-first preorder, so SrcStart is non-decreasing in id
+// order and a subtree occupies a contiguous id range. We binary-search the last
+// node starting at or before off, then walk up ancestors to the first that
+// actually spans off — O(log n + depth) instead of an O(n) scan of every node.
 func (pv *PrettyView) nodeAtByteOffset(offset int) model.NodeID {
-	best := model.NoNode
+	nodes := pv.doc.Nodes
 	off := uint32(offset)
-	for id := range pv.doc.Nodes {
-		n := &pv.doc.Nodes[id]
-		if n.SrcEnd == 0 && n.SrcStart == 0 {
-			continue
-		}
-		if off >= n.SrcStart && off < n.SrcEnd {
-			if best == model.NoNode || n.Depth > pv.doc.Nodes[best].Depth {
-				best = model.NodeID(id)
-			}
+	lo, hi := 0, len(nodes)
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		if nodes[mid].SrcStart <= off {
+			lo = mid + 1
+		} else {
+			hi = mid
 		}
 	}
-	return best
+	// nodes[lo-1] has the greatest SrcStart <= off; the deepest container is it or
+	// an ancestor (nodes whose subtree ended before off are skipped by the span test).
+	for id := lo - 1; id >= 0; id = int(nodes[id].Parent) {
+		n := &nodes[id]
+		if n.SrcEnd > n.SrcStart && off >= n.SrcStart && off < n.SrcEnd {
+			return model.NodeID(id)
+		}
+	}
+	return model.NoNode
 }
 
 func (pv *PrettyView) refreshSelectionView() {

@@ -6,17 +6,60 @@ import (
 	"testing"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
 )
 
+// TestNodeAtByteOffsetMatchesBruteForce validates the binary-search node lookup
+// against the original O(n) deepest-container scan across many offsets of a real
+// document — i.e. that SrcStart really is monotonic in id order and the parent walk
+// finds the same node.
+func TestNodeAtByteOffsetMatchesBruteForce(t *testing.T) {
+	src, err := os.ReadFile("testdata/openapi.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pv := docPV(string(src), FormatJSON)
+
+	brute := func(off int) model.NodeID {
+		best := model.NoNode
+		o := uint32(off)
+		for id := range pv.doc.Nodes {
+			n := &pv.doc.Nodes[id]
+			if n.SrcEnd == 0 && n.SrcStart == 0 {
+				continue
+			}
+			if o >= n.SrcStart && o < n.SrcEnd {
+				if best == model.NoNode || n.Depth > pv.doc.Nodes[best].Depth {
+					best = model.NodeID(id)
+				}
+			}
+		}
+		return best
+	}
+
+	step := len(src)/3000 + 1
+	for off := 0; off < len(src); off += step {
+		if got, want := pv.nodeAtByteOffset(off), brute(off); got != want {
+			t.Fatalf("offset %d: nodeAtByteOffset=%d, brute-force=%d", off, got, want)
+		}
+	}
+}
+
 func desktopMouse(x, y float32) *desktop.MouseEvent {
 	return &desktop.MouseEvent{
 		PointEvent: fyne.PointEvent{Position: fyne.NewPos(x, y)},
 		Button:     desktop.MouseButtonPrimary,
 	}
+}
+
+func shiftMouse(x, y float32) *desktop.MouseEvent {
+	ev := desktopMouse(x, y)
+	ev.Modifier = fyne.KeyModifierShift
+	return ev
 }
 
 func docPV(src string, f Format) *PrettyView {
@@ -146,5 +189,133 @@ func TestDragSelectionIntegration(t *testing.T) {
 	got := pv.SelectedText()
 	if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") {
 		t.Errorf("drag selection missing expected content:\n%s", got)
+	}
+}
+
+// TestShiftClickWithoutPriorSelection is the regression for bug #8: a shift-click
+// on a fresh widget (no caret established) must NOT select from the document
+// origin — it places the caret at the click. A subsequent shift-click then
+// extends from that caret.
+func TestShiftClickWithoutPriorSelection(t *testing.T) {
+	pv, win := renderInWindow(t, []byte(`{"alpha":1,"beta":2,"gamma":3}`), FormatJSON, 600, 400)
+	defer win.Close()
+
+	li2 := pv.doc.LineAtRow(2)
+	x, y := geometry.CellOrigin(pv.doc, pv.met, li2, 3)
+	pv.MouseDown(shiftMouse(x, y+1)) // shift-click, nothing selected before
+
+	if got := pv.SelectedText(); got != "" {
+		t.Errorf("shift-click with no prior selection must not select; got %q", got)
+	}
+
+	// A second shift-click now extends from the just-placed caret (row 2 -> row 1),
+	// and must not reach row 0 ('{').
+	li1 := pv.doc.LineAtRow(1)
+	x1, y1 := geometry.CellOrigin(pv.doc, pv.met, li1, 0)
+	pv.MouseDown(shiftMouse(x1, y1+1))
+	got := pv.SelectedText()
+	if got == "" || strings.Contains(got, "{") {
+		t.Errorf("second shift-click should select between carets (rows 1-2), not from the top; got %q", got)
+	}
+}
+
+// TestShiftClickExtendsFromRealTopClick guards the inverse: a genuine plain click
+// at (line 0, col 0) followed by a shift-click DOES select from the top — the fix
+// must distinguish a real top click from the zero-value default (so a bool flag is
+// required, not an "anchor == {0,0}" heuristic). Raw text is used so line 0 is
+// selectable text rather than a fold-triangle row.
+func TestShiftClickExtendsFromRealTopClick(t *testing.T) {
+	pv, win := renderInWindow(t, []byte("alpha\nbeta\ngamma"), FormatRaw, 600, 400)
+	defer win.Close()
+
+	x0, y0 := geometry.CellOrigin(pv.doc, pv.met, pv.doc.LineAtRow(0), 0)
+	pv.MouseDown(desktopMouse(x0, y0+1)) // real caret at the document top -> modelPos{0,0}
+
+	li2 := pv.doc.LineAtRow(2)
+	x2, y2 := geometry.CellOrigin(pv.doc, pv.met, li2, pv.doc.LineRuneLen(li2))
+	pv.MouseDown(shiftMouse(x2, y2+1))
+
+	if got := pv.SelectedText(); !strings.Contains(got, "alpha") {
+		t.Errorf("shift-click after a real top click should select from the top; got %q", got)
+	}
+}
+
+// TestShiftClickAfterClearDoesNotSelectFromTop ensures Escape (ClearSelection)
+// resets the caret so a following shift-click is a no-op, not a top selection.
+func TestShiftClickAfterClearDoesNotSelectFromTop(t *testing.T) {
+	pv, win := renderInWindow(t, []byte(`{"alpha":1,"beta":2,"gamma":3}`), FormatJSON, 600, 400)
+	defer win.Close()
+
+	// Establish a selection, then clear it (as Escape does).
+	pv.SelectAll()
+	pv.ClearSelection()
+
+	li2 := pv.doc.LineAtRow(2)
+	x, y := geometry.CellOrigin(pv.doc, pv.met, li2, 3)
+	pv.MouseDown(shiftMouse(x, y+1))
+	if got := pv.SelectedText(); got != "" {
+		t.Errorf("shift-click after ClearSelection must not select from the top; got %q", got)
+	}
+}
+
+// TestSetDataClearsStaleSelection is the regression for the stale-selection bug:
+// loading a new (smaller) document must drop the old selection — both so the
+// cleared text is empty and so resolving a now-out-of-range line can't panic.
+func TestSetDataClearsStaleSelection(t *testing.T) {
+	pv, win := renderInWindow(t, []byte(`{"alpha":1,"beta":2,"gamma":3}`), FormatJSON, 600, 400)
+	defer win.Close()
+
+	pv.SelectAll()
+	if pv.SelectedText() == "" {
+		t.Fatal("precondition: expected a selection")
+	}
+	pv.SetData([]byte(`{}`), FormatJSON) // far fewer lines than the old selection spanned
+	if got := pv.SelectedText(); got != "" {
+		t.Errorf("selection should be cleared after SetData; got %q", got)
+	}
+}
+
+// TestSetDataEmptyClearsHighlightRects checks the empty-document reflow branch
+// drops leftover selection rectangles instead of leaving them painted.
+func TestSetDataEmptyClearsHighlightRects(t *testing.T) {
+	pv, win := renderInWindow(t, []byte(`{"alpha":1,"beta":2,"gamma":3}`), FormatJSON, 600, 400)
+	defer win.Close()
+
+	pv.SelectAll()
+	pv.r.reflow()
+	if len(pv.r.selLayer.Objects) == 0 {
+		t.Fatal("precondition: expected selection rectangles on screen")
+	}
+	pv.SetData([]byte(""), FormatRaw) // empty document -> total visible rows 0
+	pv.r.reflow()
+	if n := len(pv.r.selLayer.Objects); n != 0 {
+		t.Errorf("empty document should clear selection rectangles; got %d", n)
+	}
+}
+
+// TestApplyHitHonorsWordGrab covers the fix shared by Dragged and the edge
+// auto-scroll: with a word grab active, advancing the hit position must extend the
+// selection to whole words (not collapse the focus to a single character — the bug
+// that surfaced specifically during edge auto-scroll).
+func TestApplyHitHonorsWordGrab(t *testing.T) {
+	pv, win := renderInWindow(t, []byte(`{"hello":"world"}`), FormatJSON, 600, 400)
+	defer win.Close()
+
+	li := pv.doc.LineAtRow(1) // `"hello": "world"`
+	a, b := pv.wordBounds(li, 2)
+	pv.sel.grab, pv.sel.grabA, pv.sel.grabB = grabWord, a, b
+	pv.sel.anchor, pv.sel.focus = a, b
+	pv.sel.active = true
+
+	disp := pv.doc.DisplayString(li)
+	wcol := strings.Index(disp, "world") // ASCII: byte index == rune column
+	if wcol < 0 {
+		t.Fatal("could not locate 'world' in the displayed line")
+	}
+	pv.applyHit(modelPos{line: li, col: wcol + 1}) // a position inside "world"
+
+	got := pv.SelectedText()
+	if !strings.Contains(got, "hello") || !strings.Contains(got, "world") {
+		t.Errorf("word-grab drag should span whole words 'hello'..'world'; got %q", got)
 	}
 }

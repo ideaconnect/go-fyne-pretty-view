@@ -19,6 +19,27 @@ func TestArenaSizes(t *testing.T) {
 	}
 }
 
+// TestSegCountSaturates checks that a pathological line with more segments than a
+// uint16 can address saturates its SegCount instead of wrapping to a corrupt
+// small value (which would make LineSegs slice an out-of-range / truncated range).
+func TestSegCountSaturates(t *testing.T) {
+	b := NewBuilder(nil, FormatRaw, 0)
+	segs := make([]Seg, maxLineSegs+1000)
+	for i := range segs {
+		segs[i] = LitSeg(RolePlain, "x")
+	}
+	b.Leaf(KindRawLine, 0, 0, segs)
+	d := b.Finish()
+
+	li := int32(len(d.Lines) - 1) // the leaf we just added
+	if d.Lines[li].SegCount != maxLineSegs {
+		t.Errorf("SegCount = %d, want saturated %d", d.Lines[li].SegCount, maxLineSegs)
+	}
+	if got := len(d.LineSegs(li)); got != maxLineSegs {
+		t.Errorf("LineSegs len = %d, want %d (must not panic or wrap)", got, maxLineSegs)
+	}
+}
+
 // TestEmptyDocument constructs the zero document and checks the projection is
 // consistent (no panics, no visible rows).
 func TestEmptyDocument(t *testing.T) {

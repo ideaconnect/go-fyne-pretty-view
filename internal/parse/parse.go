@@ -23,6 +23,24 @@ const (
 	FormatHTML  = model.FormatHTML
 )
 
+// sniffLimit bounds how many bytes format auto-detection inspects, so a large file
+// is not fully lower-cased / scanned just to identify its format.
+const sniffLimit = 4096
+
+// hasPrefixFold reports whether s begins with prefix, case-insensitively, without
+// allocating a lower-cased copy (unlike bytes.ToLower + bytes.HasPrefix).
+func hasPrefixFold(s, prefix []byte) bool {
+	return len(s) >= len(prefix) && bytes.EqualFold(s[:len(prefix)], prefix)
+}
+
+// maxNestDepth bounds how deeply the recursive parsers (JSON containers, XML
+// elements) will descend. Real data never approaches this; the cap exists so a
+// pathologically deep input (e.g. hundreds of thousands of nested brackets) is
+// truncated to a partial document instead of overflowing the goroutine stack,
+// which is a fatal, unrecoverable crash. The recovered structure above the cap is
+// kept (parsers are tolerant), so the cap degrades gracefully rather than failing.
+const maxNestDepth = 10000
+
 // Parser turns a byte buffer into a Document by driving a model.Builder. A parser
 // must be tolerant: on malformed input it emits whatever partial structure it has
 // recovered rather than failing outright.
@@ -65,18 +83,24 @@ func parserFor(f Format) Parser {
 }
 
 // Parse parses src under format (FormatAuto detects). On a structured parse
-// failure it falls back to a raw document so content always displays.
-func Parse(src []byte, format Format, collapseDepth int) *model.Document {
+// failure it falls back to a raw document so content always displays. The optional
+// tabWidth (default 4) sets how raw-mode tabs are expanded to the monospace grid;
+// it is variadic so the many internal callers that don't care can omit it.
+func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model.Document {
+	tw := 4
+	if len(tabWidth) > 0 && tabWidth[0] > 0 {
+		tw = tabWidth[0]
+	}
 	if format == FormatAuto {
 		format = AutoDetect(src)
 	}
 	p := parserFor(format)
 	if p == nil { // FormatRaw (or anything without a parser)
-		return parseRaw(src, collapseDepth)
+		return parseRaw(src, collapseDepth, tw)
 	}
 	b := model.NewBuilder(src, format, collapseDepth)
 	if err := p.Parse(src, b); err != nil {
-		return parseRaw(src, collapseDepth)
+		return parseRaw(src, collapseDepth, tw)
 	}
 	return b.Finish()
 }

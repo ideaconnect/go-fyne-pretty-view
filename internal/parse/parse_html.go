@@ -22,13 +22,19 @@ func (htmlParser) Detect(src []byte) int {
 	if len(t) == 0 || t[0] != '<' {
 		return 0
 	}
-	lower := bytes.ToLower(t)
-	switch {
-	case bytes.HasPrefix(lower, []byte("<!doctype html")):
+	if hasPrefixFold(t, []byte("<!doctype html")) {
 		return 95
-	case bytes.HasPrefix(lower, []byte("<html")):
+	}
+	if hasPrefixFold(t, []byte("<html")) {
 		return 90
 	}
+	// Only the head needs sniffing for structural tags; bound the lower-case + scan
+	// so a large file is not fully copied just to detect the format.
+	head := t
+	if len(head) > sniffLimit {
+		head = head[:sniffLimit]
+	}
+	lower := bytes.ToLower(head)
 	for _, tag := range [][]byte{[]byte("<body"), []byte("<head"), []byte("<div"), []byte("<span"), []byte("<p>"), []byte("<a ")} {
 		if bytes.Contains(lower, tag) {
 			return 60

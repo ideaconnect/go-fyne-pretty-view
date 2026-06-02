@@ -4,7 +4,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
+	"fyne.io/fyne/v2/test"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
@@ -135,5 +137,76 @@ func TestSearchHighlightBounded(t *testing.T) {
 	t.Logf("matches=%d capped=%v, match rects on screen=%d, visible rows=%d", total, capped, rects, visRows)
 	if rects > visRows*8 {
 		t.Errorf("match rect count %d exceeds visible bound (%d rows)", rects, visRows)
+	}
+}
+
+// TestClearSearchStopsPendingTimer is the regression for the debounce-timer
+// lifecycle: a pending debounced scan must be cancelled by ClearSearch (the path
+// SetData uses), so a stale query can't repopulate matches after a clear/reload.
+func TestClearSearchStopsPendingTimer(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: time.Second, MinQueryLen: 1}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	pv.searchDebounced(SearchQuery{Text: "a"})
+	if pv.searchTimer == nil {
+		t.Fatal("debounce should arm a timer")
+	}
+	pv.ClearSearch()
+	if pv.searchTimer != nil {
+		t.Error("ClearSearch must stop and clear the pending debounce timer")
+	}
+}
+
+// TestDestroyStopsPendingTimer checks teardown cancels the debounce timer and sets
+// the guard flag, so the AfterFunc can't fire a scan after the widget is gone.
+func TestDestroyStopsPendingTimer(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: time.Second, MinQueryLen: 1}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	pv.searchDebounced(SearchQuery{Text: "a"})
+	if pv.searchTimer == nil {
+		t.Fatal("debounce should arm a timer")
+	}
+	pv.r.Destroy()
+	if !pv.destroyed.Load() {
+		t.Error("Destroy must set the destroyed guard flag")
+	}
+	if pv.searchTimer != nil {
+		t.Error("Destroy must stop the pending debounce timer")
+	}
+}
+
+// TestSearchGenerationInvalidatesStaleScan checks the generation counter that
+// makes an already-fired-but-queued debounce callback recognize it has been
+// superseded: both a newer debounce and ClearSearch/SetData bump the generation,
+// so the queued closure's captured gen no longer matches and it skips itself.
+func TestSearchGenerationInvalidatesStaleScan(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: time.Second, MinQueryLen: 1}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	g0 := pv.searchGen
+	pv.searchDebounced(SearchQuery{Text: "a"})
+	if pv.searchGen == g0 {
+		t.Error("searchDebounced must bump the search generation to supersede earlier scans")
+	}
+	g1 := pv.searchGen
+	pv.ClearSearch()
+	if pv.searchGen == g1 {
+		t.Error("ClearSearch must bump the search generation to invalidate a queued scan")
+	}
+	// SetData goes through ClearSearch, so it bumps too.
+	g2 := pv.searchGen
+	pv.SetData([]byte(`{"b":2}`), FormatJSON)
+	if pv.searchGen == g2 {
+		t.Error("SetData (via ClearSearch) must bump the search generation")
 	}
 }

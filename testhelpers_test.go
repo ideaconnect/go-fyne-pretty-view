@@ -1,24 +1,10 @@
 package prettyview
 
 import (
-	"os"
-	"testing"
-
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
 )
 
 // Shared test helpers for the view package, built on the exported model API.
-
-// loadDoc parses a fixture file under testdata/.
-func loadDoc(t *testing.T, name string, f Format) *model.Document {
-	t.Helper()
-	src, err := os.ReadFile("testdata/" + name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return parse.Parse(src, f, 0)
-}
 
 // findFoldHead returns the first foldable node whose head line begins with the
 // given key text (e.g. `"info"`), or NoNode.

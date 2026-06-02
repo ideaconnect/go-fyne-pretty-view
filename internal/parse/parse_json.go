@@ -41,7 +41,13 @@ func (p jsonParser) Parse(src []byte, b *model.Builder) error {
 	if s.pos >= len(s.src) {
 		return errors.New("prettyview: empty JSON input")
 	}
-	if _, ok := s.parseValue(nil, false, s.pos); !ok {
+	// Tolerant by contract (see Parser): on a truncated/malformed value we keep
+	// whatever structure was recovered rather than failing outright. parseValue
+	// emits nodes as it goes and returns the root node even when it stops early,
+	// and Builder.Finish force-closes any dangling container. We only fall back to
+	// raw when nothing structural was recovered at all (id == NoNode), e.g. a bare
+	// unterminated string or non-JSON junk under a forced JSON format.
+	if id, ok := s.parseValue(nil, false, s.pos); !ok && id == model.NoNode {
 		return s.err
 	}
 	return nil
@@ -192,6 +198,12 @@ func (s *jsonScanner) emitScalar(prefix []model.Seg, isMember bool, srcStart, sr
 }
 
 func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart int, open, close byte, kind model.Kind) (model.NodeID, bool) {
+	// Bound recursion: refuse to descend past the nesting cap so adversarial input
+	// can't overflow the stack. The error routes to the tolerant partial render (or
+	// raw fallback if nothing was recovered at all).
+	if s.b.Depth() >= maxNestDepth {
+		return model.NoNode, s.fail("maximum nesting depth exceeded")
+	}
 	s.pos++ // consume opening brace/bracket
 
 	// Empty container: render as a single leaf `{}` / `[]`.
@@ -249,6 +261,13 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 
 		childID, ok := s.parseValue(childPrefix, kind == model.KindObject, childStart)
 		if !ok {
+			// Tolerant recovery: if a key was consumed but its value was truncated
+			// (no value node emitted), keep the key visible as an error marker so a
+			// cut-off member isn't silently dropped. If parseValue already emitted a
+			// partial nested node, that node carries the key — don't duplicate it.
+			if childID == model.NoNode && len(childPrefix) > 0 {
+				s.b.Leaf(model.KindError, childStart, s.pos, childPrefix)
+			}
 			break
 		}
 

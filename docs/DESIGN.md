@@ -174,7 +174,7 @@ func (pv *PrettyView) Disabled() bool
 
 // --- Search ---
 
-// Search starts/replaces an incremental search (debounced, chunked, cancellable).
+// Search starts/replaces an incremental search (debounced, synchronous, capped).
 func (pv *PrettyView) Search(q SearchQuery)
 func (pv *PrettyView) SearchNext()
 func (pv *PrettyView) SearchPrev()
@@ -196,7 +196,7 @@ type Option func(*config)
 
 func WithFormat(f Format) Option              // force a format (skip auto-detect)
 func WithWrap(m WrapMode) Option              // WrapNone (default) | WrapWord
-func WithSearchConfig(c SearchConfig) Option  // MaxMatches, DebounceFor, Chunk bytes, MinQueryLen
+func WithSearchConfig(c SearchConfig) Option  // MaxMatches, DebounceFor, MinQueryLen
 func WithDefaultCollapseDepth(d int) Option   // auto-collapse below depth d on load
 func WithTabWidth(n int) Option               // tab expansion width for display (default 4)
 func WithIndentStep(px float32) Option        // pixels per indent level
@@ -304,9 +304,9 @@ type Document struct {
 The renderer/selection/search all consume one **display string per logical line** (tab-expanded, entity-decoded). Copy must round-trip the **original** bytes (tabs preserved). So each line carries two views:
 
 - **display runes** — derived on demand from the line's segments (tab-expanded). Used for hit-test columns, rendering, search.
-- **`colMap`** — for lines that contain tabs or decoded entities, a small `[]colSpan{dispColStart, srcByteStart, srcByteEnd}` mapping display columns back to `Src` byte ranges. For `uniformGrid && noTabs` lines (the overwhelming common case) `colMap` is empty (identity) and costs nothing.
+- **`colMap`** *(envisaged, not shipped)* — a per-line `[]colSpan{dispColStart, srcByteStart, srcByteEnd}` mapping display columns back to `Src` byte ranges, intended for lines containing tabs or decoded entities. The shipped model stores no such map: a display line is its segment runs, copy reconstructs text from the displayed segments directly (`DisplayString`/`selectedText`), and tabs are **not** expanded (one rune = one cell, see §6.3). `WithTabWidth` is currently inert — tab handling and the `colMap` round-trip are deferred.
 
-Copy of a display-column span `[c0,c1)` maps each column to its source byte range via `colMap` and slices `Document.Src`, emitting real `\t`. (A2 Issue #4: copying expanded spaces would silently corrupt; the map fixes it.)
+The copy path slices the displayed segments for a display-column span `[c0,c1)` (`selection.go`), so it round-trips the segments' bytes as shown. Tab expansion (which would need `colMap` to copy real `\t` without corrupting columns, per A2 Issue #4) is future work.
 
 ### 4.4 Visible-row projection — Fenwick over per-node visible-row counts
 
@@ -584,7 +584,7 @@ func (pv *PrettyView) hitTest(local fyne.Position) Pos {
 }
 ```
 
-`round((x-indentX)/charWidth)` is algebraically identical to `selectable.cursorColAt`'s `pos.X < indentX + col*charWidth + charWidth/2` (selectable.go:190) for uniform `charWidth` — we close-form it, avoiding the O(n) per-prefix MeasureText thrash (R2 §2). **Proportional/CJK/combining fallback:** each `Line` is tagged `uniformGrid bool` at parse; non-uniform lines build a lazy cached `prefixW []float32` and binary-search — O(log n) per hit-test, O(n) MeasureText **once per such line ever touched**, never per mouse-move.
+`round((x-indentX)/charWidth)` is algebraically identical to `selectable.cursorColAt`'s `pos.X < indentX + col*charWidth + charWidth/2` (selectable.go:190) for uniform `charWidth` — we close-form it, avoiding the O(n) per-prefix MeasureText thrash (R2 §2). The shipped code (`internal/geometry`'s `ColX`/`ColAtX`) computes columns on a **uniform monospace grid only**: one rune = one `CharWidth` cell. **Not implemented (known limitation):** the once-envisaged proportional/CJK/combining-glyph fallback (a per-`Line` `uniformGrid bool` tag plus a lazy cached `prefixW []float32` binary-searched per hit-test, O(log n) per hit-test and one O(n) MeasureText per such line). The target content is ASCII/BMP monospace JSON/XML/HTML, where the uniform grid is exact; wide (CJK), zero-width (combining), and proportional glyphs render and hit-test on the same single-cell advance, so they can mis-align and mis-hit-test. The prefix-width scheme above is the intended escalation if that becomes a goal.
 
 ### 6.4 Event wiring
 
@@ -668,7 +668,6 @@ type SearchResult struct {
 type SearchConfig struct {
 	MaxMatches  int           // default 10_000
 	DebounceFor time.Duration // default 150ms
-	ChunkBytes  int           // scan ~this many bytes per fyne.Do slice (A2 Issue #5: bytes, not nodes)
 	MinQueryLen int           // default 1
 }
 ```
@@ -677,11 +676,13 @@ Keying by **`NodeID`** (not visible-row) makes matches survive fold/unfold; `mat
 
 ### 7.2 Scan (RE2, single-pass byte→rune — resolves A2 Issue #5)
 
-`regexp` (RE2) is linear-time and safe for live-typed patterns; case-insensitive uses inline `(?i)`. Plain mode: lower-case fast path only when the line is pure-ASCII; if the line has any byte ≥ 0x80, do a **rune-wise `unicode.ToLower` fold** (the `len(ToLower)!=len` guard alone is unsound — e.g. U+212A). **Byte→rune offsets are converted in ONE forward pass per line** maintaining `(bytesConsumed, runesConsumed)` — O(L), never O(K·L) (A2 Issue #5: per-match `utf8.RuneCountInString(s[:b])` is quadratic on a long single-line minified doc). **Chunk by bytes scanned, not nodes** — one giant minified line still yields control. Search ignores synthetic summary text; it scans real `LineText`.
+`regexp` (RE2) is linear-time and safe for live-typed patterns; case-insensitive uses inline `(?i)`. Plain mode: lower-case fast path only when the line is pure-ASCII; if the line has any byte ≥ 0x80, do a **rune-wise `unicode.ToLower` fold** (the `len(ToLower)!=len` guard alone is unsound — e.g. U+212A). **Byte→rune offsets are converted in ONE forward pass per line** maintaining `(bytesConsumed, runesConsumed)` — O(L), never O(K·L) (A2 Issue #5: per-match `utf8.RuneCountInString(s[:b])` is quadratic on a long single-line minified doc). *(Shipped: `colCursor` in search.go.)* Search ignores synthetic summary text; it scans real `LineText`.
 
 ### 7.3 Threading & supersession
 
-A worker goroutine scans in `ChunkBytes` slices, publishing snapshots via `fyne.Do` (thread.go:18). A `gen uint64` + cancel channel make last-query-wins: a superseded scan stops producing and stale publishes are dropped. Keystrokes are debounced (150 ms) on the main goroutine. **Search reads only immutable arenas** (`Src`, `Nodes`, `Segs`, precomputed `LineText`); only `foldIndex` mutates and the scan never touches it — documented invariant (A2 lower-severity). `LineText` for searchable content is fully precomputed at parse (no lazy `Aux` synthesis during scan).
+**Shipped: the scan is synchronous on the Fyne goroutine, not a worker.** With the single-pass byte→rune conversion (§7.2) and a hard `MaxMatches` cap, a full scan is O(total bytes) and stays under a frame — ~5 ms over the 7.5 MB / 440k-line fixture — so keystroke debouncing (`searchDebounced`, 150 ms, via `time.AfterFunc`+`fyne.Do`) is enough to keep typing smooth. A `searchGen` counter gives last-query-wins: a debounce callback that fired before a newer keystroke / `ClearSearch` / `SetData` checks the generation and skips itself.
+
+The originally-designed **off-thread chunked scan** (a worker producing `ChunkBytes` slices, publishing snapshots via `fyne.Do`, with a `gen`+cancel channel) is **not implemented and not needed** at the in-memory sizes this viewer targets — and keeping the scan on the Fyne goroutine is what makes search/​reflow access to `pv.search` race-free without a mutex (running it off-thread would reintroduce that race). The ceiling is a single multi-gigabyte document, which is out of scope. **Search reads only immutable arenas** (`Src`, `Nodes`, `Segs`); only `foldIndex` and the search state mutate, always on the Fyne goroutine.
 
 ### 7.4 Navigation & reveal (resolves A2 Issue #6)
 
@@ -722,7 +723,7 @@ Tokens store a 1-byte `ColorRole`; a `palette []color.Color` is rebuilt **once p
 ## 9. Threading & large-file handling
 
 - **Parse off-thread, swap on-thread.** `SetData` launches `go parse(...)`; on completion `fyne.Do(func(){ pv.swapModel(m); pv.recomputeContentSize(); pv.Refresh() })` (thread.go:18; R4 §4). The worker never touches widgets, `Offset`, pooled rows, or `Refresh`.
-- **Search** as §7.3 (chunked, `fyne.Do` snapshots, gen/cancel).
+- **Search** as §7.3 (synchronous on the Fyne goroutine, debounced, `searchGen` last-query-wins).
 - **Autoscroll ticker** as §6.6 (pure clock; all UI work inside `fyne.Do`).
 - **Invariant:** post-parse arenas (`Src`, `Nodes`, `Segs`, `Aux`, precomputed `LineText`) are read-only; only `foldIndex` and selection/search state mutate, always on the Fyne goroutine. Workers read only the immutable arenas.
 
@@ -741,7 +742,7 @@ Tokens store a 1-byte `ColorRole`; a `palette []color.Color` is rebuilt **once p
 | R-7 | **Hit-test off-by-one** (missing origin term) — A2 Issue #2 | Med | One origin convention (top-pad 0, integer `rowH`, `floor(contentY/rowH)`) across reflow/hitTest/rects. §5.3. Golden round-trip test. |
 | R-8 | **Wrong columns copied under horizontal scroll** (Offset.X dropped) — A2 Issue #3 | Blocker (data corruption) | `contentX = local.X + Offset.X` in hit-test. §5.3/§6.3. |
 | R-9 | **Tabs → clipboard ≠ source** — A2 Issue #4 | Med | `colMap` display-col→source-byte; copy slices `Src` with real `\t`. §4.3/§6.8. |
-| R-10 | **O(K·L) byte→rune in search** — A2 Issue #5 | High (freeze) | Single forward pass per line; chunk by bytes. §7.2. |
+| R-10 | **O(K·L) byte→rune in search** — A2 Issue #5 | High (freeze) | **Resolved:** single forward pass per line (`colCursor`, §7.2); ~5 ms full scan of the 7.5 MB fixture, so the synchronous scan needs no chunking (§7.3). |
 | R-11 | **Reveal frame-drops + mid-scan viewport yank** — A2 Issue #6 | High | Fixed-height fast path; batched ancestor expand; debounced reveal scroll; auto-reveal only on user intent. §7.4. |
 | R-12 | **`lineID→row` map → O(n) rebuild per fold; "O(log n) fold" overclaim** — A2 Issue #7, D1 open risk | High | `NodeID` *is* the line id; `rowOfNode` is O(log n) Fenwick prefix (no map). Fold honestly O(k visible descendants) with O(log n) row delta; `hiddenBy` array keeps lookups O(log n). §4.4/§6.2. |
 | R-13 | **Autoscroll ticker data race** (reads UI fields off-thread) — A2 Issue #8 | Blocker (CI race) | Ticker only calls `fyne.Do`; all reads/writes inside the closure; stop on DragEnd/FocusLost/reload/at-bottom. §6.6. |
@@ -789,7 +790,7 @@ Root `Tapped`/`Cursor` model-space hit-test; triangle hot-zone; `toggle`→`Refr
 `memory_test.go`. *Tests:* load `big.json` (7.5 MB); assert live `CanvasObject` count after `reflow` ≤ M-1 bound; **scroll the entire document** in steps and assert a heap ceiling well under 1 GB (R-2 — `runtime.ReadMemStats`, with a settle/GC between samples); **select-all** and assert selection-rect count ≤ V (R-3); a single 2 MB minified line asserts no `canvas.Text` wider than viewport and bounded heap (R-1). Also assert model size for the 151 KB fixture ≈ 5× (M-3).
 
 **M10 — Search + reveal.**
-`search.go`, theme `ColorNameMatchHighlight`. Chunked RE2 scan, single-pass byte→rune, gen/cancel, debounce, `revealActive` (batched expand, centered scroll, user-intent gating), Next/Prev wrap rules, highlight pools, Ctrl+F focus. *Tests (search_test.go):* plain + regex matches with correct rune offsets incl. a multibyte fixture; non-overlapping; reveal expands ancestors and `rowOfNode` resolves; nav wrap; cap → `Capped`; bad regex → `Err`; chunk-by-bytes yields control on a single giant minified line.
+`search.go`, theme `ColorNameMatchHighlight`. Synchronous RE2 scan, single-pass byte→rune (`colCursor`), `searchGen` supersession, debounce, `revealActive` (batched expand, centered scroll, user-intent gating), Next/Prev wrap rules, highlight pools, Ctrl+F focus. *Tests (search_test.go):* plain + regex matches with correct rune offsets incl. a multibyte fixture; non-overlapping; reveal expands ancestors and `rowOfNode` resolves; nav wrap; cap → `Capped`; bad regex → `Err`; debounce timer lifecycle + generation supersession.
 
 **M11 — Theming, options, polish, final demo.**
 `theme.go`, `options.go`. Wrapping theme + palette rebuild on `Refresh`; dark/light variant; functional options (`WithFormat`/`WithWrap`/`WithSearchConfig`/`WithDefaultCollapseDepth`/`WithSyntaxColors`/...). Demo gains a search bar with `3/27` count, format auto-detect, and loads a **151 KB JSON** end-to-end. *Manual acceptance:* 151 KB JSON loads; fold/copy/select/search all work; dark↔light recolors; `go test -race ./...` and `go vet ./...` green.

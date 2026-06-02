@@ -9,7 +9,7 @@ import (
 )
 
 func testMetrics() Metrics {
-	return NewMetrics(9, 18, 16, 4)
+	return NewMetrics(9, 18, 16)
 }
 
 func loadDoc(t *testing.T, name string) *model.Document {
@@ -93,11 +93,26 @@ func TestHitTestClampsBeyondEnd(t *testing.T) {
 	d := loadDoc(t, "small.json")
 	m := testMetrics()
 	total := d.TotalVisibleRows()
-	// Click far below the last row clamps to the last line's end column.
+	// A click below the last row AND far to the right lands on the last line's end
+	// column (the column is clamped to the line length).
 	gotLine, gotCol := HitTest(d, m, 9999, m.RowY(int(total))+500)
 	lastLine := d.LineAtRow(total - 1)
 	if gotLine != lastLine || gotCol != d.LineRuneLen(lastLine) {
 		t.Errorf("clamp-to-end = {line %d col %d}, want {line %d col %d}",
 			gotLine, gotCol, lastLine, d.LineRuneLen(lastLine))
+	}
+}
+
+func TestHitTestBelowContentHonorsX(t *testing.T) {
+	d := loadDoc(t, "small.json")
+	m := testMetrics()
+	total := d.TotalVisibleRows()
+	lastLine := d.LineAtRow(total - 1)
+	// A click below all content but at the far LEFT resolves to column 0 of the
+	// last line (honoring X) rather than biasing to the end of the line.
+	gotLine, gotCol := HitTest(d, m, 0, m.RowY(int(total))+500)
+	if gotLine != lastLine || gotCol != 0 {
+		t.Errorf("below-content left click = {line %d col %d}, want {line %d col 0}",
+			gotLine, gotCol, lastLine)
 	}
 }

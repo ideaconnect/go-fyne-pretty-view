@@ -45,8 +45,18 @@ type prettyViewRenderer struct {
 // and wires scrolling to the visible-window reflow.
 func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 	pv.ExtendBaseWidget(pv)
+	pv.destroyed.Store(false) // re-enable if the widget is being re-created after a Destroy
 	r := &prettyViewRenderer{pv: pv, live: map[int]*rowWidget{}}
-	r.rowPool.New = func() any { return newRowWidget(pv) }
+	// Pooled rows start hidden so the reflow's Show() reliably fires the row
+	// renderer's build(): a row that is already visible (Fyne's default) would make
+	// Show() a no-op and the row would render blank on its first appearance. The
+	// recycle path Hide()s rows before returning them to the pool, so this only
+	// matters for freshly-created ones.
+	r.rowPool.New = func() any {
+		rw := newRowWidget(pv)
+		rw.Hide()
+		return rw
+	}
 
 	r.selLayer = container.NewWithoutLayout()
 	r.matchLayer = container.NewWithoutLayout()
@@ -62,7 +72,14 @@ func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 	return r
 }
 
-func (r *prettyViewRenderer) Destroy()                     {}
+// Destroy tears the widget down. It cancels any pending debounced search so the
+// timer can't fire after teardown (a stale scan against freed state / off the Fyne
+// thread). The destroyed flag also makes an already-fired-but-not-yet-run callback
+// a no-op, closing the window Timer.Stop alone can't.
+func (r *prettyViewRenderer) Destroy() {
+	r.pv.destroyed.Store(true)
+	r.pv.stopSearchTimer()
+}
 func (r *prettyViewRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{r.scroll} }
 func (r *prettyViewRenderer) MinSize() fyne.Size           { return fyne.NewSize(120, 80) }
 
@@ -98,6 +115,12 @@ func (r *prettyViewRenderer) reflow() {
 		r.clearRows()
 		r.rowLayer.Objects = nil
 		r.rowLayer.Refresh()
+		// Drop any selection/match rectangles left over from a previous, non-empty
+		// document. The normal path clears these via rebuildSelection/rebuildMatches,
+		// which we skip here, so do it explicitly (and reset the visible range).
+		r.firstRow, r.lastRow = 0, -1
+		r.applyRects(r.selLayer, &r.selRects, &r.selObjs, 0)
+		r.applyRects(r.matchLayer, &r.matchRects, &r.matchObjs, 0)
 		return
 	}
 
@@ -131,10 +154,12 @@ func (r *prettyViewRenderer) reflow() {
 			r.live[idx] = rw
 		}
 		// Set the line and geometry WITHOUT refreshing, then trigger exactly one
-		// build per row. Show/Resize/Refresh each funnel into the renderer's
-		// build(), so we let only one of them fire: Show for a newly-shown row,
-		// Refresh for a reused one. Resize is skipped unless the size truly changed
-		// (all rows share one size, so this is normally a no-op).
+		// build per row. Move and Resize do NOT build (Resize only calls the row
+		// renderer's no-op Layout); the single build comes from Show for a newly-
+		// shown (hidden) row, or Refresh for a reused one. Resize is skipped unless
+		// the size truly changed (all rows share one size, so this is normally a
+		// no-op). Pooled rows start hidden (see CreateRenderer) so Show reliably
+		// fires the build rather than no-opping on an already-visible row.
 		rw.line = pv.doc.LineAtRow(int32(idx))
 		rw.Move(fyne.NewPos(0, float32(idx)*m.RowH))
 		if rw.Size() != size {
@@ -233,18 +258,42 @@ func (pv *PrettyView) contentSize() fyne.Size {
 // the effective theme (palette + selection/match/guide colors) for the active
 // variant, applying any per-variant override.
 func (pv *PrettyView) recomputeMetrics() {
-	ts := float32(theme.TextSize())
-	style := fyne.TextStyle{Monospace: true}
-	sz := fyne.MeasureText("MMMMMMMMMM", ts, style)
-	cw := sz.Width / 10
-	pv.met = geometry.NewMetrics(cw, sz.Height, pv.cfg.indentStep, pv.cfg.tabWidth)
+	// Reading the text size and variant is cheap; do it first so the memo can skip
+	// the expensive MeasureText + palette rebuild when nothing relevant changed.
+	// SetTheme/SetSyntaxColors clear metricsReady to force a rebuild on override.
+	var ts float32
+	variant := fyne.ThemeVariant(theme.VariantDark)
+	app := fyne.CurrentApp()
+	haveApp := app != nil && app.Settings() != nil
+	if haveApp {
+		ts = theme.TextSize()
+		variant = app.Settings().ThemeVariant()
+	} else {
+		ts = theme.DefaultTheme().Size(theme.SizeNameText)
+	}
+	if pv.metricsReady && ts == pv.lastTextSize && variant == pv.lastVariant {
+		return // measured cell + palette unchanged — skip MeasureText and the palette alloc
+	}
+
+	// Measuring text needs a live app/driver. Built before an app exists (e.g.
+	// SetData before app.New()), fall back to default-theme estimates so construction
+	// never panics; the memo mismatch above remeasures once a canvas exists.
+	var cw, glyphH float32
+	if haveApp {
+		sz := fyne.MeasureText("MMMMMMMMMM", ts, fyne.TextStyle{Monospace: true})
+		cw, glyphH = sz.Width/10, sz.Height
+	} else {
+		cw, glyphH = ts*0.6, ts*1.3
+	}
+	pv.met = geometry.NewMetrics(cw, glyphH, pv.cfg.indentStep)
 	pv.met.TextSize = ts
 
-	variant := fyne.CurrentApp().Settings().ThemeVariant()
 	t := pv.resolveTheme(variant)
 	pv.palette = t.palette()
 	pv.guideColor = t.IndentGuide
 	pv.selColor = t.Selection
 	pv.matchColor = t.Match
 	pv.activeMatchColor = t.ActiveMatch
+
+	pv.lastTextSize, pv.lastVariant, pv.metricsReady = ts, variant, true
 }

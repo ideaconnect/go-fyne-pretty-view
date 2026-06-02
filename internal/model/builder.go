@@ -79,6 +79,13 @@ func (b *Builder) intern(s string) (uint32, uint32) {
 	return start, end
 }
 
+// maxLineSegs is the largest segment count a Line can address (SegCount/CollCount
+// are uint16, kept narrow for the 24-byte Line). A pathological single line (e.g.
+// an XML start tag with tens of thousands of attributes) is clamped to this many
+// rendered segments rather than wrapping the count to a corrupt small value; the
+// arena offsets stay correct, so only that one extreme line loses its tail.
+const maxLineSegs = 1<<16 - 1
+
 // appendSegs appends a line's segments to the arena and returns their range.
 func (b *Builder) appendSegs(segs []Seg) (first uint32, count uint16) {
 	first = uint32(len(b.doc.Segs))
@@ -92,11 +99,24 @@ func (b *Builder) appendSegs(segs []Seg) (first uint32, count uint16) {
 		}
 		b.doc.Segs = append(b.doc.Segs, seg)
 	}
-	count = uint16(uint32(len(b.doc.Segs)) - first)
-	return
+	return first, clampSegCount(uint32(len(b.doc.Segs)) - first)
+}
+
+// clampSegCount narrows an arena delta to the uint16 SegCount range, saturating
+// instead of wrapping.
+func clampSegCount(n uint32) uint16 {
+	if n > maxLineSegs {
+		return maxLineSegs
+	}
+	return uint16(n)
 }
 
 func (b *Builder) top() NodeID { return b.stack[len(b.stack)-1] }
+
+// Depth reports the current open-container nesting depth (0 at top level). Parsers
+// use it to bound their recursion so adversarial deeply-nested input can't drive a
+// fatal stack overflow.
+func (b *Builder) Depth() int { return len(b.stack) - 1 }
 
 // linkChild records a new child on its parent.
 func (b *Builder) linkChild(parent NodeID) {
@@ -175,7 +195,9 @@ func (b *Builder) Close(srcEnd int, closeSegs []Seg) NodeID {
 func (b *Builder) AppendComma(lineIdx int32) {
 	ss, se := b.intern(",")
 	b.doc.Segs = append(b.doc.Segs, Segment{Start: ss, End: se, Role: RolePunct, Buf: BufAux})
-	b.doc.Lines[lineIdx].SegCount++
+	if l := &b.doc.Lines[lineIdx]; l.SegCount < maxLineSegs {
+		l.SegCount++ // saturate rather than wrap a maxed-out line's count
+	}
 }
 
 // LastLine returns the final display line of a node (its close line for a
@@ -221,7 +243,7 @@ func (b *Builder) buildCollapsedRenderings() {
 		d.Segs = append(d.Segs, Segment{Start: ss, End: se, Role: RoleMuted, Buf: BufAux})
 		d.Segs = append(d.Segs, d.Segs[clo.SegFirst:clo.SegFirst+uint32(clo.SegCount)]...)
 		head.CollFirst = collFirst
-		head.CollCount = uint16(uint32(len(d.Segs)) - collFirst)
+		head.CollCount = clampSegCount(uint32(len(d.Segs)) - collFirst)
 	}
 }
 
@@ -242,6 +264,7 @@ func (b *Builder) Finish() *Document {
 // to size the horizontal/vertical scroll extent. One O(n) pass.
 func (b *Builder) computeExtent() {
 	d := b.doc
+	d.lineRunes = make([]int32, len(d.Lines))
 	for li := range d.Lines {
 		l := &d.Lines[li]
 		if l.Depth > d.MaxDepth {
@@ -251,6 +274,7 @@ func (b *Builder) computeExtent() {
 		for _, s := range d.Segs[l.SegFirst : l.SegFirst+uint32(l.SegCount)] {
 			runes += utf8.RuneCount(d.SegBytes(s))
 		}
+		d.lineRunes[li] = int32(runes) // expanded displayed length (cached for LineRuneLen)
 		// A collapsed fold-head can be wider than its expanded head line.
 		if l.Fold != NoNode {
 			cr := 0

@@ -42,7 +42,7 @@ The widget's core design is sound and genuinely fast: virtualization keeps reflo
 
 **Cost:** each keystroke is a full O(n) scan — **6.6 ms / 2.78 MB / 190,012 allocs** on big.json (measured, `SearchKeystrokeBig`). With default `MinQueryLen=1` (search.go:100, options.go:22) the *first* character — the one that matches the most lines — already triggers the most expensive scan; a 5-char word ≈ 5 full scans on the UI goroutine.
 
-**Evidence:** `controls.go:128` — `entry.OnChanged = func(s string){ pv.Search(SearchQuery{Text:s}) }` calls `runSearch` directly, no timer/goroutine/cancellation. `grep` confirms `DebounceFor`/`ChunkBytes` (options.go:12-13, 20-21) are read **nowhere** — the documented 150 ms debounce does not exist.
+**Evidence (at time of review):** `controls.go:128` — `entry.OnChanged = func(s string){ pv.Search(SearchQuery{Text:s}) }` calls `runSearch` directly, no timer/goroutine/cancellation, and `DebounceFor` was read nowhere — the documented 150 ms debounce did not exist. *(Since fixed: `searchDebounced` now wires `DebounceFor` with a `searchGen` last-query-wins guard. The never-read `ChunkBytes` knob was deleted in the later code-review remediation; the scan stays synchronous on the Fyne goroutine — see DESIGN.md §7.3.)*
 
 **Fix:** coalesce keystrokes; marshal the actual scan back onto the UI goroutine.
 

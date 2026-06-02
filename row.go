@@ -12,16 +12,6 @@ import (
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
-// runeByteOffset returns the byte index of the n-th rune in b (n <= rune count).
-func runeByteOffset(b []byte, n int) int {
-	i := 0
-	for c := 0; c < n && i < len(b); c++ {
-		_, sz := utf8.DecodeRune(b[i:])
-		i += sz
-	}
-	return i
-}
-
 const maxIndentGuides = 32
 
 // debugRowBuilds counts rowRenderer.build() invocations; used only by tests to
@@ -134,36 +124,47 @@ func (rr *rowRenderer) build() {
 	col := 0
 	emitted := 0
 	for _, seg := range pv.doc.DisplaySegs(r.line) {
+		if col >= lastCol {
+			break // remaining segments are entirely past the right edge — cull them
+		}
 		sb := pv.doc.SegBytes(seg)
 		segStart := col
-		runeLen := utf8.RuneCount(sb)
-		segEnd := col + runeLen
-		col = segEnd
-		// Intersect [segStart,segEnd) with the visible column window.
-		a, b := segStart, segEnd
+		// Walk the segment once, never past lastCol, finding the byte slice that
+		// intersects the visible column window [firstCol, lastCol). This is the
+		// horizontal cull: the old code paid a full utf8.RuneCount on EVERY segment
+		// every reflow (plus a from-zero rune->byte scan when straddling), so a
+		// multi-megabyte single-segment line cost O(line length) per visible row per
+		// scroll tick — the CPU the M-2 design must bound, not just the texture width.
+		// Here a huge straddling segment is decoded only up to lastCol, and trailing
+		// off-window segments are skipped by the break above.
+		loByte, hiByte := -1, 0
+		i := 0
+		for i < len(sb) && col < lastCol {
+			if col >= firstCol && loByte < 0 {
+				loByte = i
+			}
+			if sb[i] < utf8.RuneSelf {
+				i++
+			} else {
+				_, sz := utf8.DecodeRune(sb[i:])
+				i += sz
+			}
+			col++
+			if loByte >= 0 {
+				hiByte = i
+			}
+		}
+		if loByte < 0 {
+			continue // segment lies entirely left of the window
+		}
+		a := segStart
 		if a < firstCol {
 			a = firstCol
 		}
-		if b > lastCol {
-			b = lastCol
-		}
-		if a >= b {
-			continue
-		}
-		// Fast path: the whole segment is visible (the common, no-horizontal-scroll
-		// case) — emit it directly without a []rune round-trip. Only slice on the
-		// rune boundary when the segment straddles the column window.
-		var text string
-		if a == segStart && b == segEnd {
-			text = string(sb)
-		} else {
-			lo := runeByteOffset(sb, a-segStart)
-			hi := runeByteOffset(sb, b-segStart)
-			text = string(sb[lo:hi])
-		}
+		width := col - a // visible columns emitted from this segment
 		t := rr.text(ti)
 		ti++
-		t.Text = text
+		t.Text = string(sb[loByte:hiByte])
 		t.TextSize = m.TextSize
 		t.TextStyle = fyne.TextStyle{Monospace: true}
 		t.Color = pv.palette[seg.Role]
@@ -171,9 +172,9 @@ func (rr *rowRenderer) build() {
 		// The view is a strict monospace grid with integral charWidth, so size the
 		// run directly instead of asking Fyne to measure (which hashes + shapes the
 		// whole string and churns the font cache under horizontal scroll).
-		t.Resize(fyne.NewSize(float32(b-a)*m.CharWidth, m.RowH))
+		t.Resize(fyne.NewSize(float32(width)*m.CharWidth, m.RowH))
 		t.Show()
-		emitted += b - a
+		emitted += width
 		if emitted >= hardCap {
 			break
 		}

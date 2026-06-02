@@ -22,8 +22,7 @@ func (xmlParser) Detect(src []byte) int {
 	if len(t) == 0 || t[0] != '<' {
 		return 0
 	}
-	lower := bytes.ToLower(t)
-	if bytes.HasPrefix(lower, []byte("<!doctype html")) || bytes.HasPrefix(lower, []byte("<html")) {
+	if hasPrefixFold(t, []byte("<!doctype html")) || hasPrefixFold(t, []byte("<html")) {
 		return 0 // that's HTML
 	}
 	if bytes.HasPrefix(t, []byte("<?xml")) {
@@ -57,7 +56,7 @@ func (xmlParser) Parse(src []byte, b *model.Builder) error {
 		case xml.Comment:
 			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
 		case xml.ProcInst:
-			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<?"+tok.Target+" "+collapseSpace(string(tok.Inst))+"?>")})
+			b.Leaf(model.KindComment, 0, 0, []model.Seg{procInstSeg(tok)})
 		case xml.Directive:
 			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!"+collapseSpace(string(tok))+">")})
 		case xml.CharData:
@@ -110,6 +109,15 @@ func (s *xmlScanner) parseElement(start xml.StartElement) {
 		}
 	}
 
+	// Bound recursion: past the nesting cap, render this element as a leaf marker
+	// and drain its subtree (keeping the decoder balanced) instead of recursing,
+	// so adversarial deeply-nested XML can't overflow the stack.
+	if s.b.Depth() >= maxNestDepth {
+		s.b.Leaf(model.KindError, 0, 0, startSegs(start, false))
+		s.skipElement()
+		return
+	}
+
 	s.b.Open(model.KindElement, 0, startSegs(start, false))
 	for {
 		t, err := s.next()
@@ -129,7 +137,38 @@ func (s *xmlScanner) parseElement(start xml.StartElement) {
 		case xml.Comment:
 			s.b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
 		case xml.ProcInst:
-			s.b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<?"+tok.Target+"?>")})
+			s.b.Leaf(model.KindComment, 0, 0, []model.Seg{procInstSeg(tok)})
+		}
+	}
+}
+
+// procInstSeg renders a processing instruction (<?target inst?>), keeping its
+// instruction content. Shared by the top-level and in-element handlers so the two
+// stay consistent.
+func procInstSeg(tok xml.ProcInst) model.Seg {
+	s := "<?" + tok.Target
+	if inst := collapseSpace(string(tok.Inst)); inst != "" {
+		s += " " + inst
+	}
+	return model.LitSeg(model.RoleComment, s+"?>")
+}
+
+// skipElement drains tokens until the end of the current element (whose start was
+// already consumed), tracking nesting so the matching EndElement is found. Used to
+// skip a subtree past the recursion cap without recursing or unbalancing the
+// decoder.
+func (s *xmlScanner) skipElement() {
+	depth := 1
+	for depth > 0 {
+		t, err := s.next()
+		if err != nil {
+			return
+		}
+		switch t.(type) {
+		case xml.StartElement:
+			depth++
+		case xml.EndElement:
+			depth--
 		}
 	}
 }
@@ -139,9 +178,6 @@ func startSegs(start xml.StartElement, selfClose bool) []model.Seg {
 	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, start.Name.Local)}
 	for _, a := range start.Attr {
 		name := a.Name.Local
-		if a.Name.Space != "" && (a.Name.Space == "xmlns" || a.Name.Local == "xmlns") {
-			name = a.Name.Local
-		}
 		segs = append(segs,
 			model.LitSeg(model.RolePlain, " "),
 			model.LitSeg(model.RoleAttr, name),

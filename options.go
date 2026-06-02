@@ -6,11 +6,11 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// SearchConfig tunes the incremental search behavior.
+// SearchConfig tunes the incremental search behavior. The scan is synchronous on
+// the Fyne goroutine (debounced, and bounded by MaxMatches); see runSearch.
 type SearchConfig struct {
 	MaxMatches  int           // cap on stored matches (default 10_000)
 	DebounceFor time.Duration // keystroke debounce (default 150ms)
-	ChunkBytes  int           // bytes scanned per cooperative slice (default 256 KiB)
 	MinQueryLen int           // shortest query that triggers a scan (default 1)
 }
 
@@ -18,7 +18,6 @@ func defaultSearchConfig() SearchConfig {
 	return SearchConfig{
 		MaxMatches:  10_000,
 		DebounceFor: 150 * time.Millisecond,
-		ChunkBytes:  256 << 10,
 		MinQueryLen: 1,
 	}
 }

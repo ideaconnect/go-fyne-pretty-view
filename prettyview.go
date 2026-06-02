@@ -10,10 +10,33 @@
 // search, and copy all operate on that model rather than on widgets. As a
 // result a multi-megabyte document occupies a small, predictable number of
 // canvas objects regardless of its size.
+//
+// # Threading
+//
+// PrettyView follows the standard Fyne widget threading model: it is NOT safe for
+// concurrent use. Every method — including the data, fold, selection, and search
+// mutators (SetData, SetText, Reparse, ExpandAll, CollapseAll, ExpandTo, Search,
+// SearchNext/Prev, ClearSearch, SelectAll, ClearSelection, SetTheme, …) — must be
+// called on the goroutine that runs the Fyne event loop (the "main"/Fyne
+// goroutine), exactly like any other Fyne widget. To drive the widget from another
+// goroutine (e.g. after a network fetch), marshal the call with fyne.Do:
+//
+//	go func() {
+//	    data := fetch()
+//	    fyne.Do(func() { pv.SetData(data, prettyview.FormatAuto) })
+//	}()
+//
+// The widget intentionally holds no locks: all of its state (the document, the
+// fold index, and the selection/search state) is owned by the Fyne goroutine, so
+// single-threaded access is a precondition rather than something guarded at
+// runtime. The only work that runs off that goroutine is the search-debounce timer
+// (time.AfterFunc); it marshals its scan back via fyne.Do and drops superseded
+// scans via a generation counter, so it never touches widget state concurrently.
 package prettyview
 
 import (
 	"image/color"
+	"sync/atomic"
 	"time"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
@@ -28,6 +51,9 @@ import (
 //
 // All state is unexported. Construct one with New or NewWithData and feed it
 // content with SetData / SetText.
+//
+// PrettyView is not safe for concurrent use: call its methods on the Fyne
+// goroutine (see the package doc's Threading section).
 type PrettyView struct {
 	widget.BaseWidget
 
@@ -43,6 +69,12 @@ type PrettyView struct {
 	viewOffX   float32 // current horizontal scroll offset (content space)
 	viewW      float32 // current viewport width
 
+	// recomputeMetrics memo: the measured cell + palette only change with the text
+	// size / theme variant / theme override, not on every data/fold/search refresh.
+	metricsReady bool
+	lastTextSize float32
+	lastVariant  fyne.ThemeVariant
+
 	// selection state (4 positions + flags, all model-based)
 	sel          selection
 	focused      bool
@@ -51,6 +83,8 @@ type PrettyView struct {
 	// search state
 	search            searchState
 	searchTimer       *time.Timer // debounce timer for keystroke-driven search
+	searchGen         int         // bumped to invalidate a superseded/already-queued debounced scan
+	destroyed         atomic.Bool // set on renderer teardown; guards the debounce callback
 	matchColor        color.Color
 	activeMatchColor  color.Color
 	onSearchRequested func() // invoked on Ctrl+F (e.g. to focus a search box)
@@ -61,6 +95,7 @@ type PrettyView struct {
 	lastClickAt  time.Time
 	lastClickPos fyne.Position
 	clickCount   int
+	wordScratch  []rune // reused decode buffer for wordBounds (avoids per-drag alloc)
 }
 
 // New constructs an empty PrettyView, applying zero or more Options.
@@ -84,8 +119,9 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 	if format == FormatAuto {
 		format = pv.cfg.format
 	}
-	pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth)
+	pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
 	pv.ClearSearch()
+	pv.ClearSelection() // a selection from the old document is meaningless against the new one
 	pv.Refresh()
 	if pv.onDataChanged != nil {
 		pv.onDataChanged()
@@ -179,6 +215,7 @@ func (pv *PrettyView) ExpandTo(off int) {
 // WithTheme/WithSyntaxColors/SetTheme overrides for that variant.
 func (pv *PrettyView) SetTheme(variant fyne.ThemeVariant, t Theme) {
 	pv.cfg.setThemeOverride(variant, t)
+	pv.metricsReady = false // override changed: force the palette to rebuild even if the variant didn't
 	pv.Refresh()
 }
 
@@ -186,6 +223,7 @@ func (pv *PrettyView) SetTheme(variant fyne.ThemeVariant, t Theme) {
 // refreshes (shorthand for SetTheme with only the token fields set).
 func (pv *PrettyView) SetSyntaxColors(variant fyne.ThemeVariant, c SyntaxColors) {
 	pv.cfg.setThemeOverride(variant, c.asTheme())
+	pv.metricsReady = false // override changed: force the palette to rebuild
 	pv.Refresh()
 }
 

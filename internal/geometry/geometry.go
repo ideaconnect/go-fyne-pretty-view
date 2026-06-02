@@ -17,6 +17,15 @@
 // content by -Offset on both axes, so nothing here ever adds or subtracts the
 // scroll offset; callers convert a viewport pixel to content space once, by
 // adding Offset, before calling in.
+//
+// Precision ceiling. Content X is a float32 (Fyne canvas coordinates are float32
+// throughout), whose mantissa represents integers exactly only up to 2^24 ≈
+// 16.7M. A column's pixel x is col*CharWidth, so beyond ~16.7M/CharWidth runes
+// (on the order of a million-plus characters on a single physical line) the
+// col<->pixel mapping loses 1px resolution and character-exact selection on that
+// one line may drift by a glyph. This bounds only selection precision on
+// pathologically long single lines; the row axis and all normal content are
+// unaffected.
 package geometry
 
 import (
@@ -37,14 +46,14 @@ type Metrics struct {
 	leftPad      float32
 	triangleSlot float32
 	indentStep   float32
-	tabWidth     int
 }
 
 func roundf(x float32) float32 { return float32(math.Round(float64(x))) }
 
 // NewMetrics builds Metrics from a measured monospace cell (the advance width of
-// one glyph and the glyph height), the indent step, and the tab width.
-func NewMetrics(charWidth, glyphH, indentStep float32, tabWidth int) Metrics {
+// one glyph and the glyph height) and the indent step. Tabs are expanded to spaces
+// at parse time, so the layout grid is uniformly one CharWidth per column.
+func NewMetrics(charWidth, glyphH, indentStep float32) Metrics {
 	cw := roundf(charWidth)
 	if cw < 1 {
 		cw = 1
@@ -57,9 +66,6 @@ func NewMetrics(charWidth, glyphH, indentStep float32, tabWidth int) Metrics {
 	if step < 1 {
 		step = 1
 	}
-	if tabWidth < 1 {
-		tabWidth = 4
-	}
 	return Metrics{
 		CharWidth:    cw,
 		RowH:         rh + 4, // a little vertical breathing room
@@ -67,7 +73,6 @@ func NewMetrics(charWidth, glyphH, indentStep float32, tabWidth int) Metrics {
 		leftPad:      6,
 		triangleSlot: roundf(cw * 1.4),
 		indentStep:   step,
-		tabWidth:     tabWidth,
 	}
 }
 
@@ -133,8 +138,10 @@ func HitTest(d *model.Document, m Metrics, contentX, contentY float32) (line int
 		row = 0
 	}
 	if int32(row) >= total {
-		li := d.LineAtRow(total - 1)
-		return li, d.LineRuneLen(li)
+		// A click below all content resolves onto the last line, but the column
+		// still honors contentX (clamped) rather than always snapping to the line
+		// end — so a below-and-left click maps to a near-start column, not EOL.
+		row = int(total - 1)
 	}
 	li := d.LineAtRow(int32(row))
 	col = m.ColAtX(d.Lines[li].Depth, contentX)
