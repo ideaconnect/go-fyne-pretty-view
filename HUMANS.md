@@ -57,8 +57,6 @@ The *why* behind the design — and the trade-offs considered — is in
 - Fixtures live in `testdata/`; tests are table-driven where it helps.
 - Issues/PRs: describe what the user sees change, not just the diff.
 
-## License & contact
+## License
 
-No `LICENSE` file has been added yet — all rights reserved by the maintainers
-until one is. The project is maintained under the
-`ideaconnect/go-fyne-pretty-view` repository.
+Licensed under the [BSD 3-Clause License](LICENSE) (© 2026 IDCT, Bartosz Pachołek).
