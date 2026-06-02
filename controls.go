@@ -183,9 +183,11 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 		container.NewHBox(container.NewCenter(count), prev, next), entry)
 }
 
-// ShowOpenDialog opens a native file-open dialog and loads the chosen file into
-// pv (auto-detecting the format). Exposed so hosts can trigger it from their own
-// menu/button.
+// ShowOpenDialog opens Fyne's built-in file-open dialog (an in-canvas widget, not
+// the OS-native picker — Fyne draws its own UI) and loads the chosen file into pv,
+// auto-detecting the format. Exposed so hosts can trigger it from their own
+// menu/button. A host that wants the platform-native dialog should instead set
+// ToolbarConfig.OnOpen (or call its own picker) and feed the bytes to pv.SetData.
 func ShowOpenDialog(pv *PrettyView, win fyne.Window) {
 	if win == nil {
 		return
