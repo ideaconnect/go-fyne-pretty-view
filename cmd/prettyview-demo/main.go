@@ -33,7 +33,21 @@ func main() {
 	a := app.New()
 	w := a.NewWindow("prettyview demo")
 	w.Resize(fyne.NewSize(1000, 720))
+	w.SetContent(buildUI(w, startPath()))
+	w.ShowAndRun()
+}
 
+// startPath is the initial fixture/file: the first CLI argument, or openapi.json.
+func startPath() string {
+	if len(os.Args) > 1 {
+		return os.Args[1]
+	}
+	return "testdata/openapi.json"
+}
+
+// buildUI assembles the demo UI bound to window w and loads the initial path. It is
+// separated from main (which only adds ShowAndRun) so the wiring is testable.
+func buildUI(w fyne.Window, start string) fyne.CanvasObject {
 	pv := prettyview.New()
 
 	// (a) The optional built-in control bar, used as-is. Flip any Show* field to
@@ -63,19 +77,14 @@ func main() {
 		container.NewHBox(widget.NewLabel("Fixture:"), fixtureSel),
 		toolbar,
 	)
-	w.SetContent(container.NewBorder(top, nil, nil, nil, pv))
+	content := container.NewBorder(top, nil, nil, nil, pv)
 
-	start := "testdata/openapi.json"
-	if len(os.Args) > 1 {
-		start = os.Args[1]
-	}
 	if isFixture(start) {
 		fixtureSel.SetSelected(start)
 	} else {
 		loadFixture(start)
 	}
-
-	w.ShowAndRun()
+	return content
 }
 
 func isFixture(path string) bool {

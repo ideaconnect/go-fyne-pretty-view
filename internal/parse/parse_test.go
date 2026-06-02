@@ -137,6 +137,36 @@ func TestDefaultCollapseProjection(t *testing.T) {
 	}
 }
 
+// TestRawParserFormatDetect covers the rawParser's trivial Format/Detect methods
+// (raw never wins auto-detection; it is the explicit floor).
+func TestRawParserFormatDetect(t *testing.T) {
+	var p rawParser
+	if p.Format() != FormatRaw {
+		t.Errorf("rawParser.Format = %v, want raw", p.Format())
+	}
+	if got := p.Detect([]byte("anything at all")); got != 0 {
+		t.Errorf("rawParser.Detect = %d, want 0", got)
+	}
+}
+
+// TestJSONCCommentsSkipped covers the JSONC comment branches of skipSpace: a //
+// line comment, a /* */ block comment, and a block comment left unclosed at EOF.
+func TestJSONCCommentsSkipped(t *testing.T) {
+	src := []byte("{ // a line comment\n  \"a\": 1, /* block */ \"b\": 2 /* unclosed")
+	d := Parse(src, FormatJSONC, 0)
+	if d.Format != FormatJSONC {
+		t.Fatalf("format = %v, want jsonc", d.Format)
+	}
+	var sb strings.Builder
+	for li := 0; li < d.TotalLines(); li++ {
+		sb.WriteString(d.LineString(int32(li)))
+		sb.WriteByte('\n')
+	}
+	if text := sb.String(); !strings.Contains(text, `"a"`) || !strings.Contains(text, `"b"`) {
+		t.Errorf("JSONC comment handling dropped keys:\n%s", text)
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {
