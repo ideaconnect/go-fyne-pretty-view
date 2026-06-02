@@ -46,6 +46,7 @@ type prettyViewRenderer struct {
 func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 	pv.ExtendBaseWidget(pv)
 	pv.destroyed.Store(false) // re-enable if the widget is being re-created after a Destroy
+	pv.searchGen++            // invalidate any debounce scan queued before the Destroy/re-create
 	r := &prettyViewRenderer{pv: pv, live: map[int]*rowWidget{}}
 	// Pooled rows start hidden so the reflow's Show() reliably fires the row
 	// renderer's build(): a row that is already visible (Fyne's default) would make

@@ -41,6 +41,19 @@ func hasPrefixFold(s, prefix []byte) bool {
 // kept (parsers are tolerant), so the cap degrades gracefully rather than failing.
 const maxNestDepth = 10000
 
+// utf8BOM is the UTF-8 byte-order mark (U+FEFF). Some editors and tooling
+// (notably on Windows/.NET) prefix it to otherwise-valid UTF-8. Left in place it
+// defeats both auto-detection and the structured parsers — the leading 0xEF is not
+// whitespace (unicode.IsSpace/skipSpace skip it) and matches no value, so the
+// document degrades to raw text. We strip it once, before the model Builder is
+// constructed, so the zero-copy Src and every SrcSeg byte range are computed
+// against the trimmed buffer (trimming later would desync all segment offsets).
+var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
+
+// stripBOM removes a single leading UTF-8 BOM if present. It is idempotent and
+// returns a subslice (no copy).
+func stripBOM(src []byte) []byte { return bytes.TrimPrefix(src, utf8BOM) }
+
 // Parser turns a byte buffer into a Document by driving a model.Builder. A parser
 // must be tolerant: on malformed input it emits whatever partial structure it has
 // recovered rather than failing outright.
@@ -91,6 +104,7 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 	if len(tabWidth) > 0 && tabWidth[0] > 0 {
 		tw = tabWidth[0]
 	}
+	src = stripBOM(src) // before AutoDetect and NewBuilder, so SrcSeg offsets stay aligned
 	if format == FormatAuto {
 		format = AutoDetect(src)
 	}
@@ -108,6 +122,7 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 // AutoDetect picks the most likely format for src. It returns FormatRaw when no
 // structured parser is confident.
 func AutoDetect(src []byte) Format {
+	src = stripBOM(src) // a leading BOM is not whitespace and would mask the first real byte
 	trimmed := bytes.TrimLeftFunc(src, unicode.IsSpace)
 	if len(trimmed) == 0 {
 		return FormatRaw

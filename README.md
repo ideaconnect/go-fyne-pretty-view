@@ -200,5 +200,9 @@ and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## License
 
-A `LICENSE` file has not been added yet. Until one is, all rights are reserved by
-the maintainers (`ideaconnect`); open an issue if you need a specific license.
+Licensed under the [BSD 4-Clause License](LICENSE) (© 2026 IDCT, Bartosz Pachołek).
+
+> **Note:** BSD-4-Clause retains the original "advertising clause" and is
+> [GPL-incompatible](https://www.gnu.org/licenses/license-list.html#OriginalBSD).
+> If you need GPL compatibility or a simpler license, open an issue — we can move to
+> BSD-3-Clause or MIT.

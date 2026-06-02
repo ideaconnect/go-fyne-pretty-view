@@ -210,3 +210,30 @@ func TestSearchGenerationInvalidatesStaleScan(t *testing.T) {
 		t.Error("SetData (via ClearSearch) must bump the search generation")
 	}
 }
+
+// TestSearchSupersedesPendingDebounce is the regression for the Enter-applies-
+// immediately path: a synchronous Search() (the search bar's OnSubmitted and every
+// public host call) must cancel any pending debounce timer and bump the generation,
+// so a keystroke timer armed just before Enter can't re-run the scan and snap the
+// viewport back to match #1.
+func TestSearchSupersedesPendingDebounce(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":"alpha","b":"alpha"}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: time.Second, MinQueryLen: 1}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	pv.searchDebounced(SearchQuery{Text: "alpha"})
+	if pv.searchTimer == nil {
+		t.Fatal("debounce should arm a timer")
+	}
+	gen := pv.searchGen
+	pv.Search(SearchQuery{Text: "alpha"})
+	if pv.searchTimer != nil {
+		t.Error("a synchronous Search must stop the pending debounce timer")
+	}
+	if pv.searchGen <= gen {
+		t.Errorf("a synchronous Search must bump searchGen (was %d, now %d) to invalidate a queued scan",
+			gen, pv.searchGen)
+	}
+}

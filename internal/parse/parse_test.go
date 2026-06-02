@@ -51,6 +51,37 @@ func TestAutoDetect(t *testing.T) {
 	}
 }
 
+// TestUTF8BOMStripped is the regression for BOM-prefixed input (common from
+// Windows/.NET tooling). A leading UTF-8 BOM must not defeat detection or force a
+// raw fallback, and stripping it must not desync the zero-copy segment offsets.
+func TestUTF8BOMStripped(t *testing.T) {
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	withBOM := func(s string) []byte { return append(append([]byte{}, bom...), s...) }
+
+	jsonSrc := `{"a":1,"b":[2,3]}`
+
+	// Auto-detect must see through the BOM.
+	if d := Parse(withBOM(jsonSrc), FormatAuto, 0); d.Format != FormatJSON {
+		t.Fatalf("BOM+JSON auto-detect = %v, want JSON (BOM defeated detection)", d.Format)
+	}
+	// A forced format must strip the BOM rather than fail into raw.
+	auto := Parse(withBOM(jsonSrc), FormatJSON, 0)
+	if auto.Format != FormatJSON {
+		t.Fatalf("BOM+JSON forced = %v, want JSON (BOM caused raw fallback)", auto.Format)
+	}
+	// Structure AND zero-copy segment offsets must match the BOM-free parse exactly,
+	// proving the BOM was stripped before the builder computed SrcSeg ranges.
+	plain := Parse([]byte(jsonSrc), FormatJSON, 0)
+	if got, want := renderDoc(auto), renderDoc(plain); got != want {
+		t.Errorf("BOM parse render mismatch:\n got: %q\nwant: %q", got, want)
+	}
+
+	// XML detection is defeated the same way; verify it too.
+	if d := Parse(withBOM("<root><a/></root>"), FormatAuto, 0); d.Format != FormatXML {
+		t.Errorf("BOM+XML auto-detect = %v, want XML", d.Format)
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {

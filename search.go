@@ -156,6 +156,16 @@ func (pv *PrettyView) step(dir int) {
 // avoids). The ceiling is a single pathological multi-gigabyte document; such input
 // is out of scope for an in-memory viewer.
 func (pv *PrettyView) runSearch(q SearchQuery) {
+	// A synchronous scan is the authoritative supersede point. Cancel any pending
+	// debounce timer and bump the generation so an already-fired-but-queued
+	// debounced scan (which Timer.Stop can no longer cancel) recognizes itself as
+	// stale (gen != pv.searchGen) and skips itself. Without this, the
+	// Enter-applies-immediately path (controls.go OnSubmitted -> Search) leaves a
+	// keystroke timer armed; it then re-runs the scan, resets the active match to 0
+	// and re-centers, yanking the viewport back to match #1 after the user navigated.
+	pv.stopSearchTimer()
+	pv.searchGen++
+
 	pv.search.query = q
 	pv.search.matches = pv.search.matches[:0]
 	pv.search.byLine = nil
