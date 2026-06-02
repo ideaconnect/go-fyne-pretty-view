@@ -44,10 +44,10 @@ func (pv *PrettyView) foldNodeAt(contentX, contentY float32) model.NodeID {
 	if row < 0 || int32(row) >= total {
 		return model.NoNode
 	}
-	li := pv.doc.LineAtRow(int32(row))
+	li, sub := pv.doc.LineAndSubRowAtRow(int32(row))
 	line := &pv.doc.Lines[li]
-	if line.Fold == model.NoNode {
-		return model.NoNode
+	if line.Fold == model.NoNode || sub != 0 {
+		return model.NoNode // the fold triangle lives only on the head's first visual row
 	}
 	// Hot-zone: the triangle gutter just left of the text, plus the text origin
 	// slack, so clicks slightly off the glyph still register.

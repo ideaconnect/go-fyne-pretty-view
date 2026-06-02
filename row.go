@@ -28,7 +28,12 @@ type rowWidget struct {
 	widget.BaseWidget
 	pv   *PrettyView
 	line int32 // display-line index this row currently shows (-1 = unused)
-	rr   *rowRenderer
+	sub  int32 // which wrapped sub-row of `line` this row shows (0 unless soft-wrapped)
+	// Under soft-wrap the renderer supplies the sub-row's column span; startCol < 0
+	// is the WrapNone sentinel (the row culls to the horizontal visible window
+	// instead). endCol is exclusive.
+	startCol, endCol int32
+	rr               *rowRenderer
 }
 
 func newRowWidget(pv *PrettyView) *rowWidget {
@@ -104,19 +109,29 @@ func (rr *rowRenderer) build() {
 	// Indent guides: one subtle vertical rule per nesting level.
 	rr.layoutGuides(depth, m, pv.guideColor)
 
-	// Fold triangle in the gutter.
-	if line.Fold != model.NoNode {
+	// Fold triangle in the gutter — only on the line's first visual row; a wrapped
+	// line's continuation rows (sub > 0) show indent guides but no triangle.
+	if line.Fold != model.NoNode && r.sub == 0 {
 		collapsed := pv.doc.Collapsed(line.Fold)
 		rr.layoutTriangle(depth, m, collapsed, pv.palette[model.RoleMuted])
 	} else {
 		rr.triangleHide()
 	}
 
-	// Colored, horizontally-culled text runs.
-	firstCol := m.FirstVisibleCol(depth, pv.viewOffX)
-	lastCol := m.LastVisibleCol(depth, pv.viewOffX+pv.viewW)
-	if lastCol <= firstCol {
-		lastCol = firstCol + 1
+	// Determine the column window this row renders. Under soft-wrap (startCol >= 0)
+	// it is exactly this line's sub-row [startCol,endCol) and text is drawn from the
+	// left edge (colBase shifts absolute columns to row-local, since there is no
+	// horizontal scroll). Otherwise it is the horizontal visible window and columns
+	// keep their absolute positions (the scroll container offsets x).
+	var firstCol, lastCol, colBase int
+	if r.startCol >= 0 {
+		firstCol, lastCol, colBase = int(r.startCol), int(r.endCol), int(r.startCol)
+	} else {
+		firstCol = m.FirstVisibleCol(depth, pv.viewOffX)
+		lastCol = m.LastVisibleCol(depth, pv.viewOffX+pv.viewW)
+		if lastCol <= firstCol {
+			lastCol = firstCol + 1
+		}
 	}
 	hardCap := 2 * (lastCol - firstCol + 2)
 
@@ -168,7 +183,7 @@ func (rr *rowRenderer) build() {
 		t.TextSize = m.TextSize
 		t.TextStyle = fyne.TextStyle{Monospace: true}
 		t.Color = pv.palette[seg.Role]
-		t.Move(fyne.NewPos(m.ColX(depth, a), m.TextY()))
+		t.Move(fyne.NewPos(m.ColX(depth, a-colBase), m.TextY()))
 		// The view is a strict monospace grid with integral charWidth, so size the
 		// run directly instead of asking Fyne to measure (which hashes + shapes the
 		// whole string and churns the font cache under horizontal scroll).

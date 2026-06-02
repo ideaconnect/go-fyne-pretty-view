@@ -123,6 +123,10 @@ func (r *prettyViewRenderer) reflow() {
 	vpH := r.scroll.Size().Height
 	m := pv.met
 
+	// Reconcile soft-wrap with the current viewport before the visible-window math
+	// reads the row total — a resize that crosses a column boundary reprojects here.
+	pv.syncWrap()
+
 	total := int(pv.doc.TotalVisibleRows())
 	if total == 0 {
 		r.clearRows()
@@ -160,6 +164,9 @@ func (r *prettyViewRenderer) reflow() {
 
 	cw := pv.contentSize().Width
 	size := fyne.NewSize(cw, m.RowH)
+	wrapOn := pv.doc.WrapActive()
+	var breaks []int32
+	breaksLine := int32(-1)
 	for idx := first; idx <= last; idx++ {
 		rw, existed := r.live[idx]
 		if !existed {
@@ -173,7 +180,23 @@ func (r *prettyViewRenderer) reflow() {
 		// the size truly changed (all rows share one size, so this is normally a
 		// no-op). Pooled rows start hidden (see CreateRenderer) so Show reliably
 		// fires the build rather than no-opping on an already-visible row.
-		rw.line = pv.doc.LineAtRow(int32(idx))
+		if wrapOn {
+			// A wrapped line's sub-rows are contiguous visual rows, so WrapBreaks is
+			// computed once per distinct visible line (breaksLine cache), not per row.
+			rw.line, rw.sub = pv.doc.LineAndSubRowAtRow(int32(idx))
+			if rw.line != breaksLine {
+				breaks = pv.doc.WrapBreaks(rw.line, breaks[:0])
+				breaksLine = rw.line
+			}
+			s := int(rw.sub)
+			if s > len(breaks)-2 {
+				s = len(breaks) - 2
+			}
+			rw.startCol, rw.endCol = breaks[s], breaks[s+1]
+		} else {
+			rw.line, rw.sub = pv.doc.LineAtRow(int32(idx)), 0
+			rw.startCol, rw.endCol = -1, -1
+		}
 		rw.Move(fyne.NewPos(0, float32(idx)*m.RowH))
 		if rw.Size() != size {
 			rw.Resize(size)
@@ -256,6 +279,11 @@ func (pv *PrettyView) contentSize() fyne.Size {
 	}
 	rows := pv.doc.TotalVisibleRows()
 	h := float32(rows) * pv.met.RowH
+	if pv.doc.WrapActive() {
+		// Soft-wrap fits every row within the viewport, so the content never scrolls
+		// horizontally; width is the viewport width (the scroll is vertical-only).
+		return fyne.NewSize(pv.viewW, h)
+	}
 	w := pv.met.TextOriginX(pv.doc.MaxDepth) + float32(pv.doc.MaxLineRunes)*pv.met.CharWidth + pv.met.CharWidth*2
 	return fyne.NewSize(w, h)
 }

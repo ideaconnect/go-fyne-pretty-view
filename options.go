@@ -61,10 +61,9 @@ type Option func(*config)
 // WithFormat forces a specific input format, skipping auto-detection.
 func WithFormat(f Format) Option { return func(c *config) { c.format = f } }
 
-// WithWrap selects the long-line handling mode (default WrapNone). NOTE: soft-wrap
-// is not yet implemented, so the value is stored but not currently consulted — long
-// lines always scroll horizontally. The option exists so callers stay source-stable
-// once wrapping ships.
+// WithWrap selects the long-line handling mode (default WrapNone): WrapNone lets
+// long lines overflow and scroll horizontally (matching Bruno), WrapWord soft-wraps
+// them to the viewport width. The mode can also be changed at runtime with SetWrap.
 func WithWrap(m WrapMode) Option { return func(c *config) { c.wrap = m } }
 
 // WithSearchConfig overrides the search tuning parameters. The struct is used as

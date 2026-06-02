@@ -43,6 +43,7 @@ import (
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
@@ -96,6 +97,12 @@ type PrettyView struct {
 	lastClickPos fyne.Position
 	clickCount   int
 	wordScratch  []rune // reused decode buffer for wordBounds (avoids per-drag alloc)
+
+	// soft-wrap state (owned by the Fyne goroutine). wrapColsKey is the depth-0
+	// column budget the model was last projected at; a resize reprojects only when
+	// it changes. wrapCols is the reused per-depth budget table passed to the model.
+	wrapColsKey int
+	wrapCols    []int
 }
 
 // New constructs an empty PrettyView, applying zero or more Options.
@@ -213,6 +220,61 @@ func (pv *PrettyView) ExpandTo(off int) {
 	pv.doc.RevealLine(line)
 	pv.refreshContent()
 	pv.centerOnLine(line, 0)
+}
+
+// SetWrap switches long-line handling between WrapNone (horizontal scroll) and
+// WrapWord (soft-wrap to the viewport width) and refreshes. Wrapping is purely
+// presentational: the model, selection, search, and copy are unchanged — a wrapped
+// line still copies as one logical line.
+func (pv *PrettyView) SetWrap(mode WrapMode) {
+	pv.cfg.wrap = mode
+	pv.refreshContent() // reflow -> syncWrap reconciles the projection + scroll direction
+}
+
+// Wrap reports the current long-line handling mode.
+func (pv *PrettyView) Wrap() WrapMode { return pv.cfg.wrap }
+
+// wrapColsTable rebuilds (into a reused buffer) the per-depth text-column budget for
+// the current viewport width and metrics, which the model consumes to wrap lines.
+func (pv *PrettyView) wrapColsTable() []int {
+	n := int(pv.doc.MaxDepth) + 1
+	if cap(pv.wrapCols) < n {
+		pv.wrapCols = make([]int, n)
+	} else {
+		pv.wrapCols = pv.wrapCols[:n]
+	}
+	for d := 0; d < n; d++ {
+		pv.wrapCols[d] = pv.met.ColsForDepth(uint8(d), pv.viewW)
+	}
+	return pv.wrapCols
+}
+
+// syncWrap reconciles the model's wrap projection with the configured mode and the
+// current viewport width. It is cheap when already in sync (a single key compare);
+// it reprojects (O(n)) only on the first enable, a mode change, or a resize that
+// crosses a column boundary. Called from reflow once the viewport size is known.
+func (pv *PrettyView) syncWrap() {
+	if pv.r == nil || pv.doc == nil {
+		return
+	}
+	wantWrap := pv.cfg.wrap == WrapWord && pv.viewW > 0
+	if !wantWrap {
+		if pv.doc.WrapActive() {
+			pv.doc.SetWrapColumns(nil)
+			pv.wrapColsKey = 0
+			pv.r.scroll.Direction = container.ScrollBoth
+			pv.r.scroll.Content.Resize(pv.contentSize())
+		}
+		return
+	}
+	key := pv.met.ColsForDepth(0, pv.viewW)
+	if pv.doc.WrapActive() && key == pv.wrapColsKey {
+		return // already projected at this width
+	}
+	pv.r.scroll.Direction = container.ScrollVerticalOnly
+	pv.doc.SetWrapColumns(pv.wrapColsTable())
+	pv.wrapColsKey = key
+	pv.r.scroll.Content.Resize(pv.contentSize())
 }
 
 // SetTheme overrides any of the viewer's colors for a theme variant and
