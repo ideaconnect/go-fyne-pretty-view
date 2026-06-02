@@ -48,7 +48,7 @@ github.com/ideaconnect/go-fyne-pretty-view/
 ├── renderer.go                  // prettyViewRenderer: container.Scroll + manual visible-window virtualization
 ├── contentbox.go                // contentBox: sized spacer + 3 layers (sel/match/rows); MinSize=full doc extent
 ├── row.go                       // rowWidget + rowRenderer: per-row colored canvas.Text runs, indent guides, fold triangle
-├── geometry.go                  // metrics: charWidth/rowHeight (rounded), col<->x, pixel<->(row,col) hit-test, ONE origin convention
+├── geometry.go                  // metrics: exact charWidth + rounded rowHeight, col<->x, pixel<->(row,col) hit-test, ONE origin convention
 ├── pool.go                      // sync.Pool wrappers for rowWidget and *canvas.Rectangle
 │
 ├── model.go                     // Document SoA: Node, Segment, ColorRole, arenas; LineText/source-byte mapping
@@ -484,7 +484,7 @@ This is load-bearing and stated once, used everywhere. `container.Scroll` transl
 ```
 // Content-space conventions (top padding = 0; rows butt against content origin):
 rowH      = round(MeasureText("M", textSize, Mono).Height) + rowPad   // integer
-charWidth = round(MeasureText("M", textSize, Mono).Width)             // integer (textgrid.go:646-649)
+charWidth = MeasureText("M", textSize, Mono).Width                    // EXACT font advance, NOT rounded
 indentX(depth) = innerPad + depth*indentStep
 
 // Placement (content space, no offset):
@@ -498,7 +498,7 @@ row      = floor(contentY / rowH)
 col      = round((contentX - indentX(depth)) / charWidth)   // half-glyph rounding; clamp [0, runeLen]
 ```
 
-`charWidth`/`rowH` are **rounded to integers** at measure time (matching TextGrid, textgrid.go:646-649) so selection rects align with glyphs on long lines and don't drift sub-pixel (A2 lower-severity finding). The `floor(contentY/rowH)` form with top-padding=0 is the single convention used by `reflow`, `hitTest`, and the rect builders — identical, so no off-by-one (A2 Issue #2). Adding `Offset.X` to `contentX` fixes the silent wrong-column copy under horizontal scroll (A2 Issue #3). Rects subtracting no offset fixes the 2× selection drift (A2 Issue #9).
+`rowH` is **rounded** to a whole pixel; `charWidth` is kept at the font's **exact (possibly fractional) advance** — Fyne draws `canvas.Text` at that natural advance, so rounding the grid cell would let a long run drift past its column and overlap the next segment (and selection rects drift off the glyphs). Keeping it exact holds the grid, the text, and the rects in lockstep on arbitrarily long lines. The `floor(contentY/rowH)` form with top-padding=0 is the single convention used by `reflow`, `hitTest`, and the rect builders — identical, so no off-by-one (A2 Issue #2). Adding `Offset.X` to `contentX` fixes the silent wrong-column copy under horizontal scroll (A2 Issue #3). Rects subtracting no offset fixes the 2× selection drift (A2 Issue #9).
 
 ### 5.4 Per-row primitive: N × `canvas.Text` (one per same-color run)
 
@@ -800,7 +800,7 @@ Tokens store a 1-byte `ColorRole`; a `palette []color.Color` is rebuilt **once p
 | R-12 | **`lineID→row` map → O(n) rebuild per fold; "O(log n) fold" overclaim** — A2 Issue #7, D1 open risk | High | `NodeID` *is* the line id; `rowOfNode` is O(log n) Fenwick prefix (no map). Fold honestly O(k visible descendants) with O(log n) row delta; `hiddenBy` array keeps lookups O(log n). §4.4/§6.2. |
 | R-13 | **Autoscroll ticker data race** (reads UI fields off-thread) — A2 Issue #8 | n/a | **No ticker shipped.** Drag-edge autoscroll runs inside `Dragged` (pointer-motion only), entirely on the Fyne goroutine, so there is no off-thread race to begin with. Held-stationary edge autoscroll (which a ticker would add) is a known limitation on the backlog, not shipped. §6.6. |
 | R-14 | **Selection rects drift 2×** (subtracting Offset on a scrolled-content child; scroller.go:454 already translates both axes) — A2 Issue #9 | Blocker (visible) | Rects in raw content space, **no** offset subtraction either axis. §5.3/§6.7. Round-trip test. |
-| R-15 | Fractional `charWidth` drift on long lines — A2 minor | Low | Round `charWidth`/`rowH` to integers (textgrid.go:646-649). §5.3. |
+| R-15 | Fractional `charWidth` drift on long lines — A2 minor | Low | Keep `charWidth` at the font's **exact** advance so the grid matches the rendered text (rounding it is what *causes* the drift — a long run overruns its column and overlaps the next segment). `rowH` is still rounded. §5.3. |
 | R-16 | Next-wrap during incomplete scan jumps backward — A2 minor | Low | While `!Complete`, clamp at last known match, show "searching…". §7.4. |
 | R-17 | Double-click on summary row indexes nil run slice — A2 minor | Low | Guard: `if line.runs==nil` use whitespace heuristic. §6.5. |
 | R-18 | **`internal/...` packages unimportable** (`go vet`) — A3 constraint C | Blocker (build) | Use `sync.Pool`, `container.Scroll`, `fyne.MeasureText` — never any `fyne.io/fyne/v2/internal/...`. §2, §5.1. |
@@ -825,7 +825,7 @@ Each milestone ends with green tests and (from M7) a runnable demo. `go test ./.
 `parse_xml.go`, `parse_html.go`, `parse_raw.go`, `AutoDetect`. *Tests:* `catalog.xml`/`page.html` node mapping (elements/attrs/text/comments, void elements, tolerant unclosed tags); raw line count; AutoDetect picks the right format for each fixture.
 
 **M4 — Geometry + hit-test math (pure, no widgets).**
-`geometry.go`. Integer `charWidth`/`rowH`; the one origin convention; `hitTest` and col↔x. *Tests (internal_math_test.go):* **golden round-trip** — for rows {0,1,deep} at non-trivial `Offset`, `hitTest(rectScreenPos(row,col)) == (row,col)`; off-by-one guards at row top edge and `+rowH-0.5`; `charWidth` is integer; `contentX` includes `Offset.X`.
+`geometry.go`. Exact `charWidth` + rounded `rowH`; the one origin convention; `hitTest` and col↔x. *Tests (geometry_test.go):* **golden round-trip** — for rows {0,1,deep} at non-trivial `Offset`, `hitTest(rectScreenPos(row,col)) == (row,col)`; off-by-one guards at row top edge and `+rowH-0.5`; a fractional `charWidth` keeps a long run aligned to its column (no segment overlap); `contentX` includes `Offset.X`.
 
 **M5 — Renderer + contentBox + row widget (read-only display).**
 `renderer.go`, `contentbox.go`, `row.go`, `pool.go`. `container.Scroll` (ScrollBoth) + manual `reflow`; per-row culled `canvas.Text`; indent guides; fold triangle; `OnScrolled→reflow`. *Tests:* with a synthetic 6k-row model and a fixed viewport, after `reflow` the live row count ≤ V; `contentBox.MinSize()` equals `(maxLineRunes*charWidth+pad, total*rowH)` and allocates 0 per call.

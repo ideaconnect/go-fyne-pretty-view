@@ -136,13 +136,13 @@ Removes essentially all 190k allocs and most of the 6.6 ms.
 
 **Evidence:** row.go:147 `t.Resize(t.MinSize())`.
 
-**Fix:** the view is a strict monospace grid with integral `m.charWidth`/`m.rowH` (geometry.go). Size directly from the rune count already computed during culling:
+**Fix:** the view is a strict monospace grid — `m.charWidth` is the font's exact advance and `m.rowH` a whole pixel (geometry.go). Size directly from the rune count already computed during culling:
 
 ```go
 t.Resize(fyne.NewSize(float32(b-a)*m.charWidth, m.rowH))
 ```
 
-Pixel-exact (the whole coordinate system is built on integral `charWidth`), removes the whole-string hash, the shaping-on-miss, and the unbounded cache churn.
+Grid-exact (the column system uses the same advance Fyne renders at, so a run's box matches its drawn width), and it removes the whole-string hash, the shaping-on-miss, and the unbounded cache churn.
 
 ## 8. Three fresh `[]fyne.CanvasObject` slices per reflow (Low, per-frame)
 

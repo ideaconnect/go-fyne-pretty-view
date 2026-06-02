@@ -38,9 +38,13 @@ import (
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
-// Metrics holds the measured, integer-rounded cell layout. CharWidth and RowH are
-// rounded to whole pixels (matching widget.TextGrid) so selection rectangles
-// align with glyphs on long lines and never drift sub-pixel.
+// Metrics holds the measured cell layout. RowH is rounded to a whole pixel, but
+// CharWidth is kept at the font's exact (possibly fractional) monospace advance:
+// canvas.Text is rendered by Fyne at that natural advance, so rounding the grid
+// cell to a whole pixel would make a long run of text drift past its column cell
+// and overlap the next segment (and selection rectangles drift off the glyphs).
+// Keeping CharWidth exact keeps the grid, the rendered text, and the highlight
+// rectangles in lockstep on arbitrarily long lines.
 type Metrics struct {
 	CharWidth float32
 	RowH      float32
@@ -58,7 +62,7 @@ func roundf(x float32) float32 { return float32(math.Round(float64(x))) }
 // one glyph and the glyph height) and the indent step. Tabs are expanded to spaces
 // at parse time, so the layout grid is uniformly one CharWidth per column.
 func NewMetrics(charWidth, glyphH, indentStep float32) Metrics {
-	cw := roundf(charWidth)
+	cw := charWidth // exact font advance — NOT rounded (see the Metrics doc comment)
 	if cw < 1 {
 		cw = 1
 	}

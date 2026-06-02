@@ -23,10 +23,33 @@ func loadDoc(t *testing.T, name string) *model.Document {
 
 func TestMetricsAreIntegral(t *testing.T) {
 	m := testMetrics()
-	for _, v := range []float32{m.CharWidth, m.RowH, m.triangleSlot, m.indentStep, m.leftPad} {
+	// RowH and the gutter/indent metrics are rounded to whole pixels. CharWidth is
+	// intentionally NOT rounded — it must equal the font's exact advance so the
+	// column grid matches the rendered text (see the Metrics doc comment), so it is
+	// excluded here.
+	for _, v := range []float32{m.RowH, m.triangleSlot, m.indentStep, m.leftPad} {
 		if v != roundf(v) {
 			t.Errorf("metric %v is not integral", v)
 		}
+	}
+}
+
+// TestCharWidthExactAlignsSegments guards the fix for overlapping segments on long
+// lines: with a fractional font advance, the column grid (ColX) must stay in
+// lockstep with the rendered text width so a wide run never overruns the next
+// column. A rounded CharWidth would drift by (advance-round(advance)) per glyph.
+func TestCharWidthExactAlignsSegments(t *testing.T) {
+	const advance = 8.4219 // a deliberately fractional monospace advance
+	m := NewMetrics(advance, 18, 16)
+	if m.CharWidth != advance {
+		t.Fatalf("CharWidth = %v, want the exact (unrounded) advance %v", m.CharWidth, advance)
+	}
+	// A 50-glyph run starting at column 0 must end exactly where column 50 begins.
+	const n = 50
+	runEnd := m.ColX(0, 0) + n*m.CharWidth
+	if next := m.ColX(0, n); next != runEnd {
+		t.Errorf("column %d begins at %.3f but a %d-glyph run ends at %.3f (drift %.3f)",
+			n, next, n, runEnd, next-runEnd)
 	}
 }
 
