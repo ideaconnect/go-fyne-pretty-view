@@ -96,24 +96,32 @@ func isFixture(path string) bool {
 	return false
 }
 
-// readFixture reads path. For the bundled testdata/ fixtures it resolves the path
-// relative to the repo root (derived from this source file) so the demo works from
-// any working directory; it falls back to the path as given (e.g. a user-supplied
-// argument, or a relocated binary).
+// readFixture reads one of the demo's bundled fixtures by its testdata/ path. It
+// looks in the current directory, next to the executable (the layout of the
+// released zip — the binary alongside testdata/), and the source tree during
+// development, so the demo works however it was launched. Anything not in the
+// fixture set is read as a plain path (e.g. a user-supplied CLI argument).
 func readFixture(path string) ([]byte, error) {
 	if isFixture(path) {
-		if data, err := os.ReadFile(filepath.Join(repoRoot(), path)); err == nil {
-			return data, nil
+		for _, base := range fixtureBaseDirs() {
+			if data, err := os.ReadFile(filepath.Join(base, path)); err == nil {
+				return data, nil
+			}
 		}
 	}
 	return os.ReadFile(path)
 }
 
-// repoRoot returns the module root, two directories up from this source file
-// (cmd/prettyview-demo/main.go), or "." if the source path is unavailable.
-func repoRoot() string {
-	if _, file, _, ok := runtime.Caller(0); ok {
-		return filepath.Join(filepath.Dir(file), "..", "..")
+// fixtureBaseDirs lists the directories the bundled testdata/ may live under, in
+// priority order: the working directory, the executable's directory (the released
+// zip), and the module root during development.
+func fixtureBaseDirs() []string {
+	dirs := []string{"."}
+	if exe, err := os.Executable(); err == nil {
+		dirs = append(dirs, filepath.Dir(exe))
 	}
-	return "."
+	if _, file, _, ok := runtime.Caller(0); ok {
+		dirs = append(dirs, filepath.Join(filepath.Dir(file), "..", ".."))
+	}
+	return dirs
 }

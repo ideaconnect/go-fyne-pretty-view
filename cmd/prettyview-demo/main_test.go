@@ -19,8 +19,8 @@ func TestFixtureHelpers(t *testing.T) {
 	if _, err := readFixture("/definitely/missing/file.json"); err == nil {
 		t.Error("readFixture of a missing file should error")
 	}
-	if repoRoot() == "" {
-		t.Error("repoRoot should not be empty")
+	if len(fixtureBaseDirs()) == 0 {
+		t.Error("fixtureBaseDirs should list at least the working directory")
 	}
 }
 

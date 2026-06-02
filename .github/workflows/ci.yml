@@ -98,9 +98,14 @@ jobs:
           CGO_ENABLED: "1"
         run: go build -v -o ${{ matrix.binary }} ./cmd/prettyview-demo
 
-      - name: Upload demo binary
+      # Package the executable together with the fixtures so a downloaded artifact
+      # (GitHub serves it as a single .zip) extracts to the binary alongside
+      # testdata/ — the demo's fixture dropdown then loads them out of the box.
+      - name: Upload demo (binary + fixtures)
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.binary }}
+          path: |
+            ${{ matrix.binary }}
+            testdata/
           if-no-files-found: error

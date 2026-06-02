@@ -183,8 +183,12 @@ go run ./cmd/prettyview-demo path/to/file  # or any file
 ```
 
 The demo shows both control styles at once: the built-in `NewToolbar` (Open,
-format, expand/collapse, search) used as-is, plus an app-supplied fixture
+format, expand/collapse, wrap, search) used as-is, plus an app-supplied fixture
 dropdown that drives the public API directly.
+
+Prebuilt binaries are produced by CI for Linux, Windows, and macOS — each is
+downloaded as a zip containing the executable alongside the `testdata/` fixtures,
+so the fixture dropdown works as soon as you extract and run it.
 
 ## Design
 
