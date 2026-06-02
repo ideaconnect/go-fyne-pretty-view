@@ -8,7 +8,6 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -32,7 +31,7 @@ type ToolbarConfig struct {
 	ShowOpen           bool        // an "Open…" button (needs Window or OnOpen)
 	ShowFormat         bool        // a format selector (auto/json/xml/html/raw)
 	ShowExpandCollapse bool        // Expand all / Collapse all buttons
-	ShowWrap           bool        // a "Wrap" checkbox (soft-wrap toggle)
+	ShowWrap           bool        // a wrap-text icon toggle (soft-wrap on/off)
 	ShowSearch         bool        // a find box with prev/next and a match counter
 	Window             fyne.Window // enables the built-in Open dialog and Ctrl/Cmd+F focus
 	OnOpen             func()      // overrides the built-in Open behavior, if set
@@ -49,7 +48,7 @@ func DefaultToolbarConfig() ToolbarConfig {
 func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 	left := container.NewHBox()
 	if cfg.ShowOpen && (cfg.OnOpen != nil || cfg.Window != nil) {
-		left.Add(widget.NewButtonWithIcon("Open…", theme.FolderOpenIcon(), func() {
+		left.Add(newIconButton(iconFolder(), "Open…", func() {
 			if cfg.OnOpen != nil {
 				cfg.OnOpen()
 				return
@@ -81,27 +80,38 @@ func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 	return left
 }
 
-// NewFoldButtons returns an "Expand all" / "Collapse all" pair bound to pv.
+// NewFoldButtons returns an expand-all / collapse-all icon pair (with hover
+// tooltips) bound to pv.
 func NewFoldButtons(pv *PrettyView) fyne.CanvasObject {
 	return container.NewHBox(
-		widget.NewButton("Expand all", pv.ExpandAll),
-		widget.NewButton("Collapse all", pv.CollapseAll),
+		newIconButton(iconExpand(), "Expand all", pv.ExpandAll),
+		newIconButton(iconCollapse(), "Collapse all", pv.CollapseAll),
 	)
 }
 
-// NewWrapToggle returns a "Wrap" checkbox bound to pv: checked soft-wraps long
-// lines to the viewport width (WrapWord), unchecked lets them scroll horizontally
-// (WrapNone). It reflects the viewer's current mode on creation.
+// NewWrapToggle returns a wrap-text icon toggle (with a hover tooltip) bound to pv:
+// it flips between soft-wrap (WrapWord) and horizontal scroll (WrapNone), and is
+// highlighted (HighImportance) while wrapping is on so the state is visible.
 func NewWrapToggle(pv *PrettyView) fyne.CanvasObject {
-	chk := widget.NewCheck("Wrap", func(on bool) {
-		if on {
-			pv.SetWrap(WrapWord)
-		} else {
+	var btn *iconButton
+	btn = newIconButton(iconWrapText(), "Wrap text", func() {
+		if pv.Wrap() == WrapWord {
 			pv.SetWrap(WrapNone)
+		} else {
+			pv.SetWrap(WrapWord)
 		}
+		btn.Importance = wrapImportance(pv)
+		btn.Refresh()
 	})
-	chk.SetChecked(pv.Wrap() == WrapWord)
-	return chk
+	btn.Importance = wrapImportance(pv)
+	return btn
+}
+
+func wrapImportance(pv *PrettyView) widget.Importance {
+	if pv.Wrap() == WrapWord {
+		return widget.HighImportance
+	}
+	return widget.LowImportance
 }
 
 // NewFormatSelect returns a format selector bound to pv. Choosing a format
@@ -153,10 +163,10 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 	pv.SetOnSearchChanged(update)
 	pv.SetOnSearchRequested(func() { focusObject(entry) })
 
-	prev := widget.NewButtonWithIcon("", theme.MoveUpIcon(), pv.SearchPrev)
-	next := widget.NewButtonWithIcon("", theme.MoveDownIcon(), pv.SearchNext)
+	prev := newIconButton(iconArrowUp(), "Previous match", pv.SearchPrev)
+	next := newIconButton(iconArrowDown(), "Next match", pv.SearchNext)
 
-	return container.NewBorder(nil, nil, widget.NewLabel("Find:"),
+	return container.NewBorder(nil, nil, widget.NewIcon(iconSearch()),
 		container.NewHBox(count, prev, next), entry)
 }
 

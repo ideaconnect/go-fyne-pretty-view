@@ -202,6 +202,14 @@ and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 | [AGENTS.md](AGENTS.md) | Brief for AI coding agents: invariants to preserve, conventions. |
 | [CLAUDE.md](CLAUDE.md) | Claude Code entry point (points at AGENTS.md). |
 
+## Credits
+
+Toolbar glyphs (open, expand/collapse, wrap-text, search, up/down) are from
+[Iconoir](https://iconoir.com) by Luca Burgio, used under the **MIT License**
+(© 2021 Luca Burgio). The icon files and their license are vendored under
+[icons/iconoir/](icons/iconoir/) (see [icons/iconoir/LICENSE](icons/iconoir/LICENSE)).
+They are recolored to the active theme foreground at build time.
+
 ## License
 
 Licensed under the [BSD 3-Clause License](LICENSE) (© 2026 IDCT, Bartosz Pachołek).
