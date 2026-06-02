@@ -30,11 +30,13 @@ select text (Ctrl+C copies), and use the Find box (or Ctrl+F) to search.
 Start with [STRUCTURE.md](STRUCTURE.md) — it maps every file and gives a
 one-paragraph mental model. The short version:
 
-- **Parsers** (`parse_*.go`, `builder.go`) turn bytes into a compact model.
-- **Model** (`model.go`, `foldindex.go`) is a flat, pointer-free representation
-  plus the fold/visibility index.
-- **View** (`renderer.go`, `row.go`, `geometry.go`, `selection*.go`, `search.go`,
-  `highlight.go`) draws only the rows on screen and handles input.
+- **Parsers** (`internal/parse/parse_*.go`) turn bytes into a compact model.
+- **Model** (`internal/model/`: `model.go`, `foldindex.go`, `builder.go`,
+  `wrap.go`) is a flat, pointer-free representation plus the fold/visibility and
+  soft-wrap indices.
+- **View** (root: `renderer.go`, `row.go`, `selection*.go`, `search.go`,
+  `highlight.go`, with the pixel↔model math in `internal/geometry/`) draws only
+  the rows on screen and handles input.
 
 The *why* behind the design — and the trade-offs considered — is in
 [docs/DESIGN.md](docs/DESIGN.md).
@@ -57,8 +59,6 @@ The *why* behind the design — and the trade-offs considered — is in
 - Fixtures live in `testdata/`; tests are table-driven where it helps.
 - Issues/PRs: describe what the user sees change, not just the diff.
 
-## License & contact
+## License
 
-No `LICENSE` file has been added yet — all rights reserved by the maintainers
-until one is. The project is maintained under the
-`ideaconnect/go-fyne-pretty-view` repository.
+Licensed under the [BSD 3-Clause License](LICENSE) (© 2026 IDCT, Bartosz Pachołek).

@@ -1,7 +1,6 @@
 package prettyview
 
 import (
-	"image/color"
 	"math"
 	"sync"
 
@@ -9,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
 )
 
 // prettyViewRenderer implements the manual visible-window virtualization. It owns
@@ -45,8 +45,19 @@ type prettyViewRenderer struct {
 // and wires scrolling to the visible-window reflow.
 func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 	pv.ExtendBaseWidget(pv)
+	pv.destroyed.Store(false) // re-enable if the widget is being re-created after a Destroy
+	pv.searchGen++            // invalidate any debounce scan queued before the Destroy/re-create
 	r := &prettyViewRenderer{pv: pv, live: map[int]*rowWidget{}}
-	r.rowPool.New = func() any { return newRowWidget(pv) }
+	// Pooled rows start hidden so the reflow's Show() reliably fires the row
+	// renderer's build(): a row that is already visible (Fyne's default) would make
+	// Show() a no-op and the row would render blank on its first appearance. The
+	// recycle path Hide()s rows before returning them to the pool, so this only
+	// matters for freshly-created ones.
+	r.rowPool.New = func() any {
+		rw := newRowWidget(pv)
+		rw.Hide()
+		return rw
+	}
 
 	r.selLayer = container.NewWithoutLayout()
 	r.matchLayer = container.NewWithoutLayout()
@@ -62,7 +73,14 @@ func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 	return r
 }
 
-func (r *prettyViewRenderer) Destroy()                     {}
+// Destroy tears the widget down. It cancels any pending debounced search so the
+// timer can't fire after teardown (a stale scan against freed state / off the Fyne
+// thread). The destroyed flag also makes an already-fired-but-not-yet-run callback
+// a no-op, closing the window Timer.Stop alone can't.
+func (r *prettyViewRenderer) Destroy() {
+	r.pv.destroyed.Store(true)
+	r.pv.stopSearchTimer()
+}
 func (r *prettyViewRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{r.scroll} }
 func (r *prettyViewRenderer) MinSize() fyne.Size           { return fyne.NewSize(120, 80) }
 
@@ -75,9 +93,21 @@ func (r *prettyViewRenderer) Layout(size fyne.Size) {
 func (r *prettyViewRenderer) Refresh() {
 	r.pv.recomputeMetrics()
 	r.scroll.Content.Resize(r.pv.contentSize())
-	r.scroll.Refresh()
+	r.refreshBars()
 	r.reflow()
 	canvas.Refresh(r.pv)
+}
+
+// refreshBars updates the scrollbars for the current content extent WITHOUT
+// scroll.Refresh()'s Content.Refresh() cascade, which would rebuild every live row
+// a second time on top of reflow() (which rebuilds the visible window exactly once).
+// container.Scroll exposes no bars-only refresh and ScrollToOffset early-returns on
+// an unchanged offset, so we detach the rows first: scroll.Refresh()'s cascade then
+// finds an empty rowLayer (no row builds) and reflow() repopulates it immediately
+// after, within the same synchronous call (no intervening paint).
+func (r *prettyViewRenderer) refreshBars() {
+	r.rowLayer.Objects = nil
+	r.scroll.Refresh()
 }
 
 // reflow recomputes the visible window from the scroll offset and recycles row
@@ -85,7 +115,7 @@ func (r *prettyViewRenderer) Refresh() {
 // fixed-height fast path.
 func (r *prettyViewRenderer) reflow() {
 	pv := r.pv
-	if pv.doc == nil || pv.met.rowH <= 0 {
+	if pv.doc == nil || pv.met.RowH <= 0 {
 		return
 	}
 	pv.viewOffX = r.scroll.Offset.X
@@ -93,20 +123,30 @@ func (r *prettyViewRenderer) reflow() {
 	vpH := r.scroll.Size().Height
 	m := pv.met
 
-	total := int(pv.doc.fold.TotalVisibleRows())
+	// Reconcile soft-wrap with the current viewport before the visible-window math
+	// reads the row total — a resize that crosses a column boundary reprojects here.
+	pv.syncWrap()
+
+	total := int(pv.doc.TotalVisibleRows())
 	if total == 0 {
 		r.clearRows()
 		r.rowLayer.Objects = nil
 		r.rowLayer.Refresh()
+		// Drop any selection/match rectangles left over from a previous, non-empty
+		// document. The normal path clears these via rebuildSelection/rebuildMatches,
+		// which we skip here, so do it explicitly (and reset the visible range).
+		r.firstRow, r.lastRow = 0, -1
+		r.applyRects(r.selLayer, &r.selRects, &r.selObjs, 0)
+		r.applyRects(r.matchLayer, &r.matchRects, &r.matchObjs, 0)
 		return
 	}
 
 	offY := r.scroll.Offset.Y
-	first := int(math.Floor(float64(offY / m.rowH)))
+	first := int(math.Floor(float64(offY / m.RowH)))
 	if first < 0 {
 		first = 0
 	}
-	last := int(math.Ceil(float64((offY + vpH) / m.rowH)))
+	last := int(math.Ceil(float64((offY + vpH) / m.RowH)))
 	if last >= total {
 		last = total - 1
 	}
@@ -123,7 +163,10 @@ func (r *prettyViewRenderer) reflow() {
 	}
 
 	cw := pv.contentSize().Width
-	size := fyne.NewSize(cw, m.rowH)
+	size := fyne.NewSize(cw, m.RowH)
+	wrapOn := pv.doc.WrapActive()
+	var breaks []int32
+	breaksLine := int32(-1)
 	for idx := first; idx <= last; idx++ {
 		rw, existed := r.live[idx]
 		if !existed {
@@ -131,12 +174,30 @@ func (r *prettyViewRenderer) reflow() {
 			r.live[idx] = rw
 		}
 		// Set the line and geometry WITHOUT refreshing, then trigger exactly one
-		// build per row. Show/Resize/Refresh each funnel into the renderer's
-		// build(), so we let only one of them fire: Show for a newly-shown row,
-		// Refresh for a reused one. Resize is skipped unless the size truly changed
-		// (all rows share one size, so this is normally a no-op).
-		rw.line = pv.doc.fold.lineAtRow(int32(idx))
-		rw.Move(fyne.NewPos(0, float32(idx)*m.rowH))
+		// build per row. Move and Resize do NOT build (Resize only calls the row
+		// renderer's no-op Layout); the single build comes from Show for a newly-
+		// shown (hidden) row, or Refresh for a reused one. Resize is skipped unless
+		// the size truly changed (all rows share one size, so this is normally a
+		// no-op). Pooled rows start hidden (see CreateRenderer) so Show reliably
+		// fires the build rather than no-opping on an already-visible row.
+		if wrapOn {
+			// A wrapped line's sub-rows are contiguous visual rows, so WrapBreaks is
+			// computed once per distinct visible line (breaksLine cache), not per row.
+			rw.line, rw.sub = pv.doc.LineAndSubRowAtRow(int32(idx))
+			if rw.line != breaksLine {
+				breaks = pv.doc.WrapBreaks(rw.line, breaks[:0])
+				breaksLine = rw.line
+			}
+			s := int(rw.sub)
+			if s > len(breaks)-2 {
+				s = len(breaks) - 2
+			}
+			rw.startCol, rw.endCol = breaks[s], breaks[s+1]
+		} else {
+			rw.line, rw.sub = pv.doc.LineAtRow(int32(idx)), 0
+			rw.startCol, rw.endCol = -1, -1
+		}
+		rw.Move(fyne.NewPos(0, float32(idx)*m.RowH))
 		if rw.Size() != size {
 			rw.Resize(size)
 		}
@@ -191,16 +252,9 @@ func (r *prettyViewRenderer) scrollBy(dx, dy float32) {
 	cs := r.pv.contentSize()
 	vp := r.scroll.Size()
 	off := r.scroll.Offset
-	nx := clampf(off.X+dx, 0, maxf(0, cs.Width-vp.Width))
-	ny := clampf(off.Y+dy, 0, maxf(0, cs.Height-vp.Height))
+	nx := clampf(off.X+dx, 0, max(0, cs.Width-vp.Width))
+	ny := clampf(off.Y+dy, 0, max(0, cs.Height-vp.Height))
 	r.scrollToOffset(fyne.NewPos(nx, ny))
-}
-
-func maxf(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // contentLayout reports the full document extent as the scroll content's MinSize
@@ -220,47 +274,60 @@ func (cl *contentLayout) Layout(objs []fyne.CanvasObject, size fyne.Size) {
 // contentSize is the full scrollable extent for the current document and fold
 // state. Width is an upper bound (widest line's runes at the deepest indent).
 func (pv *PrettyView) contentSize() fyne.Size {
-	if pv.doc == nil || pv.met.rowH <= 0 {
+	if pv.doc == nil || pv.met.RowH <= 0 {
 		return fyne.NewSize(0, 0)
 	}
-	rows := pv.doc.fold.TotalVisibleRows()
-	h := float32(rows) * pv.met.rowH
-	w := pv.met.textOriginX(pv.doc.maxDepth) + float32(pv.doc.maxLineRunes)*pv.met.charWidth + pv.met.charWidth*2
+	rows := pv.doc.TotalVisibleRows()
+	h := float32(rows) * pv.met.RowH
+	if pv.doc.WrapActive() {
+		// Soft-wrap fits every row within the viewport, so the content never scrolls
+		// horizontally; width is the viewport width (the scroll is vertical-only).
+		return fyne.NewSize(pv.viewW, h)
+	}
+	w := pv.met.TextOriginX(pv.doc.MaxDepth) + float32(pv.doc.MaxLineRunes)*pv.met.CharWidth + pv.met.CharWidth*2
 	return fyne.NewSize(w, h)
 }
 
-// recomputeMetrics measures the monospace cell, builds the metrics, and rebuilds
-// the syntax palette for the active theme variant.
+// recomputeMetrics measures the monospace cell, builds the metrics, and resolves
+// the effective theme (palette + selection/match/guide colors) for the active
+// variant, applying any per-variant override.
 func (pv *PrettyView) recomputeMetrics() {
-	ts := float32(theme.TextSize())
-	style := fyne.TextStyle{Monospace: true}
-	sz := fyne.MeasureText("MMMMMMMMMM", ts, style)
-	cw := sz.Width / 10
-	pv.met = newMetrics(pv.cfg, cw, sz.Height)
-	pv.met.textSize = ts
-
-	variant := fyne.CurrentApp().Settings().ThemeVariant()
-	var override *SyntaxColors
-	if pv.cfg.syntaxOverrides != nil {
-		if c, ok := pv.cfg.syntaxOverrides[variant]; ok {
-			override = &c
-		}
+	// Reading the text size and variant is cheap; do it first so the memo can skip
+	// the expensive MeasureText + palette rebuild when nothing relevant changed.
+	// SetTheme/SetSyntaxColors clear metricsReady to force a rebuild on override.
+	var ts float32
+	variant := fyne.ThemeVariant(theme.VariantDark)
+	app := fyne.CurrentApp()
+	haveApp := app != nil && app.Settings() != nil
+	if haveApp {
+		ts = theme.TextSize()
+		variant = app.Settings().ThemeVariant()
+	} else {
+		ts = theme.DefaultTheme().Size(theme.SizeNameText)
 	}
-	pv.palette = buildPalette(variant, override)
-	pv.guideColor = guideColorFor(variant)
-	pv.selColor = selectionColorFor(variant)
-	pv.matchColor = color.NRGBA{0xff, 0xd5, 0x4f, 0x55}       // soft yellow
-	pv.activeMatchColor = color.NRGBA{0xff, 0x8c, 0x1a, 0xaa} // strong orange
-}
+	if pv.metricsReady && ts == pv.lastTextSize && variant == pv.lastVariant {
+		return // measured cell + palette unchanged — skip MeasureText and the palette alloc
+	}
 
-func selectionColorFor(variant fyne.ThemeVariant) color.Color {
-	c := themeColor(theme.ColorNameSelection, variant)
-	rr, gg, bb, _ := c.RGBA()
-	return color.NRGBA{uint8(rr >> 8), uint8(gg >> 8), uint8(bb >> 8), 0x66}
-}
+	// Measuring text needs a live app/driver. Built before an app exists (e.g.
+	// SetData before app.New()), fall back to default-theme estimates so construction
+	// never panics; the memo mismatch above remeasures once a canvas exists.
+	var cw, glyphH float32
+	if haveApp {
+		sz := fyne.MeasureText("MMMMMMMMMM", ts, fyne.TextStyle{Monospace: true})
+		cw, glyphH = sz.Width/10, sz.Height
+	} else {
+		cw, glyphH = ts*0.6, ts*1.3
+	}
+	pv.met = geometry.NewMetrics(cw, glyphH, pv.cfg.indentStep)
+	pv.met.TextSize = ts
 
-func guideColorFor(variant fyne.ThemeVariant) color.Color {
-	fg := themeColor(theme.ColorNameForeground, variant)
-	rr, gg, bb, _ := fg.RGBA()
-	return color.NRGBA{uint8(rr >> 8), uint8(gg >> 8), uint8(bb >> 8), 0x22}
+	t := pv.resolveTheme(variant)
+	pv.palette = t.palette()
+	pv.guideColor = t.IndentGuide
+	pv.selColor = t.Selection
+	pv.matchColor = t.Match
+	pv.activeMatchColor = t.ActiveMatch
+
+	pv.lastTextSize, pv.lastVariant, pv.metricsReady = ts, variant, true
 }

@@ -5,41 +5,43 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
+
 	"fyne.io/fyne/v2"
 )
 
 // TestRevealLineMatchesRebuild verifies the incremental reveal leaves the
 // projection identical to a full rebuild and does not disturb unrelated folds.
 func TestRevealLineMatchesRebuild(t *testing.T) {
-	d := parseDocument([]byte(`{"a":{"b":{"c":"deep"}},"sib":{"x":1,"y":2}}`), FormatJSON, 0)
+	d := parse.Parse([]byte(`{"a":{"b":{"c":"deep"}},"sib":{"x":1,"y":2}}`), FormatJSON, 0)
 	sib := findFoldHead(d, `"sib"`)
 	b := findFoldHead(d, `"b"`)
 	a := findFoldHead(d, `"a"`)
 	// Collapse innermost-first so each node is visible when collapsed.
-	d.fold.fold(d, sib)
-	d.fold.fold(d, b)
-	d.fold.fold(d, a)
+	d.Fold(sib)
+	d.Fold(b)
+	d.Fold(a)
 
 	deep := lineContaining(d, "deep")
-	if deep < 0 || d.fold.vis[deep] != 0 {
+	if deep < 0 || d.Visible(deep) {
 		t.Fatal("precondition: deep line should be hidden")
 	}
 
-	d.fold.revealLine(d, deep)
-	got := append([]int32(nil), d.fold.vis...)
+	d.RevealLine(deep)
+	got := visSnapshot(d)
 
-	if d.fold.vis[deep] != 1 {
+	if !d.Visible(deep) {
 		t.Error("deep line not revealed")
 	}
-	if !d.fold.collapsed.get(sib) {
+	if !d.Collapsed(sib) {
 		t.Error("revealing a deep line wrongly expanded an unrelated sibling")
 	}
 
-	// A full rebuild from the same collapsed bitset must yield identical vis[].
-	d.fold.rebuild(d)
-	for i := range got {
-		if got[i] != d.fold.vis[i] {
-			t.Fatalf("incremental reveal diverged from rebuild at line %d: %d vs %d", i, got[i], d.fold.vis[i])
+	// A full rebuild from the same collapsed bitset must yield identical visibility.
+	d.Rebuild()
+	for i, v := range got {
+		if v != d.Visible(int32(i)) {
+			t.Fatalf("incremental reveal diverged from rebuild at line %d", i)
 		}
 	}
 }

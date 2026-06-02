@@ -6,11 +6,11 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// SearchConfig tunes the incremental search behavior.
+// SearchConfig tunes the incremental search behavior. The scan is synchronous on
+// the Fyne goroutine (debounced, and bounded by MaxMatches); see runSearch.
 type SearchConfig struct {
 	MaxMatches  int           // cap on stored matches (default 10_000)
 	DebounceFor time.Duration // keystroke debounce (default 150ms)
-	ChunkBytes  int           // bytes scanned per cooperative slice (default 256 KiB)
 	MinQueryLen int           // shortest query that triggers a scan (default 1)
 }
 
@@ -18,20 +18,30 @@ func defaultSearchConfig() SearchConfig {
 	return SearchConfig{
 		MaxMatches:  10_000,
 		DebounceFor: 150 * time.Millisecond,
-		ChunkBytes:  256 << 10,
 		MinQueryLen: 1,
 	}
 }
 
 // config holds all construction-time settings. It is populated by Options.
 type config struct {
-	format          Format
-	wrap            WrapMode
-	search          SearchConfig
-	collapseDepth   int // auto-collapse containers deeper than this on load (0 = never)
-	tabWidth        int
-	indentStep      float32
-	syntaxOverrides map[fyne.ThemeVariant]SyntaxColors
+	format        Format
+	wrap          WrapMode
+	search        SearchConfig
+	collapseDepth int // auto-collapse containers deeper than this on load (0 = never)
+	tabWidth      int
+	indentStep    float32
+	themeOverride map[fyne.ThemeVariant]Theme
+}
+
+// setThemeOverride merges t's non-nil fields into the per-variant override, so
+// WithTheme / WithSyntaxColors / SetTheme compose rather than clobber.
+func (c *config) setThemeOverride(variant fyne.ThemeVariant, t Theme) {
+	if c.themeOverride == nil {
+		c.themeOverride = map[fyne.ThemeVariant]Theme{}
+	}
+	cur := c.themeOverride[variant]
+	t.mergeInto(&cur)
+	c.themeOverride[variant] = cur
 }
 
 func defaultConfig() config {
@@ -51,14 +61,28 @@ type Option func(*config)
 // WithFormat forces a specific input format, skipping auto-detection.
 func WithFormat(f Format) Option { return func(c *config) { c.format = f } }
 
-// WithWrap selects the long-line handling mode (default WrapNone).
+// WithWrap selects the long-line handling mode (default WrapNone): WrapNone lets
+// long lines overflow and scroll horizontally (matching Bruno), WrapWord soft-wraps
+// them to the viewport width. The mode can also be changed at runtime with SetWrap.
 func WithWrap(m WrapMode) Option { return func(c *config) { c.wrap = m } }
 
-// WithSearchConfig overrides the search tuning parameters.
+// WithSearchConfig overrides the search tuning parameters. The struct is used as
+// given — it replaces the defaults wholesale, not field-by-field. A zero MaxMatches
+// or MinQueryLen still falls back to its default at scan time, but a zero DebounceFor
+// means "no debounce" (scan on every keystroke), NOT 150 ms; set it explicitly to
+// keep keystroke coalescing.
 func WithSearchConfig(s SearchConfig) Option { return func(c *config) { c.search = s } }
 
-// WithDefaultCollapseDepth auto-collapses every container deeper than d on load.
-func WithDefaultCollapseDepth(d int) Option { return func(c *config) { c.collapseDepth = d } }
+// WithDefaultCollapseDepth auto-collapses every container deeper than d on load
+// (d <= 0 disables auto-collapse).
+func WithDefaultCollapseDepth(d int) Option {
+	return func(c *config) {
+		if d < 0 {
+			d = 0
+		}
+		c.collapseDepth = d
+	}
+}
 
 // WithTabWidth sets the display width of a tab character (default 4).
 func WithTabWidth(n int) Option {
@@ -78,12 +102,15 @@ func WithIndentStep(px float32) Option {
 	}
 }
 
-// WithSyntaxColors overrides the syntax palette for a theme variant.
+// WithTheme overrides any of the viewer's colors for a theme variant. Nil fields
+// keep their (Fyne-theme-tracking) defaults; calls compose. Pass the variant your
+// app uses (theme.VariantDark / theme.VariantLight), or set both.
+func WithTheme(v fyne.ThemeVariant, t Theme) Option {
+	return func(c *config) { c.setThemeOverride(v, t) }
+}
+
+// WithSyntaxColors overrides just the syntax token colors for a theme variant
+// (shorthand for WithTheme with only the token fields set).
 func WithSyntaxColors(v fyne.ThemeVariant, s SyntaxColors) Option {
-	return func(c *config) {
-		if c.syntaxOverrides == nil {
-			c.syntaxOverrides = map[fyne.ThemeVariant]SyntaxColors{}
-		}
-		c.syntaxOverrides[v] = s
-	}
+	return func(c *config) { c.setThemeOverride(v, s.asTheme()) }
 }

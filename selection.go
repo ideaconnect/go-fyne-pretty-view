@@ -6,7 +6,24 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
+
+// modelPos is a position in the document: a stable display-line index and a rune
+// column into that line's displayed text. Line indices never change after parse
+// (only visibility does), so a modelPos survives folding; a hidden line is
+// snapped to the nearest visible ancestor at use sites.
+type modelPos struct {
+	line int32
+	col  int
+}
+
+// hitTest maps a content-space pixel to a model position (via the geometry leaf).
+func (pv *PrettyView) hitTest(contentX, contentY float32) modelPos {
+	line, col := geometry.HitTest(pv.doc, pv.met, contentX, contentY)
+	return modelPos{line: line, col: col}
+}
 
 // selection is the model-based selection state: four integers (two positions)
 // plus flags. It is independent of which rows are on screen, so it survives
@@ -16,6 +33,7 @@ type selection struct {
 	anchor, focus modelPos
 	active        bool // there is a non-empty selection
 	dragging      bool
+	placed        bool // a caret/anchor has been established by user interaction
 
 	grab         grabMode
 	grabA, grabB modelPos // the word/line originally grabbed (for double/triple-drag)
@@ -46,15 +64,15 @@ func (pv *PrettyView) requestFocus() {
 func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 	pv.requestFocus()
 	if ev.Button == desktop.MouseButtonSecondary {
-		return // reserved for a future context menu; leave selection intact
+		return // the right-click context menu is shown by TappedSecondary; leave the selection intact
 	}
 	cx, cy := pv.contentPos(ev.Position)
 	// A press on a fold triangle is a fold gesture, handled by Tapped.
-	if pv.foldNodeAt(cx, cy) != NoNode {
+	if pv.foldNodeAt(cx, cy) != model.NoNode {
 		pv.r.dragArmed = false
 		return
 	}
-	pos := pv.doc.hitTest(pv.met, cx, cy)
+	pos := pv.hitTest(cx, cy)
 	if pos.line < 0 {
 		return
 	}
@@ -72,8 +90,18 @@ func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 	shift := ev.Modifier&fyne.KeyModifierShift != 0
 	switch {
 	case shift:
-		pv.sel.focus = pos
-		pv.sel.active = true
+		// Extend the selection from the established caret/anchor. If no caret has
+		// been placed yet (fresh widget, or just after ClearSelection), a stray
+		// shift-click must not select from the document origin — place the caret
+		// at the click instead. A real prior click at (0,0) sets placed, so
+		// shift-selecting from the top still works.
+		if pv.sel.placed {
+			pv.sel.focus = pos
+			pv.sel.active = true
+		} else {
+			pv.sel.anchor, pv.sel.focus = pos, pos
+			pv.sel.active = false
+		}
 		pv.sel.grab = grabNone
 	case pv.clickCount >= 3:
 		a, b := pv.lineBounds(pos.line)
@@ -90,6 +118,7 @@ func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 		pv.sel.grab = grabNone
 		pv.sel.active = false
 	}
+	pv.sel.placed = true // a caret/anchor now exists for subsequent shift-clicks
 	pv.refreshSelectionView()
 }
 
@@ -100,10 +129,24 @@ func (pv *PrettyView) Dragged(ev *fyne.DragEvent) {
 		return
 	}
 	cx, cy := pv.contentPos(ev.Position)
-	pos := pv.doc.hitTest(pv.met, cx, cy)
+	pos := pv.hitTest(cx, cy)
 	if pos.line < 0 {
 		return
 	}
+	pv.applyHit(pos)
+	pv.sel.active = true
+	pv.sel.dragging = true
+	pv.autoscrollEdge(ev.Position)
+	pv.refreshSelectionView()
+}
+
+// applyHit moves the drag focus to pos, honoring the active grab mode: a word- or
+// line-grab (double/triple-click drag) extends the selection to the whole word or
+// line under pos via extendGrab, while a plain drag just moves the focus. Both the
+// pointer-driven Dragged and the edge auto-scroll go through here so a drag that
+// reaches the viewport edge keeps extending by word/line instead of collapsing to
+// a single character. The anchor is set authoritatively in MouseDown.
+func (pv *PrettyView) applyHit(pos modelPos) {
 	switch pv.sel.grab {
 	case grabWord:
 		a, b := pv.wordBounds(pos.line, pos.col)
@@ -112,13 +155,8 @@ func (pv *PrettyView) Dragged(ev *fyne.DragEvent) {
 		a, b := pv.lineBounds(pos.line)
 		pv.extendGrab(a, b)
 	default:
-		// Anchor is set authoritatively in MouseDown and never recomputed here.
 		pv.sel.focus = pos
 	}
-	pv.sel.active = true
-	pv.sel.dragging = true
-	pv.autoscrollEdge(ev.Position)
-	pv.refreshSelectionView()
 }
 
 func (pv *PrettyView) DragEnd() {
@@ -166,8 +204,8 @@ func (pv *PrettyView) autoscrollEdge(local fyne.Position) {
 	if dx != 0 || dy != 0 {
 		pv.r.scrollBy(dx, dy)
 		cx, cy := pv.contentPos(local)
-		if pos := pv.doc.hitTest(pv.met, cx, cy); pos.line >= 0 {
-			pv.sel.focus = pos
+		if pos := pv.hitTest(cx, cy); pos.line >= 0 {
+			pv.applyHit(pos) // honor word/line grab during edge auto-scroll, not just plain focus
 		}
 	}
 }
@@ -178,7 +216,7 @@ func (pv *PrettyView) MouseIn(*desktop.MouseEvent) {}
 func (pv *PrettyView) MouseOut()                   {}
 func (pv *PrettyView) MouseMoved(ev *desktop.MouseEvent) {
 	cx, cy := pv.contentPos(ev.Position)
-	pv.overTriangle = pv.foldNodeAt(cx, cy) != NoNode
+	pv.overTriangle = pv.foldNodeAt(cx, cy) != model.NoNode
 }
 
 // --- focus / keyboard / shortcuts ---
@@ -192,9 +230,34 @@ func (pv *PrettyView) FocusLost() {
 	pv.refreshSelectionView()
 }
 func (pv *PrettyView) TypedRune(rune) {}
+
+// TypedKey handles Escape (clear selection) and keyboard scrolling/navigation:
+// Up/Down scroll one row, PageUp/PageDown one viewport, Home/End jump to the top/
+// bottom. A multi-megabyte viewer should be navigable without the mouse.
 func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
-	if ev.Name == fyne.KeyEscape {
+	if pv.r == nil {
+		if ev.Name == fyne.KeyEscape {
+			pv.ClearSelection()
+		}
+		return
+	}
+	vpH := pv.r.scroll.Size().Height
+	switch ev.Name {
+	case fyne.KeyEscape:
 		pv.ClearSelection()
+	case fyne.KeyDown:
+		pv.r.scrollBy(0, pv.met.RowH)
+	case fyne.KeyUp:
+		pv.r.scrollBy(0, -pv.met.RowH)
+	case fyne.KeyPageDown, fyne.KeySpace:
+		pv.r.scrollBy(0, vpH)
+	case fyne.KeyPageUp:
+		pv.r.scrollBy(0, -vpH)
+	case fyne.KeyHome:
+		pv.r.scrollToOffset(fyne.NewPos(0, 0))
+	case fyne.KeyEnd:
+		cs := pv.contentSize()
+		pv.r.scrollToOffset(fyne.NewPos(pv.r.scroll.Offset.X, max(0, cs.Height-vpH)))
 	}
 }
 
@@ -221,16 +284,17 @@ func (pv *PrettyView) SelectAll() {
 	if pv.doc == nil {
 		return
 	}
-	total := pv.doc.fold.TotalVisibleRows()
+	total := pv.doc.TotalVisibleRows()
 	if total == 0 {
 		return
 	}
-	first := pv.doc.fold.lineAtRow(0)
-	last := pv.doc.fold.lineAtRow(total - 1)
+	first := pv.doc.LineAtRow(0)
+	last := pv.doc.LineAtRow(total - 1)
 	pv.sel.anchor = modelPos{line: first, col: 0}
-	pv.sel.focus = modelPos{line: last, col: pv.doc.lineRuneLen(last)}
+	pv.sel.focus = modelPos{line: last, col: pv.doc.LineRuneLen(last)}
 	pv.sel.active = true
 	pv.sel.grab = grabNone
+	pv.sel.placed = true
 	pv.refreshSelectionView()
 }
 
@@ -255,7 +319,7 @@ func (pv *PrettyView) CopySelection() {
 // whole {…}/[…]/<tag>…</tag> span), regardless of fold state.
 func (pv *PrettyView) CopySubtree(byteOffset int) {
 	node := pv.nodeAtByteOffset(byteOffset)
-	if node == NoNode {
+	if node == model.NoNode {
 		return
 	}
 	if app := fyne.CurrentApp(); app != nil {
@@ -265,30 +329,15 @@ func (pv *PrettyView) CopySubtree(byteOffset int) {
 
 // --- selection geometry / text helpers ---
 
-// visibleLine returns line itself if visible, else the head line of its nearest
-// collapsed ancestor (the row actually shown for it).
-func (d *Document) visibleLine(line int32) int32 {
-	if line < 0 {
-		return line
-	}
-	if d.fold.vis[line] == 1 {
-		return line
-	}
-	if hb := d.fold.hiddenBy[line]; hb != NoNode {
-		return d.Nodes[hb].HeadLine
-	}
-	return line
-}
-
 // snap maps a selection endpoint to a visible position: a visible line and a
 // column clamped to that line's displayed length.
 func (pv *PrettyView) snap(p modelPos) modelPos {
 	if p.line < 0 {
 		return p
 	}
-	vl := pv.doc.visibleLine(p.line)
+	vl := pv.doc.VisibleLine(p.line)
 	col := p.col
-	if n := pv.doc.lineRuneLen(vl); col > n {
+	if n := pv.doc.LineRuneLen(vl); col > n {
 		col = n
 	}
 	if col < 0 {
@@ -299,8 +348,8 @@ func (pv *PrettyView) snap(p modelPos) modelPos {
 
 // posLess reports whether p precedes q in visible (row, col) order.
 func (pv *PrettyView) posLess(p, q modelPos) bool {
-	pr := pv.doc.fold.rowOfLine(pv.doc.visibleLine(p.line))
-	qr := pv.doc.fold.rowOfLine(pv.doc.visibleLine(q.line))
+	pr := pv.doc.RowOfLine(pv.doc.VisibleLine(p.line))
+	qr := pv.doc.RowOfLine(pv.doc.VisibleLine(q.line))
 	if pr != qr {
 		return pr < qr
 	}
@@ -329,34 +378,46 @@ func (pv *PrettyView) selectedText() string {
 	if !ok {
 		return ""
 	}
-	ra := int(pv.doc.fold.rowOfLine(a.line))
-	rb := int(pv.doc.fold.rowOfLine(b.line))
-	if ra == rb {
-		runes := []rune(pv.doc.displayString(a.line))
-		return string(runes[clampInt(a.col, 0, len(runes)):clampInt(b.col, 0, len(runes))])
-	}
+	// Walk the visible display lines of the span directly (a.line..b.line, skipping
+	// folded-away lines) instead of resolving every row through the O(log n) Fenwick
+	// projection. A whole line — every interior line, and either endpoint when its
+	// column cut is the full line — is appended byte-for-byte into a reused buffer
+	// with no per-line string/[]rune allocation; only a genuinely partial endpoint
+	// is decoded to runes for the column slice. raw documents restore real tabs.
+	restoreTabs := pv.Format() == FormatRaw
 	var sb strings.Builder
-	for row := ra; row <= rb; row++ {
-		li := pv.doc.fold.lineAtRow(int32(row))
-		runes := []rune(pv.doc.displayString(li))
-		start, end := 0, len(runes)
-		if row == ra {
-			start = clampInt(a.col, 0, len(runes))
+	var buf []byte
+	first := true
+	for li := a.line; li <= b.line; li++ {
+		if !pv.doc.Visible(li) {
+			continue
 		}
-		if row == rb {
-			end = clampInt(b.col, 0, len(runes))
-		}
-		sb.WriteString(string(runes[start:end]))
-		if row < rb {
+		if !first {
 			sb.WriteByte('\n')
 		}
+		first = false
+		runeLen := pv.doc.LineRuneLen(li)
+		start, end := 0, runeLen
+		if li == a.line {
+			start = clampInt(a.col, 0, runeLen)
+		}
+		if li == b.line {
+			end = clampInt(b.col, 0, runeLen)
+		}
+		if start == 0 && end == runeLen {
+			buf = pv.doc.AppendDisplayLine(li, buf[:0], restoreTabs)
+			sb.Write(buf)
+			continue
+		}
+		runes := []rune(pv.doc.DisplayString(li))
+		sb.WriteString(string(runes[clampInt(start, 0, len(runes)):clampInt(end, 0, len(runes))]))
 	}
 	return sb.String()
 }
 
 // subtreeText reconstructs the displayed text of a node's whole subtree (all
 // lines HeadLine..CloseLine), indented by depth, regardless of fold state.
-func (pv *PrettyView) subtreeText(node NodeID) string {
+func (pv *PrettyView) subtreeText(node model.NodeID) string {
 	n := &pv.doc.Nodes[node]
 	if n.HeadLine < 0 {
 		return ""
@@ -364,8 +425,10 @@ func (pv *PrettyView) subtreeText(node NodeID) string {
 	var sb strings.Builder
 	for li := n.HeadLine; li <= n.CloseLine; li++ {
 		l := &pv.doc.Lines[li]
-		sb.WriteString(strings.Repeat("  ", int(l.Depth)-int(n.Depth)))
-		sb.WriteString(pv.doc.lineString(li))
+		if d := int(l.Depth) - int(n.Depth); d > 0 { // guard: a shallower descendant would panic strings.Repeat
+			sb.WriteString(strings.Repeat("  ", d))
+		}
+		sb.WriteString(pv.doc.LineString(li))
 		if li < n.CloseLine {
 			sb.WriteByte('\n')
 		}
@@ -374,22 +437,33 @@ func (pv *PrettyView) subtreeText(node NodeID) string {
 }
 
 // nodeAtByteOffset returns the deepest node whose source span contains offset
-// (JSON only; XML/HTML lack offsets and return NoNode).
-func (pv *PrettyView) nodeAtByteOffset(offset int) NodeID {
-	best := NoNode
+// (JSON only; XML/HTML lack offsets and return model.NoNode).
+//
+// Nodes are emitted in depth-first preorder, so SrcStart is non-decreasing in id
+// order and a subtree occupies a contiguous id range. We binary-search the last
+// node starting at or before off, then walk up ancestors to the first that
+// actually spans off — O(log n + depth) instead of an O(n) scan of every node.
+func (pv *PrettyView) nodeAtByteOffset(offset int) model.NodeID {
+	nodes := pv.doc.Nodes
 	off := uint32(offset)
-	for id := range pv.doc.Nodes {
-		n := &pv.doc.Nodes[id]
-		if n.SrcEnd == 0 && n.SrcStart == 0 {
-			continue
-		}
-		if off >= n.SrcStart && off < n.SrcEnd {
-			if best == NoNode || n.Depth > pv.doc.Nodes[best].Depth {
-				best = NodeID(id)
-			}
+	lo, hi := 0, len(nodes)
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		if nodes[mid].SrcStart <= off {
+			lo = mid + 1
+		} else {
+			hi = mid
 		}
 	}
-	return best
+	// nodes[lo-1] has the greatest SrcStart <= off; the deepest container is it or
+	// an ancestor (nodes whose subtree ended before off are skipped by the span test).
+	for id := lo - 1; id >= 0; id = int(nodes[id].Parent) {
+		n := &nodes[id]
+		if n.SrcEnd > n.SrcStart && off >= n.SrcStart && off < n.SrcEnd {
+			return model.NodeID(id)
+		}
+	}
+	return model.NoNode
 }
 
 func (pv *PrettyView) refreshSelectionView() {

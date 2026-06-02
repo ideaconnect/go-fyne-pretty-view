@@ -1,4 +1,4 @@
-package prettyview
+package model
 
 import "unicode/utf8"
 
@@ -71,13 +71,13 @@ const (
 	RoleAttr                     // XML/HTML attribute name
 	RoleComment                  // comment text
 	RoleMuted                    // fold-summary text ("{ 6 items }")
-	numColorRoles
+	NumColorRoles
 )
 
 // Buffer selectors for a Segment's byte range.
 const (
-	bufSrc uint8 = 0 // range is into Document.Src (zero-copy)
-	bufAux uint8 = 1 // range is into Document.Aux (synthesized text)
+	BufSrc uint8 = 0 // range is into Document.Src (zero-copy)
+	BufAux uint8 = 1 // range is into Document.Aux (synthesized text)
 )
 
 // Segment is one contiguous, single-color run of text on a display line.
@@ -86,7 +86,7 @@ type Segment struct {
 	Start uint32    // byte offset into the buffer named by Buf
 	End   uint32    // exclusive
 	Role  ColorRole // color slot
-	Buf   uint8     // bufSrc or bufAux
+	Buf   uint8     // BufSrc or BufAux
 }
 
 // Node flags.
@@ -112,14 +112,6 @@ type Node struct {
 	Depth      uint8
 	Flags      uint8
 	_          uint8 // padding
-}
-
-// firstChild returns the id of the node's first direct child, or NoNode.
-func (n *Node) firstChild(id NodeID) NodeID {
-	if n.ChildCount == 0 {
-		return NoNode
-	}
-	return id + 1
 }
 
 // Line is one display row. 24 bytes, no pointers.
@@ -148,57 +140,81 @@ type Document struct {
 
 	fold *foldIndex // visible-line projection (built after parse)
 
-	maxLineRunes int   // widest expanded line, in runes (for content width)
-	maxDepth     uint8 // deepest indentation level present
+	MaxLineRunes int   // widest expanded line, in runes (for content width)
+	MaxDepth     uint8 // deepest indentation level present
+
+	lineRunes []int32 // cached expanded displayed-rune-length per line (computeExtent)
+
+	// Soft-wrap projection. rowsOf[line] is the number of visual rows a line's
+	// currently-displayed text occupies at the active wrap width; nil means WrapNone
+	// — every visible line is exactly one row (the fast path, with zero extra cost).
+	// colsByDepth is the per-depth text-column budget the view supplies (the model
+	// cannot import geometry, so the column math is passed in); it is retained so a
+	// single fold/unfold can re-weight one head line without a full reprojection.
+	rowsOf      []int32
+	colsByDepth []int
 }
 
-// segBytes returns the raw bytes a segment references.
-func (d *Document) segBytes(s Segment) []byte {
-	if s.Buf == bufAux {
+// SegBytes returns the raw bytes a segment references.
+func (d *Document) SegBytes(s Segment) []byte {
+	if s.Buf == BufAux {
 		return d.Aux[s.Start:s.End]
 	}
 	return d.Src[s.Start:s.End]
 }
 
-// lineSegs returns the expanded-rendering segments for a display line.
-func (d *Document) lineSegs(li int32) []Segment {
+// LineSegs returns the expanded-rendering segments for a display line.
+func (d *Document) LineSegs(li int32) []Segment {
 	l := &d.Lines[li]
 	return d.Segs[l.SegFirst : l.SegFirst+uint32(l.SegCount)]
 }
 
-// collapsedSegs returns the collapsed-rendering segments for a fold-head line.
-func (d *Document) collapsedSegs(li int32) []Segment {
+// CollapsedSegs returns the collapsed-rendering segments for a fold-head line.
+func (d *Document) CollapsedSegs(li int32) []Segment {
 	l := &d.Lines[li]
 	return d.Segs[l.CollFirst : l.CollFirst+uint32(l.CollCount)]
 }
 
-// lineString builds the full display text of a line's expanded rendering. It
+// LineString builds the full display text of a line's expanded rendering. It
 // allocates and is intended for on-demand use (tests, a single visible/searched
 // row) — never for materializing the whole document.
-func (d *Document) lineString(li int32) string {
-	return segsText(d, d.lineSegs(li))
+func (d *Document) LineString(li int32) string {
+	return segsText(d, d.LineSegs(li))
 }
 
-// displaySegs returns the segments actually shown for a line, accounting for fold
+// DisplaySegs returns the segments actually shown for a line, accounting for fold
 // state: a collapsed fold-head shows its collapsed rendering, everything else its
 // expanded segments.
-func (d *Document) displaySegs(li int32) []Segment {
-	if d.isCollapsed(li) {
-		return d.collapsedSegs(li)
+func (d *Document) DisplaySegs(li int32) []Segment {
+	if d.IsCollapsed(li) {
+		return d.CollapsedSegs(li)
 	}
-	return d.lineSegs(li)
+	return d.LineSegs(li)
 }
 
-// displayString builds the text a line currently shows (fold-state aware).
-func (d *Document) displayString(li int32) string {
-	return segsText(d, d.displaySegs(li))
+// DisplayString builds the text a line currently shows (fold-state aware).
+func (d *Document) DisplayString(li int32) string {
+	return segsText(d, d.DisplaySegs(li))
 }
 
-// lineRuneLen returns the number of runes in a line's currently-displayed text.
-func (d *Document) lineRuneLen(li int32) int {
+// LineRuneLen returns the number of runes in a line's currently-displayed text.
+// The expanded length is cached at build time (computeExtent); a collapsed
+// fold-head's rendering is short (head + summary + close), so it is counted
+// directly rather than cached.
+func (d *Document) LineRuneLen(li int32) int {
+	if d.IsCollapsed(li) {
+		return countRunes(d, d.CollapsedSegs(li))
+	}
+	if int(li) < len(d.lineRunes) {
+		return int(d.lineRunes[li])
+	}
+	return countRunes(d, d.LineSegs(li)) // fallback for docs not built via Builder
+}
+
+func countRunes(d *Document, segs []Segment) int {
 	n := 0
-	for _, s := range d.displaySegs(li) {
-		n += utf8.RuneCount(d.segBytes(s))
+	for _, s := range segs {
+		n += utf8.RuneCount(d.SegBytes(s))
 	}
 	return n
 }
@@ -210,14 +226,14 @@ func segsText(d *Document, segs []Segment) string {
 	}
 	buf := make([]byte, 0, n)
 	for _, s := range segs {
-		buf = append(buf, d.segBytes(s)...)
+		buf = append(buf, d.SegBytes(s)...)
 	}
 	return string(buf)
 }
 
-// isCollapsed reports whether the fold node owning line li is currently collapsed.
+// IsCollapsed reports whether the fold node owning line li is currently collapsed.
 // Non-fold lines report false.
-func (d *Document) isCollapsed(li int32) bool {
+func (d *Document) IsCollapsed(li int32) bool {
 	f := d.Lines[li].Fold
 	if f == NoNode {
 		return false
@@ -228,11 +244,12 @@ func (d *Document) isCollapsed(li int32) bool {
 // TotalLines reports the number of display lines in the document (visible or not).
 func (d *Document) TotalLines() int { return len(d.Lines) }
 
-// emptyDocument returns a valid, empty document (a lone root with no lines).
-func emptyDocument() *Document {
+// EmptyDocument returns a valid, empty document (a lone root with no lines).
+func EmptyDocument() *Document {
 	d := &Document{
 		Nodes: []Node{{Parent: NoNode, Subtree: 1, Kind: KindRoot, HeadLine: -1, CloseLine: -1}},
 	}
 	d.fold = newFoldIndex(d)
+	d.fold.buildFenwick()
 	return d
 }

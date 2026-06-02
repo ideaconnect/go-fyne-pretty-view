@@ -4,11 +4,15 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
+
+	"fyne.io/fyne/v2/test"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
-func lineContaining(d *Document, sub string) int32 {
+func lineContaining(d *model.Document, sub string) int32 {
 	for li := range d.Lines {
-		if strings.Contains(d.lineString(int32(li)), sub) {
+		if strings.Contains(d.LineString(int32(li)), sub) {
 			return int32(li)
 		}
 	}
@@ -27,7 +31,7 @@ func TestSearchPlain(t *testing.T) {
 	}
 	// Verify the first match slices back to the needle.
 	m := pv.search.matches[0]
-	runes := []rune(pv.doc.displayString(m.Line))
+	runes := []rune(pv.doc.DisplayString(m.Line))
 	if got := string(runes[m.ColStart:m.ColEnd]); got != "alpha" {
 		t.Errorf("match text = %q, want %q", got, "alpha")
 	}
@@ -64,18 +68,18 @@ func TestSearchBadRegex(t *testing.T) {
 func TestSearchRevealsFolded(t *testing.T) {
 	pv := docPV(`{"outer":{"deep":"needle"}}`, FormatJSON)
 	o := findFoldHead(pv.doc, `"outer"`)
-	pv.doc.fold.fold(pv.doc, o)
+	pv.doc.Fold(o)
 
 	deep := lineContaining(pv.doc, "needle")
 	if deep < 0 {
 		t.Fatal("could not find the deep line")
 	}
-	if pv.doc.fold.vis[deep] != 0 {
+	if pv.doc.Visible(deep) {
 		t.Fatal("precondition: deep line should be hidden before search")
 	}
 
 	pv.Search(SearchQuery{Text: "needle"})
-	if pv.doc.fold.vis[deep] != 1 {
+	if !pv.doc.Visible(deep) {
 		t.Error("search did not reveal the match inside the folded node")
 	}
 }
@@ -111,7 +115,7 @@ func TestSearchMultibyteColumns(t *testing.T) {
 		t.Fatalf("matches = %d, want 1", len(pv.search.matches))
 	}
 	m := pv.search.matches[0]
-	runes := []rune(pv.doc.displayString(m.Line))
+	runes := []rune(pv.doc.DisplayString(m.Line))
 	if got := string(runes[m.ColStart:m.ColEnd]); got != "wörld" {
 		t.Errorf("multibyte match = %q, want %q (rune columns wrong)", got, "wörld")
 	}
@@ -133,5 +137,129 @@ func TestSearchHighlightBounded(t *testing.T) {
 	t.Logf("matches=%d capped=%v, match rects on screen=%d, visible rows=%d", total, capped, rects, visRows)
 	if rects > visRows*8 {
 		t.Errorf("match rect count %d exceeds visible bound (%d rows)", rects, visRows)
+	}
+}
+
+// TestClearSearchStopsPendingTimer is the regression for the debounce-timer
+// lifecycle: a pending debounced scan must be cancelled by ClearSearch (the path
+// SetData uses), so a stale query can't repopulate matches after a clear/reload.
+func TestClearSearchStopsPendingTimer(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: time.Second, MinQueryLen: 1}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	pv.searchDebounced(SearchQuery{Text: "a"})
+	if pv.searchTimer == nil {
+		t.Fatal("debounce should arm a timer")
+	}
+	pv.ClearSearch()
+	if pv.searchTimer != nil {
+		t.Error("ClearSearch must stop and clear the pending debounce timer")
+	}
+}
+
+// TestDestroyStopsPendingTimer checks teardown cancels the debounce timer and sets
+// the guard flag, so the AfterFunc can't fire a scan after the widget is gone.
+func TestDestroyStopsPendingTimer(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: time.Second, MinQueryLen: 1}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	pv.searchDebounced(SearchQuery{Text: "a"})
+	if pv.searchTimer == nil {
+		t.Fatal("debounce should arm a timer")
+	}
+	pv.r.Destroy()
+	if !pv.destroyed.Load() {
+		t.Error("Destroy must set the destroyed guard flag")
+	}
+	if pv.searchTimer != nil {
+		t.Error("Destroy must stop the pending debounce timer")
+	}
+}
+
+// TestSearchGenerationInvalidatesStaleScan checks the generation counter that
+// makes an already-fired-but-queued debounce callback recognize it has been
+// superseded: both a newer debounce and ClearSearch/SetData bump the generation,
+// so the queued closure's captured gen no longer matches and it skips itself.
+func TestSearchGenerationInvalidatesStaleScan(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: time.Second, MinQueryLen: 1}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	g0 := pv.searchGen
+	pv.searchDebounced(SearchQuery{Text: "a"})
+	if pv.searchGen == g0 {
+		t.Error("searchDebounced must bump the search generation to supersede earlier scans")
+	}
+	g1 := pv.searchGen
+	pv.ClearSearch()
+	if pv.searchGen == g1 {
+		t.Error("ClearSearch must bump the search generation to invalidate a queued scan")
+	}
+	// SetData goes through ClearSearch, so it bumps too.
+	g2 := pv.searchGen
+	pv.SetData([]byte(`{"b":2}`), FormatJSON)
+	if pv.searchGen == g2 {
+		t.Error("SetData (via ClearSearch) must bump the search generation")
+	}
+}
+
+// TestSearchSupersedesPendingDebounce is the regression for the Enter-applies-
+// immediately path: a synchronous Search() (the search bar's OnSubmitted and every
+// public host call) must cancel any pending debounce timer and bump the generation,
+// so a keystroke timer armed just before Enter can't re-run the scan and snap the
+// viewport back to match #1.
+func TestSearchSupersedesPendingDebounce(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":"alpha","b":"alpha"}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: time.Second, MinQueryLen: 1}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	pv.searchDebounced(SearchQuery{Text: "alpha"})
+	if pv.searchTimer == nil {
+		t.Fatal("debounce should arm a timer")
+	}
+	gen := pv.searchGen
+	pv.Search(SearchQuery{Text: "alpha"})
+	if pv.searchTimer != nil {
+		t.Error("a synchronous Search must stop the pending debounce timer")
+	}
+	if pv.searchGen <= gen {
+		t.Errorf("a synchronous Search must bump searchGen (was %d, now %d) to invalidate a queued scan",
+			gen, pv.searchGen)
+	}
+}
+
+// TestSearchMaxMatchesCap guards the load-bearing match cap: a scan must stop at
+// MaxMatches, store no more than the cap, and report capped; a scan below the cap
+// must report capped=false. (Previously only logged, never asserted.)
+func TestSearchMaxMatchesCap(t *testing.T) {
+	const cap = 50
+	const occ = cap + 25
+	src := strings.Repeat("x ", occ) // one raw line, occ occurrences of "x"
+
+	capped := NewWithData([]byte(src), FormatRaw,
+		WithSearchConfig(SearchConfig{MaxMatches: cap, MinQueryLen: 1}))
+	capped.Search(SearchQuery{Text: "x"})
+	if _, total, isCapped := capped.SearchStatus(); total != cap || !isCapped {
+		t.Errorf("capped scan: total=%d capped=%v, want total=%d capped=true", total, isCapped, cap)
+	}
+	if got := len(capped.search.matches); got != cap {
+		t.Errorf("stored %d matches, want exactly the cap %d", got, cap)
+	}
+
+	uncapped := NewWithData([]byte(src), FormatRaw,
+		WithSearchConfig(SearchConfig{MaxMatches: 1000, MinQueryLen: 1}))
+	uncapped.Search(SearchQuery{Text: "x"})
+	if _, total, isCapped := uncapped.SearchStatus(); isCapped || total != occ {
+		t.Errorf("uncapped scan: total=%d capped=%v, want total=%d capped=false", total, isCapped, occ)
 	}
 }

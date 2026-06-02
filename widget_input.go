@@ -3,19 +3,22 @@ package prettyview
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/widget"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // Input interfaces implemented by PrettyView. Fold toggling rides on Tapped;
 // character-level selection rides on the mouse/drag/focus interfaces handled in
-// selection.go.
+// selection.go; the right-click context menu rides on TappedSecondary.
 var (
-	_ fyne.Tappable      = (*PrettyView)(nil)
-	_ desktop.Cursorable = (*PrettyView)(nil)
-	_ desktop.Mouseable  = (*PrettyView)(nil)
-	_ desktop.Hoverable  = (*PrettyView)(nil)
-	_ fyne.Draggable     = (*PrettyView)(nil)
-	_ fyne.Focusable     = (*PrettyView)(nil)
-	_ fyne.Shortcutable  = (*PrettyView)(nil)
+	_ fyne.Tappable          = (*PrettyView)(nil)
+	_ fyne.SecondaryTappable = (*PrettyView)(nil)
+	_ desktop.Cursorable     = (*PrettyView)(nil)
+	_ desktop.Mouseable      = (*PrettyView)(nil)
+	_ desktop.Hoverable      = (*PrettyView)(nil)
+	_ fyne.Draggable         = (*PrettyView)(nil)
+	_ fyne.Focusable         = (*PrettyView)(nil)
+	_ fyne.Shortcutable      = (*PrettyView)(nil)
 )
 
 // contentPos converts a widget-local pixel (as delivered to input handlers) into
@@ -30,47 +33,86 @@ func (pv *PrettyView) contentPos(local fyne.Position) (float32, float32) {
 }
 
 // foldNodeAt returns the foldable node whose triangle gutter contains the given
-// content-space point, or NoNode.
-func (pv *PrettyView) foldNodeAt(contentX, contentY float32) NodeID {
+// content-space point, or model.NoNode.
+func (pv *PrettyView) foldNodeAt(contentX, contentY float32) model.NodeID {
 	if pv.doc == nil {
-		return NoNode
+		return model.NoNode
 	}
-	total := pv.doc.fold.TotalVisibleRows()
+	total := pv.doc.TotalVisibleRows()
 	if total == 0 {
-		return NoNode
+		return model.NoNode
 	}
-	row := pv.met.rowAtY(contentY)
+	row := pv.met.RowAtY(contentY)
 	if row < 0 || int32(row) >= total {
-		return NoNode
+		return model.NoNode
 	}
-	li := pv.doc.fold.lineAtRow(int32(row))
+	li, sub := pv.doc.LineAndSubRowAtRow(int32(row))
 	line := &pv.doc.Lines[li]
-	if line.Fold == NoNode {
-		return NoNode
+	if line.Fold == model.NoNode || sub != 0 {
+		return model.NoNode // the fold triangle lives only on the head's first visual row
 	}
 	// Hot-zone: the triangle gutter just left of the text, plus the text origin
 	// slack, so clicks slightly off the glyph still register.
-	x0 := pv.met.triangleX(line.Depth)
-	x1 := pv.met.textOriginX(line.Depth)
+	x0 := pv.met.TriangleX(line.Depth)
+	x1 := pv.met.TextOriginX(line.Depth)
 	if contentX >= x0-2 && contentX <= x1 {
 		return line.Fold
 	}
-	return NoNode
+	return model.NoNode
 }
 
 // Tapped toggles a fold when the tap lands on a fold triangle. Other taps are
 // left to the selection layer (M8).
 func (pv *PrettyView) Tapped(e *fyne.PointEvent) {
 	cx, cy := pv.contentPos(e.Position)
-	if node := pv.foldNodeAt(cx, cy); node != NoNode {
+	if node := pv.foldNodeAt(cx, cy); node != model.NoNode {
 		pv.toggleFold(node)
 	}
 }
 
 // toggleFold flips a node's fold state and refreshes the view.
-func (pv *PrettyView) toggleFold(node NodeID) {
-	pv.doc.fold.toggle(pv.doc, node)
+func (pv *PrettyView) toggleFold(node model.NodeID) {
+	pv.doc.Toggle(node)
 	pv.refreshContent()
+}
+
+// TappedSecondary shows the context menu at the click. This is the standard Fyne
+// pop-up menu — the same themed overlay Entry and read-only selectable text use
+// for their right-click menus (Fyne draws its own UI on the GL canvas, so there is
+// no native OS menu to invoke). A right-click never disturbs the selection
+// (MouseDown returns early for the secondary button), so "Copy" acts on whatever
+// the user had already highlighted.
+func (pv *PrettyView) TappedSecondary(e *fyne.PointEvent) {
+	pv.requestFocus()
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return
+	}
+	c := app.Driver().CanvasForObject(pv)
+	if c == nil {
+		return
+	}
+	widget.ShowPopUpMenuAtPosition(pv.contextMenu(), c, e.AbsolutePosition)
+}
+
+// contextMenu builds the right-click menu: Copy (greyed out unless there is a
+// selection) and Select all (greyed out on an empty document). Both carry their
+// keyboard accelerator so the menu reads like a native one. hasSelection is the
+// cheap ordered() predicate, not SelectedText, so opening the menu over a
+// select-all of a multi-megabyte document does not materialize the whole string.
+func (pv *PrettyView) contextMenu() *fyne.Menu {
+	_, _, hasSelection := pv.ordered()
+	empty := pv.doc == nil || pv.doc.TotalVisibleRows() == 0
+
+	copyItem := fyne.NewMenuItem("Copy", pv.CopySelection)
+	copyItem.Disabled = !hasSelection
+	copyItem.Shortcut = &fyne.ShortcutCopy{}
+
+	selectAll := fyne.NewMenuItem("Select all", pv.SelectAll)
+	selectAll.Disabled = empty
+	selectAll.Shortcut = &fyne.ShortcutSelectAll{}
+
+	return fyne.NewMenu("", copyItem, selectAll)
 }
 
 // refreshContent re-sizes the scroll content (row count / width may have changed)
@@ -80,7 +122,7 @@ func (pv *PrettyView) refreshContent() {
 		return
 	}
 	pv.r.scroll.Content.Resize(pv.contentSize())
-	pv.r.scroll.Refresh()
+	pv.r.refreshBars() // bars only; reflow() below rebuilds the visible rows once
 	pv.r.reflow()
 }
 

@@ -1,0 +1,113 @@
+name: Release
+
+# Cut a release by pushing a version tag:  git tag v1.2.3 && git push origin v1.2.3
+# The cross-platform demo is built, each binary is zipped together with the
+# testdata/ fixtures, and the zips are attached to a generated GitHub Release.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build the release from (e.g. v1.2.3)"
+        required: true
+
+# Least privilege: only the release job may write (to create the release/upload assets).
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build demo (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: prettyview-demo-linux-amd64
+            binary: prettyview-demo
+          - os: windows-latest
+            artifact: prettyview-demo-windows-amd64
+            binary: prettyview-demo.exe
+          - os: macos-latest
+            artifact: prettyview-demo-macos-arm64
+            binary: prettyview-demo
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # On a tag push github.ref is the tag; workflow_dispatch supplies it explicitly.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Fyne build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      - name: Show C compiler (Windows)
+        if: runner.os == 'Windows'
+        run: gcc --version
+
+      - name: Build demo
+        env:
+          CGO_ENABLED: "1"
+        run: go build -v -o ${{ matrix.binary }} ./cmd/prettyview-demo
+
+      # Package the executable with the fixtures (and README/LICENSE) into one zip,
+      # laid out as <artifact>/{binary, testdata/, …} so it extracts to a single folder
+      # and the demo's fixture dropdown works out of the box.
+      - name: Package release zip (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p "dist/${{ matrix.artifact }}"
+          cp "${{ matrix.binary }}" "dist/${{ matrix.artifact }}/"
+          cp -r testdata "dist/${{ matrix.artifact }}/"
+          cp README.md LICENSE "dist/${{ matrix.artifact }}/"
+          (cd dist && zip -r "${{ matrix.artifact }}.zip" "${{ matrix.artifact }}")
+
+      - name: Package release zip (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/${{ matrix.artifact }}" | Out-Null
+          Copy-Item "${{ matrix.binary }}" "dist/${{ matrix.artifact }}/"
+          Copy-Item -Recurse testdata "dist/${{ matrix.artifact }}/"
+          Copy-Item README.md, LICENSE "dist/${{ matrix.artifact }}/"
+          Compress-Archive -Path "dist/${{ matrix.artifact }}" -DestinationPath "dist/${{ matrix.artifact }}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release and upload the zip assets
+    steps:
+      - name: Download all platform zips
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create / update the release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/*.zip
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          # Tags with a pre-release suffix (e.g. v1.2.3-rc1) are marked pre-release.
+          prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, '-') }}

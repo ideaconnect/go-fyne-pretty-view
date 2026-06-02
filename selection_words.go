@@ -1,6 +1,9 @@
 package prettyview
 
-import "unicode"
+import (
+	"unicode"
+	"unicode/utf8"
+)
 
 // runeClass groups characters for word selection: a double-click extends over a
 // run of the same class.
@@ -23,11 +26,33 @@ func classOf(r rune) runeClass {
 	}
 }
 
+// displayRunes decodes a line's currently-displayed text into pv.wordScratch,
+// reusing the backing array across calls so a word/line drag does not allocate a
+// fresh string + []rune of the whole line on every pointer event.
+func (pv *PrettyView) displayRunes(li int32) []rune {
+	buf := pv.wordScratch[:0]
+	for _, s := range pv.doc.DisplaySegs(li) {
+		b := pv.doc.SegBytes(s)
+		for i := 0; i < len(b); {
+			if b[i] < utf8.RuneSelf {
+				buf = append(buf, rune(b[i]))
+				i++
+				continue
+			}
+			r, sz := utf8.DecodeRune(b[i:])
+			buf = append(buf, r)
+			i += sz
+		}
+	}
+	pv.wordScratch = buf
+	return buf
+}
+
 // wordBounds returns the [start, end) columns of the word (same-class run) under
 // col on a line.
 func (pv *PrettyView) wordBounds(line int32, col int) (modelPos, modelPos) {
-	vl := pv.doc.visibleLine(line)
-	runes := []rune(pv.doc.displayString(vl))
+	vl := pv.doc.VisibleLine(line)
+	runes := pv.displayRunes(vl)
 	n := len(runes)
 	if n == 0 {
 		return modelPos{line: vl, col: 0}, modelPos{line: vl, col: 0}
@@ -51,6 +76,6 @@ func (pv *PrettyView) wordBounds(line int32, col int) (modelPos, modelPos) {
 
 // lineBounds returns the full extent of a line.
 func (pv *PrettyView) lineBounds(line int32) (modelPos, modelPos) {
-	vl := pv.doc.visibleLine(line)
-	return modelPos{line: vl, col: 0}, modelPos{line: vl, col: pv.doc.lineRuneLen(vl)}
+	vl := pv.doc.VisibleLine(line)
+	return modelPos{line: vl, col: 0}, modelPos{line: vl, col: pv.doc.LineRuneLen(vl)}
 }

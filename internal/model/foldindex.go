@@ -1,4 +1,4 @@
-package prettyview
+package model
 
 import "math/bits"
 
@@ -85,6 +85,11 @@ type foldIndex struct {
 	bit       fenwick  // over vis
 }
 
+// newFoldIndex constructs the all-visible projection ARRAYS for d (every line
+// visible, no collapsed ancestors). It deliberately does NOT build the Fenwick — the
+// caller builds it exactly once: a default-collapse parse builds it via applyDefaults'
+// rebuild, every other caller calls buildFenwick directly. Building here as well would
+// rebuild the Fenwick twice whenever collapseDepth > 0.
 func newFoldIndex(d *Document) *foldIndex {
 	n := len(d.Lines)
 	fi := &foldIndex{
@@ -94,10 +99,21 @@ func newFoldIndex(d *Document) *foldIndex {
 	}
 	for i := range fi.hiddenBy {
 		fi.hiddenBy[i] = NoNode
-		fi.vis[i] = 1
+		fi.vis[i] = fi.weightOf(d, int32(i))
 	}
-	fi.buildFenwick()
 	return fi
+}
+
+// weightOf is the Fenwick weight a *visible* line contributes: its visual-row
+// count. Under WrapNone (d.rowsOf == nil) that is always 1 — a single nil check,
+// so the non-wrap path pays nothing. Under WrapWord it is the line's wrapped-row
+// count for its currently-displayed rendering (fold-aware, maintained by the wrap
+// projection pass and the fold/unfold weight updates).
+func (fi *foldIndex) weightOf(d *Document, li int32) int32 {
+	if d.rowsOf == nil {
+		return 1
+	}
+	return d.rowsOf[li]
 }
 
 // buildFenwick rebuilds the Fenwick tree from vis in O(n). It reuses the existing
@@ -123,7 +139,13 @@ func (fi *foldIndex) buildFenwick() {
 
 // rebuild recomputes hiddenBy/vis from the collapsed bitset in one O(n·depth)
 // pass, then rebuilds the Fenwick. Used by defaults / ExpandAll / CollapseAll.
+// When soft-wrap is active it first refreshes every line's visual-row weight, so a
+// bulk fold change that flips many heads between expanded/collapsed renderings is
+// reflected (the incremental fold/unfold path re-weights only the one toggled head).
 func (fi *foldIndex) rebuild(d *Document) {
+	if d.rowsOf != nil {
+		d.computeWrapRows()
+	}
 	type frame struct {
 		node      NodeID
 		closeLine int32
@@ -145,7 +167,7 @@ func (fi *foldIndex) rebuild(d *Document) {
 		hb := innermostCollapsed()
 		fi.hiddenBy[li] = hb
 		if hb == NoNode {
-			fi.vis[li] = 1
+			fi.vis[li] = fi.weightOf(d, li)
 		} else {
 			fi.vis[li] = 0
 		}
@@ -159,16 +181,72 @@ func (fi *foldIndex) rebuild(d *Document) {
 // TotalVisibleRows reports how many display rows are currently visible.
 func (fi *foldIndex) TotalVisibleRows() int32 { return fi.bit.total() }
 
-// lineAtRow maps a 0-based visible row to its display-line index. Caller must
-// ensure 0 <= row < TotalVisibleRows().
+// lineAtRow maps a 0-based visible row to its display-line index. An out-of-range
+// row is clamped (row < 0 -> first line, row >= total -> last line) so a misuse
+// returns a valid index rather than a fake one-past-last that panics downstream.
 func (fi *foldIndex) lineAtRow(row int32) int32 {
-	return int32(fi.bit.kth(row + 1))
+	n := int32(len(fi.vis))
+	if n == 0 {
+		return 0
+	}
+	if row < 0 {
+		row = 0
+	}
+	li := int32(fi.bit.kth(row + 1))
+	if li >= n {
+		li = n - 1
+	}
+	return li
+}
+
+// lineAndSubRow maps a 0-based visible visual row to its display line and the
+// 0-based sub-row within that line (0 unless the line is soft-wrapped). O(log n).
+// Out-of-range rows clamp, matching lineAtRow.
+func (fi *foldIndex) lineAndSubRow(visualRow int32) (line, sub int32) {
+	n := int32(len(fi.vis))
+	if n == 0 {
+		return 0, 0
+	}
+	if visualRow < 0 {
+		visualRow = 0
+	}
+	if total := fi.bit.total(); visualRow >= total {
+		visualRow = total - 1
+	}
+	line = int32(fi.bit.kth(visualRow + 1))
+	if line >= n {
+		line = n - 1
+	}
+	return line, visualRow - fi.bit.prefix(int(line))
 }
 
 // rowOfLine maps a display line to the visible row it occupies (or, if hidden,
-// the row it would occupy). O(log n).
+// the row it would occupy). O(log n). An out-of-range line is clamped to the
+// valid prefix range rather than indexing the Fenwick tree out of bounds.
 func (fi *foldIndex) rowOfLine(line int32) int32 {
+	if line < 0 {
+		return 0
+	}
+	if int(line) >= len(fi.vis) {
+		return fi.bit.total()
+	}
 	return fi.bit.prefix(int(line))
+}
+
+// reweightHead patches a fold-head line whose displayed rendering just switched
+// between its expanded and collapsed forms. Under soft-wrap the two forms can
+// occupy a different number of visual rows, so the head's Fenwick weight changes
+// even though the head itself stays visible across the toggle. No-op under WrapNone.
+func (fi *foldIndex) reweightHead(d *Document, head int32) {
+	if d.rowsOf == nil {
+		return
+	}
+	old := d.rowsOf[head]
+	d.reweightLine(head) // recompute from the now-current (fold-aware) display segs
+	if delta := d.rowsOf[head] - old; delta != 0 && fi.vis[head] != 0 {
+		fi.bit.add(int(head), delta)
+		fi.vis[head] = d.rowsOf[head]
+	}
 }
 
 // fold collapses node. Precondition: node currently visible (see invariant).
@@ -181,12 +259,13 @@ func (fi *foldIndex) fold(d *Document, node NodeID) {
 	for li := n.HeadLine + 1; li <= n.CloseLine; li++ {
 		if fi.hiddenBy[li] == NoNode {
 			fi.hiddenBy[li] = node
-			if fi.vis[li] == 1 {
+			if w := fi.vis[li]; w != 0 { // subtract the line's whole visual-row weight
 				fi.vis[li] = 0
-				fi.bit.add(int(li), -1)
+				fi.bit.add(int(li), -w)
 			}
 		}
 	}
+	fi.reweightHead(d, n.HeadLine)
 }
 
 // unfold expands node. Precondition: node currently visible.
@@ -199,10 +278,12 @@ func (fi *foldIndex) unfold(d *Document, node NodeID) {
 	for li := n.HeadLine + 1; li <= n.CloseLine; li++ {
 		if fi.hiddenBy[li] == node {
 			fi.hiddenBy[li] = NoNode
-			fi.vis[li] = 1
-			fi.bit.add(int(li), 1)
+			w := fi.weightOf(d, li) // restore the line's visual-row weight (collapsed count if it is itself a nested collapsed head)
+			fi.vis[li] = w
+			fi.bit.add(int(li), w)
 		}
 	}
+	fi.reweightHead(d, n.HeadLine)
 }
 
 // toggle flips the fold state of node.
@@ -214,8 +295,11 @@ func (fi *foldIndex) toggle(d *Document, node NodeID) {
 	}
 }
 
-// applyDefaults collapses nodes flagged default-collapsed and rebuilds once.
-func (fi *foldIndex) applyDefaults(d *Document) {
+// applyDefaults collapses nodes flagged default-collapsed and, if any were, rebuilds
+// the projection once (rebuild also builds the Fenwick). It returns whether it
+// rebuilt, so the caller can build the all-visible Fenwick itself when there were no
+// defaults — keeping construction to a single Fenwick build either way.
+func (fi *foldIndex) applyDefaults(d *Document) bool {
 	any := false
 	for id := range d.Nodes {
 		if d.Nodes[id].Flags&flagDefaultCollapsed != 0 {
@@ -226,6 +310,7 @@ func (fi *foldIndex) applyDefaults(d *Document) {
 	if any {
 		fi.rebuild(d)
 	}
+	return any
 }
 
 // foldable reports whether node id is a collapsible container.
@@ -258,16 +343,10 @@ func (fi *foldIndex) expandAll(d *Document) {
 // Returns true if anything changed. It unfolds incrementally (O(touched lines)
 // per ancestor) rather than rebuilding the whole projection.
 func (fi *foldIndex) revealLine(d *Document, line int32) bool {
-	if line < 0 || fi.vis[line] == 1 {
+	if line < 0 || int(line) >= len(fi.vis) || fi.vis[line] != 0 {
 		return false
 	}
 	return fi.unfoldAncestors(d, d.Lines[line].Owner)
-}
-
-// expandAncestors expands every collapsed ancestor of node so that node's head
-// line becomes visible. Returns true if anything changed.
-func (fi *foldIndex) expandAncestors(d *Document, node NodeID) bool {
-	return fi.unfoldAncestors(d, d.Nodes[node].Parent)
 }
 
 // unfoldAncestors unfolds every collapsed node on the chain from start up to the

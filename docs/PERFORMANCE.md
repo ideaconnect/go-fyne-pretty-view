@@ -1,4 +1,4 @@
-> **Status — all 9 findings resolved.** Tracked as phase "7 · Performance Hardening — Response Viewer (prettyview)" in the Helena Asana plan. Measured deltas after the fixes:
+> **Status — all 9 findings resolved.** Measured deltas after the fixes:
 >
 > | Path | Before | After |
 > |---|---|---|
@@ -12,9 +12,11 @@
 
 ---
 
-# prettyview — Performance Review
+# prettyview — Performance Review (original; pre-fix snapshot)
 
-**Scope:** virtualized JSON/XML/HTML/raw viewer. Hot paths reviewed against the pinned Fyne v2.7.4. Hardware: AMD Ryzen AI MAX+ 395, Go 1.26.3, linux/amd64. Fixtures: `big.json` ≈ 7.5 MB / 440k display rows, `openapi.json` ≈ 478 KB.
+**Scope:** virtualized JSON/XML/HTML/raw viewer. Hot paths reviewed against the pinned Fyne v2.7.4. Hardware: a modern x86-64 laptop, Go 1.26.3, linux/amd64. Fixtures: `big.json` ≈ 7.5 MB / 440k display rows, `openapi.json` ≈ 478 KB.
+
+> **Benchmark provenance.** The `…Big` / `RowBuildWide` / `ReflowOnlyBig` / `SearchKeystrokeBig` / `SearchNextCollapsedBig` names cited as evidence below were the **review-time harness** and are **not committed** to the repo. The benchmarks that ship are `BenchmarkSearch`, `BenchmarkSearchManyMatchesOneLine`, `BenchmarkHorizontalScrollHugeLine`, `BenchmarkParseJSON`/`ParseBigJSON`/`ParseXML`/`ParseHTML`, `BenchmarkFoldToggle`, `BenchmarkProjectionLookup`, `BenchmarkExpandCollapseAll`, and `BenchmarkSelectAllCopyBig`; the resolved-state guards are `TestReflowBuildsEachRowOnce` and `TestRevealLineMatchesRebuild` (`perf_test.go`). Read the numbers below as the original measurements, not as reproducible from the committed suite verbatim. Likewise, the file paths and line numbers cited as evidence are from the **pre-reorganization tree**, before `model`, `parse`, and `geometry` moved under `internal/`: references such as `model.go`, `builder.go`, and `foldindex.go` now live at `internal/model/…`, and `geometry.go` at `internal/geometry/geometry.go`. Same-file line numbers may also have drifted as the code evolved.
 
 ## Executive summary
 
@@ -42,7 +44,7 @@ The widget's core design is sound and genuinely fast: virtualization keeps reflo
 
 **Cost:** each keystroke is a full O(n) scan — **6.6 ms / 2.78 MB / 190,012 allocs** on big.json (measured, `SearchKeystrokeBig`). With default `MinQueryLen=1` (search.go:100, options.go:22) the *first* character — the one that matches the most lines — already triggers the most expensive scan; a 5-char word ≈ 5 full scans on the UI goroutine.
 
-**Evidence:** `controls.go:128` — `entry.OnChanged = func(s string){ pv.Search(SearchQuery{Text:s}) }` calls `runSearch` directly, no timer/goroutine/cancellation. `grep` confirms `DebounceFor`/`ChunkBytes` (options.go:12-13, 20-21) are read **nowhere** — the documented 150 ms debounce does not exist.
+**Evidence (at time of review):** `controls.go:128` — `entry.OnChanged = func(s string){ pv.Search(SearchQuery{Text:s}) }` calls `runSearch` directly, no timer/goroutine/cancellation, and `DebounceFor` was read nowhere — the documented 150 ms debounce did not exist. *(Since fixed: `searchDebounced` now wires `DebounceFor` with a `searchGen` last-query-wins guard. The never-read `ChunkBytes` knob was deleted in the later code-review remediation; the scan stays synchronous on the Fyne goroutine — see DESIGN.md §7.3.)*
 
 **Fix:** coalesce keystrokes; marshal the actual scan back onto the UI goroutine.
 
@@ -134,13 +136,13 @@ Removes essentially all 190k allocs and most of the 6.6 ms.
 
 **Evidence:** row.go:147 `t.Resize(t.MinSize())`.
 
-**Fix:** the view is a strict monospace grid with integral `m.charWidth`/`m.rowH` (geometry.go). Size directly from the rune count already computed during culling:
+**Fix:** the view is a strict monospace grid — `m.charWidth` is the font's exact advance and `m.rowH` a whole pixel (geometry.go). Size directly from the rune count already computed during culling:
 
 ```go
 t.Resize(fyne.NewSize(float32(b-a)*m.charWidth, m.rowH))
 ```
 
-Pixel-exact (the whole coordinate system is built on integral `charWidth`), removes the whole-string hash, the shaping-on-miss, and the unbounded cache churn.
+Grid-exact (the column system uses the same advance Fyne renders at, so a run's box matches its drawn width), and it removes the whole-string hash, the shaping-on-miss, and the unbounded cache churn.
 
 ## 8. Three fresh `[]fyne.CanvasObject` slices per reflow (Low, per-frame)
 

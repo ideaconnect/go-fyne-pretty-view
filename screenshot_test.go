@@ -40,9 +40,9 @@ func TestCaptureScreenshots(t *testing.T) {
 		}
 
 		// Select a few mid-document rows and run a search to visualize highlights.
-		if total := pv.doc.fold.TotalVisibleRows(); total > 8 {
-			la := pv.doc.fold.lineAtRow(3)
-			lb := pv.doc.fold.lineAtRow(6)
+		if total := pv.doc.TotalVisibleRows(); total > 8 {
+			la := pv.doc.LineAtRow(3)
+			lb := pv.doc.LineAtRow(6)
 			pv.sel = selection{anchor: modelPos{la, 2}, focus: modelPos{lb, 8}, active: true}
 			pv.refreshSelectionView()
 		}

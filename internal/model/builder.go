@@ -1,4 +1,4 @@
-package prettyview
+package model
 
 import "unicode/utf8"
 
@@ -29,17 +29,17 @@ type Seg struct {
 	End   uint32
 }
 
-// srcSeg builds a zero-copy segment spanning src[start:end].
-func srcSeg(role ColorRole, start, end int) Seg {
+// SrcSeg builds a zero-copy segment spanning src[start:end].
+func SrcSeg(role ColorRole, start, end int) Seg {
 	return Seg{Role: role, Start: uint32(start), End: uint32(end)}
 }
 
-// litSeg builds a synthesized-text segment.
-func litSeg(role ColorRole, lit string) Seg {
+// LitSeg builds a synthesized-text segment.
+func LitSeg(role ColorRole, lit string) Seg {
 	return Seg{Role: role, Lit: lit}
 }
 
-func newBuilder(src []byte, format Format, collapseDepth int) *Builder {
+func NewBuilder(src []byte, format Format, collapseDepth int) *Builder {
 	d := &Document{Src: src, Format: format}
 	// Pre-size the arenas from the source length so they don't repeatedly grow and
 	// copy during parsing (these divisors are calibrated not to under-allocate for
@@ -79,6 +79,13 @@ func (b *Builder) intern(s string) (uint32, uint32) {
 	return start, end
 }
 
+// maxLineSegs is the largest segment count a Line can address (SegCount/CollCount
+// are uint16, kept narrow for the 24-byte Line). A pathological single line (e.g.
+// an XML start tag with tens of thousands of attributes) is clamped to this many
+// rendered segments rather than wrapping the count to a corrupt small value; the
+// arena offsets stay correct, so only that one extreme line loses its tail.
+const maxLineSegs = 1<<16 - 1
+
 // appendSegs appends a line's segments to the arena and returns their range.
 func (b *Builder) appendSegs(segs []Seg) (first uint32, count uint16) {
 	first = uint32(len(b.doc.Segs))
@@ -86,17 +93,30 @@ func (b *Builder) appendSegs(segs []Seg) (first uint32, count uint16) {
 		seg := Segment{Role: sg.Role}
 		if sg.Lit != "" {
 			seg.Start, seg.End = b.intern(sg.Lit)
-			seg.Buf = bufAux
+			seg.Buf = BufAux
 		} else {
-			seg.Start, seg.End, seg.Buf = sg.Start, sg.End, bufSrc
+			seg.Start, seg.End, seg.Buf = sg.Start, sg.End, BufSrc
 		}
 		b.doc.Segs = append(b.doc.Segs, seg)
 	}
-	count = uint16(uint32(len(b.doc.Segs)) - first)
-	return
+	return first, clampSegCount(uint32(len(b.doc.Segs)) - first)
+}
+
+// clampSegCount narrows an arena delta to the uint16 SegCount range, saturating
+// instead of wrapping.
+func clampSegCount(n uint32) uint16 {
+	if n > maxLineSegs {
+		return maxLineSegs
+	}
+	return uint16(n)
 }
 
 func (b *Builder) top() NodeID { return b.stack[len(b.stack)-1] }
+
+// Depth reports the current open-container nesting depth (0 at top level). Parsers
+// use it to bound their recursion so adversarial deeply-nested input can't drive a
+// fatal stack overflow.
+func (b *Builder) Depth() int { return len(b.stack) - 1 }
 
 // linkChild records a new child on its parent.
 func (b *Builder) linkChild(parent NodeID) {
@@ -174,8 +194,10 @@ func (b *Builder) Close(srcEnd int, closeSegs []Seg) NodeID {
 // after the node was emitted), so the comma stays contiguous with them.
 func (b *Builder) AppendComma(lineIdx int32) {
 	ss, se := b.intern(",")
-	b.doc.Segs = append(b.doc.Segs, Segment{Start: ss, End: se, Role: RolePunct, Buf: bufAux})
-	b.doc.Lines[lineIdx].SegCount++
+	b.doc.Segs = append(b.doc.Segs, Segment{Start: ss, End: se, Role: RolePunct, Buf: BufAux})
+	if l := &b.doc.Lines[lineIdx]; l.SegCount < maxLineSegs {
+		l.SegCount++ // saturate rather than wrap a maxed-out line's count
+	}
 }
 
 // LastLine returns the final display line of a node (its close line for a
@@ -187,7 +209,7 @@ func (b *Builder) LastLine(id NodeID) int32 { return b.doc.Nodes[id].CloseLine }
 func (b *Builder) closeDangling() {
 	for len(b.stack) > 1 {
 		id := b.top()
-		b.Close(int(b.doc.Nodes[id].SrcStart), []Seg{litSeg(RolePunct, closeBraceFor(b.doc.Nodes[id].Kind))})
+		b.Close(int(b.doc.Nodes[id].SrcStart), []Seg{LitSeg(RolePunct, closeBraceFor(b.doc.Nodes[id].Kind))})
 	}
 }
 
@@ -218,23 +240,25 @@ func (b *Builder) buildCollapsedRenderings() {
 		collFirst := uint32(len(d.Segs))
 		d.Segs = append(d.Segs, d.Segs[head.SegFirst:head.SegFirst+uint32(head.SegCount)]...)
 		ss, se := b.intern(" " + summaryFor(n.Kind, int(n.ChildCount)) + " ")
-		d.Segs = append(d.Segs, Segment{Start: ss, End: se, Role: RoleMuted, Buf: bufAux})
+		d.Segs = append(d.Segs, Segment{Start: ss, End: se, Role: RoleMuted, Buf: BufAux})
 		d.Segs = append(d.Segs, d.Segs[clo.SegFirst:clo.SegFirst+uint32(clo.SegCount)]...)
 		head.CollFirst = collFirst
-		head.CollCount = uint16(uint32(len(d.Segs)) - collFirst)
+		head.CollCount = clampSegCount(uint32(len(d.Segs)) - collFirst)
 	}
 }
 
 // finish completes construction: it closes any dangling containers, fills the
 // root subtree size, builds collapsed renderings, builds the fold index, and
 // applies the default-collapse policy.
-func (b *Builder) finish() *Document {
+func (b *Builder) Finish() *Document {
 	b.closeDangling()
 	b.doc.Nodes[0].Subtree = NodeID(len(b.doc.Nodes))
 	b.buildCollapsedRenderings()
 	b.computeExtent()
 	b.doc.fold = newFoldIndex(b.doc)
-	b.doc.fold.applyDefaults(b.doc)
+	if !b.doc.fold.applyDefaults(b.doc) {
+		b.doc.fold.buildFenwick() // no default-collapse: build the all-visible Fenwick once
+	}
 	return b.doc
 }
 
@@ -242,27 +266,29 @@ func (b *Builder) finish() *Document {
 // to size the horizontal/vertical scroll extent. One O(n) pass.
 func (b *Builder) computeExtent() {
 	d := b.doc
+	d.lineRunes = make([]int32, len(d.Lines))
 	for li := range d.Lines {
 		l := &d.Lines[li]
-		if l.Depth > d.maxDepth {
-			d.maxDepth = l.Depth
+		if l.Depth > d.MaxDepth {
+			d.MaxDepth = l.Depth
 		}
 		runes := 0
 		for _, s := range d.Segs[l.SegFirst : l.SegFirst+uint32(l.SegCount)] {
-			runes += utf8.RuneCount(d.segBytes(s))
+			runes += utf8.RuneCount(d.SegBytes(s))
 		}
+		d.lineRunes[li] = int32(runes) // expanded displayed length (cached for LineRuneLen)
 		// A collapsed fold-head can be wider than its expanded head line.
 		if l.Fold != NoNode {
 			cr := 0
 			for _, s := range d.Segs[l.CollFirst : l.CollFirst+uint32(l.CollCount)] {
-				cr += utf8.RuneCount(d.segBytes(s))
+				cr += utf8.RuneCount(d.SegBytes(s))
 			}
 			if cr > runes {
 				runes = cr
 			}
 		}
-		if runes > d.maxLineRunes {
-			d.maxLineRunes = runes
+		if runes > d.MaxLineRunes {
+			d.MaxLineRunes = runes
 		}
 	}
 }

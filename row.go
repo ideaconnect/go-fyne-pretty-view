@@ -8,17 +8,9 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
-
-// runeByteOffset returns the byte index of the n-th rune in b (n <= rune count).
-func runeByteOffset(b []byte, n int) int {
-	i := 0
-	for c := 0; c < n && i < len(b); c++ {
-		_, sz := utf8.DecodeRune(b[i:])
-		i += sz
-	}
-	return i
-}
 
 const maxIndentGuides = 32
 
@@ -36,7 +28,12 @@ type rowWidget struct {
 	widget.BaseWidget
 	pv   *PrettyView
 	line int32 // display-line index this row currently shows (-1 = unused)
-	rr   *rowRenderer
+	sub  int32 // which wrapped sub-row of `line` this row shows (0 unless soft-wrapped)
+	// Under soft-wrap the renderer supplies the sub-row's column span; startCol < 0
+	// is the WrapNone sentinel (the row culls to the horizontal visible window
+	// instead). endCol is exclusive.
+	startCol, endCol int32
+	rr               *rowRenderer
 }
 
 func newRowWidget(pv *PrettyView) *rowWidget {
@@ -80,7 +77,7 @@ type rowRenderer struct {
 func (rr *rowRenderer) Destroy()                     {}
 func (rr *rowRenderer) Objects() []fyne.CanvasObject { return rr.objects }
 func (rr *rowRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(0, rr.row.pv.met.rowH)
+	return fyne.NewSize(0, rr.row.pv.met.RowH)
 }
 
 // Layout is a no-op: children are positioned absolutely in content space by build.
@@ -112,66 +109,87 @@ func (rr *rowRenderer) build() {
 	// Indent guides: one subtle vertical rule per nesting level.
 	rr.layoutGuides(depth, m, pv.guideColor)
 
-	// Fold triangle in the gutter.
-	if line.Fold != NoNode {
-		collapsed := pv.doc.fold.collapsed.get(line.Fold)
-		rr.layoutTriangle(depth, m, collapsed, pv.palette[RoleMuted])
+	// Fold triangle in the gutter — only on the line's first visual row; a wrapped
+	// line's continuation rows (sub > 0) show indent guides but no triangle.
+	if line.Fold != model.NoNode && r.sub == 0 {
+		collapsed := pv.doc.Collapsed(line.Fold)
+		rr.layoutTriangle(depth, m, collapsed, pv.palette[model.RoleMuted])
 	} else {
 		rr.triangleHide()
 	}
 
-	// Colored, horizontally-culled text runs.
-	firstCol := m.firstVisibleCol(depth, pv.viewOffX)
-	lastCol := m.lastVisibleCol(depth, pv.viewOffX+pv.viewW)
-	if lastCol <= firstCol {
-		lastCol = firstCol + 1
+	// Determine the column window this row renders. Under soft-wrap (startCol >= 0)
+	// it is exactly this line's sub-row [startCol,endCol) and text is drawn from the
+	// left edge (colBase shifts absolute columns to row-local, since there is no
+	// horizontal scroll). Otherwise it is the horizontal visible window and columns
+	// keep their absolute positions (the scroll container offsets x).
+	var firstCol, lastCol, colBase int
+	if r.startCol >= 0 {
+		firstCol, lastCol, colBase = int(r.startCol), int(r.endCol), int(r.startCol)
+	} else {
+		firstCol = m.FirstVisibleCol(depth, pv.viewOffX)
+		lastCol = m.LastVisibleCol(depth, pv.viewOffX+pv.viewW)
+		if lastCol <= firstCol {
+			lastCol = firstCol + 1
+		}
 	}
 	hardCap := 2 * (lastCol - firstCol + 2)
 
 	ti := 0
 	col := 0
 	emitted := 0
-	for _, seg := range pv.doc.displaySegs(r.line) {
-		sb := pv.doc.segBytes(seg)
+	for _, seg := range pv.doc.DisplaySegs(r.line) {
+		if col >= lastCol {
+			break // remaining segments are entirely past the right edge — cull them
+		}
+		sb := pv.doc.SegBytes(seg)
 		segStart := col
-		runeLen := utf8.RuneCount(sb)
-		segEnd := col + runeLen
-		col = segEnd
-		// Intersect [segStart,segEnd) with the visible column window.
-		a, b := segStart, segEnd
+		// Walk the segment once, never past lastCol, finding the byte slice that
+		// intersects the visible column window [firstCol, lastCol). This is the
+		// horizontal cull: the old code paid a full utf8.RuneCount on EVERY segment
+		// every reflow (plus a from-zero rune->byte scan when straddling), so a
+		// multi-megabyte single-segment line cost O(line length) per visible row per
+		// scroll tick — the CPU the M-2 design must bound, not just the texture width.
+		// Here a huge straddling segment is decoded only up to lastCol, and trailing
+		// off-window segments are skipped by the break above.
+		loByte, hiByte := -1, 0
+		i := 0
+		for i < len(sb) && col < lastCol {
+			if col >= firstCol && loByte < 0 {
+				loByte = i
+			}
+			if sb[i] < utf8.RuneSelf {
+				i++
+			} else {
+				_, sz := utf8.DecodeRune(sb[i:])
+				i += sz
+			}
+			col++
+			if loByte >= 0 {
+				hiByte = i
+			}
+		}
+		if loByte < 0 {
+			continue // segment lies entirely left of the window
+		}
+		a := segStart
 		if a < firstCol {
 			a = firstCol
 		}
-		if b > lastCol {
-			b = lastCol
-		}
-		if a >= b {
-			continue
-		}
-		// Fast path: the whole segment is visible (the common, no-horizontal-scroll
-		// case) — emit it directly without a []rune round-trip. Only slice on the
-		// rune boundary when the segment straddles the column window.
-		var text string
-		if a == segStart && b == segEnd {
-			text = string(sb)
-		} else {
-			lo := runeByteOffset(sb, a-segStart)
-			hi := runeByteOffset(sb, b-segStart)
-			text = string(sb[lo:hi])
-		}
+		width := col - a // visible columns emitted from this segment
 		t := rr.text(ti)
 		ti++
-		t.Text = text
-		t.TextSize = m.textSize
+		t.Text = string(sb[loByte:hiByte])
+		t.TextSize = m.TextSize
 		t.TextStyle = fyne.TextStyle{Monospace: true}
 		t.Color = pv.palette[seg.Role]
-		t.Move(fyne.NewPos(m.colX(depth, a), m.textY()))
+		t.Move(fyne.NewPos(m.ColX(depth, a-colBase), m.TextY()))
 		// The view is a strict monospace grid with integral charWidth, so size the
 		// run directly instead of asking Fyne to measure (which hashes + shapes the
 		// whole string and churns the font cache under horizontal scroll).
-		t.Resize(fyne.NewSize(float32(b-a)*m.charWidth, m.rowH))
+		t.Resize(fyne.NewSize(float32(width)*m.CharWidth, m.RowH))
 		t.Show()
-		emitted += b - a
+		emitted += width
 		if emitted >= hardCap {
 			break
 		}
@@ -192,24 +210,24 @@ func (rr *rowRenderer) build() {
 	}
 }
 
-func (rr *rowRenderer) layoutGuides(depth uint8, m metrics, c color.Color) {
+func (rr *rowRenderer) layoutGuides(depth uint8, m geometry.Metrics, c color.Color) {
 	n := int(depth)
 	if n > maxIndentGuides {
 		n = maxIndentGuides
 	}
 	for i := 0; i < n; i++ {
 		g := rr.guide(i)
-		x := m.textOriginX(uint8(i)) - m.triangleSlot + 1
+		x := m.TriangleX(uint8(i)) + 1 // left edge of this level's gutter
 		g.StrokeColor = c
 		g.StrokeWidth = 1
 		g.Position1 = fyne.NewPos(x, 0)
-		g.Position2 = fyne.NewPos(x, m.rowH)
+		g.Position2 = fyne.NewPos(x, m.RowH)
 		g.Show()
 	}
 	rr.hideGuides(n)
 }
 
-func (rr *rowRenderer) layoutTriangle(depth uint8, m metrics, collapsed bool, c color.Color) {
+func (rr *rowRenderer) layoutTriangle(depth uint8, m geometry.Metrics, collapsed bool, c color.Color) {
 	if rr.triangle == nil {
 		rr.triangle = canvas.NewText("", c)
 	}
@@ -218,9 +236,9 @@ func (rr *rowRenderer) layoutTriangle(depth uint8, m metrics, collapsed bool, c 
 	} else {
 		rr.triangle.Text = "▼"
 	}
-	rr.triangle.TextSize = m.textSize * 0.8
+	rr.triangle.TextSize = m.TextSize * 0.8
 	rr.triangle.Color = c
-	rr.triangle.Move(fyne.NewPos(m.triangleX(depth), m.textY()))
+	rr.triangle.Move(fyne.NewPos(m.TriangleX(depth), m.TextY()))
 	rr.triangle.Resize(rr.triangle.MinSize())
 	rr.triangle.Show()
 }

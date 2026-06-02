@@ -2,7 +2,14 @@ package prettyview
 
 import (
 	"os"
+	"strings"
 	"testing"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/test"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 func benchSrc(b *testing.B, name string) []byte {
@@ -20,7 +27,7 @@ func benchParse(b *testing.B, file string, f Format) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = parseDocument(src, f, 0)
+		_ = parse.Parse(src, f, 0)
 	}
 }
 
@@ -31,49 +38,101 @@ func BenchmarkParseHTML(b *testing.B)    { benchParse(b, "page.html", FormatHTML
 
 // BenchmarkFoldToggle measures an incremental fold/unfold of a top-level node.
 func BenchmarkFoldToggle(b *testing.B) {
-	d := parseDocument(benchSrc(b, "openapi.json"), FormatJSON, 0)
+	d := parse.Parse(benchSrc(b, "openapi.json"), FormatJSON, 0)
 	node := firstFoldHeadAtDepth(d, 1)
-	if node == NoNode {
+	if node == model.NoNode {
 		b.Skip("no foldable node")
 	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		d.fold.fold(d, node)
-		d.fold.unfold(d, node)
+		d.Fold(node)
+		d.Unfold(node)
 	}
 }
 
 // BenchmarkProjectionLookup measures the O(log n) visible-row -> line lookup on a
 // 440k-row document.
 func BenchmarkProjectionLookup(b *testing.B) {
-	d := parseDocument(benchSrc(b, "big.json"), FormatJSON, 0)
-	total := d.fold.TotalVisibleRows()
+	d := parse.Parse(benchSrc(b, "big.json"), FormatJSON, 0)
+	total := d.TotalVisibleRows()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = d.fold.lineAtRow(int32(i) % total)
+		_ = d.LineAtRow(int32(i) % total)
 	}
 }
 
 // BenchmarkExpandCollapseAll measures the full-document projection rebuild.
 func BenchmarkExpandCollapseAll(b *testing.B) {
-	d := parseDocument(benchSrc(b, "openapi.json"), FormatJSON, 0)
+	d := parse.Parse(benchSrc(b, "openapi.json"), FormatJSON, 0)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		d.fold.collapseAll(d)
-		d.fold.expandAll(d)
+		d.CollapseAll()
+		d.ExpandAll()
 	}
 }
 
 // BenchmarkSearch measures a full-document scan for a common token.
 func BenchmarkSearch(b *testing.B) {
 	pv := New()
-	pv.doc = parseDocument(benchSrc(b, "openapi.json"), FormatJSON, 0)
+	pv.doc = parse.Parse(benchSrc(b, "openapi.json"), FormatJSON, 0)
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		pv.runSearch(SearchQuery{Text: "type"})
+	}
+}
+
+// BenchmarkHorizontalScrollHugeLine measures one reflow (rebuild of the visible
+// rows) of a document whose single value is a ~2 MB line, scrolled horizontally to
+// column 1000. This is the case build()'s cull must bound: the old code paid a full
+// utf8.RuneCount over the whole segment every reflow; the rewrite decodes only up to
+// the visible window.
+func BenchmarkHorizontalScrollHugeLine(b *testing.B) {
+	test.NewApp()
+	long := strings.Repeat("abcdefghij", 200_000) // 2 MB single line
+	pv := NewWithData([]byte(`["`+long+`"]`), FormatJSON)
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(400, 300))
+	pv.Refresh()
+	li := pv.doc.LineAtRow(1)
+	depth := pv.doc.Lines[li].Depth
+	row := int(pv.doc.RowOfLine(li))
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(depth, 1000), pv.met.RowY(row)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.r.reflow()
+	}
+}
+
+// BenchmarkSearchManyMatchesOneLine measures a search where thousands of matches
+// land on a single (raw) line — the O(K*L) case the addMatchB rune cursor fixes.
+func BenchmarkSearchManyMatchesOneLine(b *testing.B) {
+	line := strings.Repeat("needle ", 5000) // one raw line, 5000 matches
+	pv := New()
+	pv.doc = parse.Parse([]byte(line), FormatRaw, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.runSearch(SearchQuery{Text: "needle"})
+	}
+}
+
+// BenchmarkSelectAllCopyBig measures the SelectAll+Copy gather (selectedText) on a
+// multi-megabyte document — the largest transient allocation a normal user gesture
+// triggers. The optimized path appends whole interior lines byte-for-byte into a
+// reused buffer with no per-line string/[]rune.
+func BenchmarkSelectAllCopyBig(b *testing.B) {
+	pv := New()
+	pv.doc = parse.Parse(benchSrc(b, "big.json"), FormatJSON, 0)
+	pv.SelectAll()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = pv.selectedText()
 	}
 }

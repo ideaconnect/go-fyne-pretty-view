@@ -57,17 +57,47 @@ func (pv *PrettyView) Search(q SearchQuery) {
 // triggers one scan instead of one per character. A non-positive DebounceFor runs
 // immediately.
 func (pv *PrettyView) searchDebounced(q SearchQuery) {
-	if pv.searchTimer != nil {
-		pv.searchTimer.Stop()
-	}
+	pv.stopSearchTimer()
+	// Bump the generation so that any earlier debounced scan that has ALREADY fired
+	// and queued its fyne.Do closure (which Stop can no longer cancel) is recognized
+	// as stale and skips itself.
+	pv.searchGen++
 	d := pv.cfg.search.DebounceFor
 	if d <= 0 {
 		pv.Search(q)
 		return
 	}
+	gen := pv.searchGen
 	pv.searchTimer = time.AfterFunc(d, func() {
-		fyne.Do(func() { pv.Search(q) })
+		// The AfterFunc runs on its own goroutine; marshal the scan onto the Fyne
+		// thread via fyne.Do. Correctness here is load-bearing on fyne.Do enqueuing
+		// onto the main event loop (glfw): that serializes pv.Search's mutation of
+		// pv.search.* with reflow/rebuildMatches, which also run on the Fyne
+		// goroutine. The destroyed flag (atomic, the only field this goroutine reads)
+		// drops a callback that fired after teardown — Stop cannot cancel one already
+		// fired. Inside fyne.Do we re-check destroyed and the generation, so a scan
+		// superseded by a newer keystroke / ClearSearch / SetData does not run.
+		if pv.destroyed.Load() {
+			return
+		}
+		fyne.Do(func() {
+			if pv.destroyed.Load() || gen != pv.searchGen {
+				return
+			}
+			pv.Search(q)
+		})
 	})
+}
+
+// stopSearchTimer cancels and clears any pending debounced scan. Best-effort:
+// Timer.Stop cannot cancel a callback that has already fired (the destroyed guard
+// covers that window). Must be called on the Fyne goroutine; pv.searchTimer is
+// only ever touched there (searchDebounced / ClearSearch / Destroy).
+func (pv *PrettyView) stopSearchTimer() {
+	if pv.searchTimer != nil {
+		pv.searchTimer.Stop()
+		pv.searchTimer = nil
+	}
 }
 
 // SearchNext moves to the next match (wrapping) and reveals it.
@@ -76,8 +106,13 @@ func (pv *PrettyView) SearchNext() { pv.step(+1) }
 // SearchPrev moves to the previous match (wrapping) and reveals it.
 func (pv *PrettyView) SearchPrev() { pv.step(-1) }
 
-// ClearSearch clears search state and highlights.
+// ClearSearch clears search state and highlights. It also cancels any pending
+// debounced scan so a stale query can't repopulate matches after a clear (this is
+// the path SetData uses, so loading new data drops the old document's pending
+// search too).
 func (pv *PrettyView) ClearSearch() {
+	pv.searchGen++ // invalidate any in-flight debounced scan (pending OR already queued)
+	pv.stopSearchTimer()
 	pv.search = searchState{active: -1}
 	pv.refreshMatchesView()
 	pv.notifySearch()
@@ -111,7 +146,26 @@ func (pv *PrettyView) step(dir int) {
 // runSearch performs a synchronous, capped scan of the document's expanded line
 // text. (Matches are found in expanded text so a hit inside a folded node can be
 // revealed; the highlight is only drawn once the line is visible.)
+//
+// It runs on the Fyne goroutine, not a worker: the cost is O(total bytes) with a
+// single forward byte->rune pass per line (see colCursor) and a hard MaxMatches
+// cap, so it stays well under a frame even on large input — a full scan of the
+// 7.5 MB / 440k-line fixture is ~5 ms. Combined with keystroke debouncing
+// (searchDebounced), a cooperative chunked/off-thread scan is unnecessary (and
+// would reintroduce the Search-vs-reflow data race that staying on the Fyne thread
+// avoids). The ceiling is a single pathological multi-gigabyte document; such input
+// is out of scope for an in-memory viewer.
 func (pv *PrettyView) runSearch(q SearchQuery) {
+	// A synchronous scan is the authoritative supersede point. Cancel any pending
+	// debounce timer and bump the generation so an already-fired-but-queued
+	// debounced scan (which Timer.Stop can no longer cancel) recognizes itself as
+	// stale (gen != pv.searchGen) and skips itself. Without this, the
+	// Enter-applies-immediately path (controls.go OnSubmitted -> Search) leaves a
+	// keystroke timer armed; it then re-runs the scan, resets the active match to 0
+	// and re-centers, yanking the viewport back to match #1 after the user navigated.
+	pv.stopSearchTimer()
+	pv.searchGen++
+
 	pv.search.query = q
 	pv.search.matches = pv.search.matches[:0]
 	pv.search.byLine = nil
@@ -155,14 +209,15 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 	// lowercase allocation on the common ASCII path.
 	var scratch []byte
 	for li := int32(0); li < int32(len(pv.doc.Lines)); li++ {
-		scratch = pv.doc.assembleLine(li, scratch[:0])
+		scratch = pv.doc.AssembleLine(li, scratch[:0])
 		switch {
 		case re != nil:
+			cur := colCursor{hay: scratch}
 			for _, loc := range re.FindAllIndex(scratch, -1) {
 				if loc[1] == loc[0] {
 					continue // skip zero-width matches
 				}
-				pv.addMatchB(li, scratch, loc[0], loc[1])
+				pv.addMatchB(li, &cur, loc[0], loc[1])
 				if len(pv.search.matches) >= limit {
 					pv.search.capped = true
 					break
@@ -205,6 +260,7 @@ func (pv *PrettyView) scanPlain(li int32, hay, needle []byte, limit int) {
 	if len(needle) == 0 {
 		return
 	}
+	cur := colCursor{hay: hay}
 	from := 0
 	for {
 		idx := bytes.Index(hay[from:], needle)
@@ -212,7 +268,7 @@ func (pv *PrettyView) scanPlain(li int32, hay, needle []byte, limit int) {
 			return
 		}
 		bs := from + idx
-		pv.addMatchB(li, hay, bs, bs+len(needle))
+		pv.addMatchB(li, &cur, bs, bs+len(needle))
 		from = bs + len(needle)
 		if len(pv.search.matches) >= limit {
 			pv.search.capped = true
@@ -221,21 +277,40 @@ func (pv *PrettyView) scanPlain(li int32, hay, needle []byte, limit int) {
 	}
 }
 
-// addMatchB records a match at byte range [bs,be) of hay, converting to rune
-// columns into the line's displayed text.
-func (pv *PrettyView) addMatchB(li int32, hay []byte, bs, be int) {
-	cs := utf8.RuneCount(hay[:bs])
-	ce := cs + utf8.RuneCount(hay[bs:be])
-	pv.search.matches = append(pv.search.matches, Match{Line: li, ColStart: cs, ColEnd: ce})
+// colCursor converts byte offsets within one line's bytes to rune columns. Matches
+// are found in increasing byte order, so the cursor advances forward and counts
+// only the runes between successive offsets — making a whole line O(line length)
+// instead of O(matches * line length) (the old per-match utf8.RuneCount-from-zero).
+type colCursor struct {
+	hay    []byte
+	byteAt int
+	runeAt int
 }
 
-// assembleLine appends a line's expanded display bytes into buf (reused; pass
-// buf[:0]).
-func (d *Document) assembleLine(li int32, buf []byte) []byte {
-	for _, s := range d.lineSegs(li) {
-		buf = append(buf, d.segBytes(s)...)
+// col returns the rune column at byte offset off, advancing the cursor to it. ASCII
+// bytes (the common case) advance byte and column in lockstep without decoding.
+func (c *colCursor) col(off int) int {
+	if off < c.byteAt { // non-monotonic (shouldn't happen): recount safely
+		c.byteAt, c.runeAt = 0, 0
 	}
-	return buf
+	for c.byteAt < off && c.byteAt < len(c.hay) {
+		if c.hay[c.byteAt] < utf8.RuneSelf {
+			c.byteAt++
+		} else {
+			_, sz := utf8.DecodeRune(c.hay[c.byteAt:])
+			c.byteAt += sz
+		}
+		c.runeAt++
+	}
+	return c.runeAt
+}
+
+// addMatchB records a match at byte range [bs,be) of the cursor's line, converting
+// to rune columns via the forward cursor.
+func (pv *PrettyView) addMatchB(li int32, cur *colCursor, bs, be int) {
+	cs := cur.col(bs)
+	ce := cur.col(be)
+	pv.search.matches = append(pv.search.matches, Match{Line: li, ColStart: cs, ColEnd: ce})
 }
 
 func isASCII(b []byte) bool {
@@ -271,7 +346,7 @@ func (pv *PrettyView) revealActive() {
 		return
 	}
 	m := pv.search.matches[pv.search.active]
-	pv.doc.fold.revealLine(pv.doc, m.Line)
+	pv.doc.RevealLine(m.Line)
 
 	if pv.r == nil {
 		return
