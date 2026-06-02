@@ -3,20 +3,22 @@ package prettyview
 import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/widget"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // Input interfaces implemented by PrettyView. Fold toggling rides on Tapped;
 // character-level selection rides on the mouse/drag/focus interfaces handled in
-// selection.go.
+// selection.go; the right-click context menu rides on TappedSecondary.
 var (
-	_ fyne.Tappable      = (*PrettyView)(nil)
-	_ desktop.Cursorable = (*PrettyView)(nil)
-	_ desktop.Mouseable  = (*PrettyView)(nil)
-	_ desktop.Hoverable  = (*PrettyView)(nil)
-	_ fyne.Draggable     = (*PrettyView)(nil)
-	_ fyne.Focusable     = (*PrettyView)(nil)
-	_ fyne.Shortcutable  = (*PrettyView)(nil)
+	_ fyne.Tappable          = (*PrettyView)(nil)
+	_ fyne.SecondaryTappable = (*PrettyView)(nil)
+	_ desktop.Cursorable     = (*PrettyView)(nil)
+	_ desktop.Mouseable      = (*PrettyView)(nil)
+	_ desktop.Hoverable      = (*PrettyView)(nil)
+	_ fyne.Draggable         = (*PrettyView)(nil)
+	_ fyne.Focusable         = (*PrettyView)(nil)
+	_ fyne.Shortcutable      = (*PrettyView)(nil)
 )
 
 // contentPos converts a widget-local pixel (as delivered to input handlers) into
@@ -72,6 +74,45 @@ func (pv *PrettyView) Tapped(e *fyne.PointEvent) {
 func (pv *PrettyView) toggleFold(node model.NodeID) {
 	pv.doc.Toggle(node)
 	pv.refreshContent()
+}
+
+// TappedSecondary shows the context menu at the click. This is the standard Fyne
+// pop-up menu — the same themed overlay Entry and read-only selectable text use
+// for their right-click menus (Fyne draws its own UI on the GL canvas, so there is
+// no native OS menu to invoke). A right-click never disturbs the selection
+// (MouseDown returns early for the secondary button), so "Copy" acts on whatever
+// the user had already highlighted.
+func (pv *PrettyView) TappedSecondary(e *fyne.PointEvent) {
+	pv.requestFocus()
+	app := fyne.CurrentApp()
+	if app == nil || app.Driver() == nil {
+		return
+	}
+	c := app.Driver().CanvasForObject(pv)
+	if c == nil {
+		return
+	}
+	widget.ShowPopUpMenuAtPosition(pv.contextMenu(), c, e.AbsolutePosition)
+}
+
+// contextMenu builds the right-click menu: Copy (greyed out unless there is a
+// selection) and Select all (greyed out on an empty document). Both carry their
+// keyboard accelerator so the menu reads like a native one. hasSelection is the
+// cheap ordered() predicate, not SelectedText, so opening the menu over a
+// select-all of a multi-megabyte document does not materialize the whole string.
+func (pv *PrettyView) contextMenu() *fyne.Menu {
+	_, _, hasSelection := pv.ordered()
+	empty := pv.doc == nil || pv.doc.TotalVisibleRows() == 0
+
+	copyItem := fyne.NewMenuItem("Copy", pv.CopySelection)
+	copyItem.Disabled = !hasSelection
+	copyItem.Shortcut = &fyne.ShortcutCopy{}
+
+	selectAll := fyne.NewMenuItem("Select all", pv.SelectAll)
+	selectAll.Disabled = empty
+	selectAll.Shortcut = &fyne.ShortcutSelectAll{}
+
+	return fyne.NewMenu("", copyItem, selectAll)
 }
 
 // refreshContent re-sizes the scroll content (row count / width may have changed)

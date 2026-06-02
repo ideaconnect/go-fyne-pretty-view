@@ -4,7 +4,7 @@
 [![codecov](https://codecov.io/gh/ideaconnect/go-fyne-pretty-view/graph/badge.svg)](https://codecov.io/gh/ideaconnect/go-fyne-pretty-view)
 
 A memory-efficient, virtualized [Fyne](https://fyne.io) widget for viewing
-structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
+structured data - **JSON, JSONC, XML, HTML, and raw text** - in the style of
 [Bruno](https://www.usebruno.com)'s response viewer.
 
 ![JSON](docs/shot-json.png)
@@ -15,8 +15,9 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - **Expand / fold** every container, with a collapse summary on folded nodes (`{ 38 items }`, `[ 3 items ]`, `<tag> 5 children`).
 - **Copy a whole section** (subtree) to the clipboard.
 - **True character-level free-text selection** across rows, with exact-substring copy (`Ctrl/Cmd+C`) and select-all (`Ctrl/Cmd+A`).
+- **Right-click context menu** (Copy / Select all) — the standard Fyne pop-up menu, the same one Fyne's own text widgets use.
 - **Search** with plain or regular-expression matching, match navigation, and **auto-reveal into folded nodes**.
-- **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally — selection, search, and copy still operate on whole logical lines.
+- **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally - selection, search, and copy still operate on whole logical lines.
 - **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
 
 ## Why it stays small
@@ -112,7 +113,7 @@ the token-only shorthand. Overrides merge, so repeated calls accumulate.
 
 ### Controls: use the built-ins, hook your own, or both
 
-The widget itself is just the viewer — it has **no built-in buttons**. The package
+The widget itself is just the viewer - it has **no built-in buttons**. The package
 *optionally* provides ready-made controls bound to a `PrettyView`; every control
 is individually opt-in, so a host app can use the provided ones as-is, disable
 them and drive the public API from its own widgets, or mix the two.
@@ -120,7 +121,7 @@ them and drive the public API from its own widgets, or mix the two.
 ```go
 pv := prettyview.New()
 
-// (a) Drop in the built-in control bar — pick exactly which controls appear.
+// (a) Drop in the built-in control bar - pick exactly which controls appear.
 bar := prettyview.NewToolbar(pv, prettyview.ToolbarConfig{
     ShowOpen:           true,   // "Open…" file dialog (needs Window or OnOpen)
     ShowFormat:         true,   // format selector (re-parses current source)
@@ -161,7 +162,7 @@ myExpandButton.OnTapped = pv.ExpandAll
 ### Threading
 
 `PrettyView` follows the usual Fyne widget rule: it is **not safe for concurrent
-use** — call its methods (`SetData`, `Search`, `ExpandAll`, the selection and theme
+use** - call its methods (`SetData`, `Search`, `ExpandAll`, the selection and theme
 mutators, …) on the goroutine that runs the Fyne event loop. To drive it from
 another goroutine (e.g. after a network fetch), marshal the call with `fyne.Do`:
 
@@ -172,8 +173,8 @@ go func() {
 }()
 ```
 
-The widget holds no locks by design; its one internal background task — the search
-debounce — already marshals back onto the Fyne goroutine.
+The widget holds no locks by design; its one internal background task - the search
+debounce - already marshals back onto the Fyne goroutine.
 
 ## Demo
 
@@ -186,7 +187,7 @@ The demo shows both control styles at once: the built-in `NewToolbar` (Open,
 format, expand/collapse, wrap, search) used as-is, plus an app-supplied fixture
 dropdown that drives the public API directly.
 
-Prebuilt binaries are produced by CI for Linux, Windows, and macOS — each is
+Prebuilt binaries are produced by CI for Linux, Windows, and macOS - each is
 downloaded as a zip containing the executable alongside the `testdata/` fixtures,
 so the fixture dropdown works as soon as you extract and run it.
 
@@ -201,7 +202,7 @@ and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 | File | For whom / what |
 |---|---|
 | [README.md](README.md) | This overview: features, install, usage, API. |
-| [STRUCTURE.md](STRUCTURE.md) | The codebase map — every file, the layering, the mental model. |
+| [STRUCTURE.md](STRUCTURE.md) | The codebase map - every file, the layering, the mental model. |
 | [WORKFLOWS.md](WORKFLOWS.md) | How to build, run, test, benchmark, and extend (parsers, colors). |
 | [docs/DESIGN.md](docs/DESIGN.md) | The authoritative architecture + adversarial risk analysis. |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Performance review: hot paths, benchmarks, and the measured deltas. |

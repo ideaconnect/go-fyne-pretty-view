@@ -64,7 +64,7 @@ func (pv *PrettyView) requestFocus() {
 func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 	pv.requestFocus()
 	if ev.Button == desktop.MouseButtonSecondary {
-		return // reserved for a future context menu; leave selection intact
+		return // the right-click context menu is shown by TappedSecondary; leave the selection intact
 	}
 	cx, cy := pv.contentPos(ev.Position)
 	// A press on a fold triangle is a fold gesture, handled by Tapped.
