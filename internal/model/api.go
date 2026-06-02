@@ -54,7 +54,7 @@ func (d *Document) ProjectionBytes() int {
 // VisibleLine returns line itself if visible, else the head line of its nearest
 // collapsed ancestor (the row actually shown for it).
 func (d *Document) VisibleLine(line int32) int32 {
-	if line < 0 {
+	if line < 0 || int(line) >= len(d.fold.vis) {
 		return line
 	}
 	if d.fold.vis[line] == 1 {

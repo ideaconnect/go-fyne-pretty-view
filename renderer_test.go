@@ -130,6 +130,38 @@ func TestRefreshBuildsEachRowOnce(t *testing.T) {
 	}
 }
 
+// TestKeyboardScrolling guards keyboard navigation (P13): PageDown/End/Home/Down must
+// move the scroll offset on a document taller than the viewport.
+func TestKeyboardScrolling(t *testing.T) {
+	test.NewApp()
+	src := "[" + strings.Repeat(`"x",`, 300) + `"end"]` // ~300 rows, one element per line
+	pv := NewWithData([]byte(src), FormatJSON)
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(300, 200))
+	pv.Refresh()
+
+	top := pv.r.scroll.Offset.Y
+	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyPageDown})
+	pgdn := pv.r.scroll.Offset.Y
+	if pgdn <= top {
+		t.Errorf("PageDown did not scroll down (%.1f -> %.1f)", top, pgdn)
+	}
+	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEnd})
+	end := pv.r.scroll.Offset.Y
+	if end < pgdn {
+		t.Errorf("End did not reach the bottom (%.1f -> %.1f)", pgdn, end)
+	}
+	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyHome})
+	if home := pv.r.scroll.Offset.Y; home != 0 {
+		t.Errorf("Home did not return to the top, y=%.1f", home)
+	}
+	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyDown})
+	if down := pv.r.scroll.Offset.Y; down <= 0 {
+		t.Errorf("Down did not scroll, y=%.1f", down)
+	}
+}
+
 // rowText concatenates the visible text runs of the live row showing line li,
 // left to right — i.e. exactly what the user sees on that row.
 func rowText(r *prettyViewRenderer, li int32) (string, bool) {

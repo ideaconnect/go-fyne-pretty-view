@@ -159,15 +159,34 @@ func (fi *foldIndex) rebuild(d *Document) {
 // TotalVisibleRows reports how many display rows are currently visible.
 func (fi *foldIndex) TotalVisibleRows() int32 { return fi.bit.total() }
 
-// lineAtRow maps a 0-based visible row to its display-line index. Caller must
-// ensure 0 <= row < TotalVisibleRows().
+// lineAtRow maps a 0-based visible row to its display-line index. An out-of-range
+// row is clamped (row < 0 -> first line, row >= total -> last line) so a misuse
+// returns a valid index rather than a fake one-past-last that panics downstream.
 func (fi *foldIndex) lineAtRow(row int32) int32 {
-	return int32(fi.bit.kth(row + 1))
+	n := int32(len(fi.vis))
+	if n == 0 {
+		return 0
+	}
+	if row < 0 {
+		row = 0
+	}
+	li := int32(fi.bit.kth(row + 1))
+	if li >= n {
+		li = n - 1
+	}
+	return li
 }
 
 // rowOfLine maps a display line to the visible row it occupies (or, if hidden,
-// the row it would occupy). O(log n).
+// the row it would occupy). O(log n). An out-of-range line is clamped to the
+// valid prefix range rather than indexing the Fenwick tree out of bounds.
 func (fi *foldIndex) rowOfLine(line int32) int32 {
+	if line < 0 {
+		return 0
+	}
+	if int(line) >= len(fi.vis) {
+		return fi.bit.total()
+	}
 	return fi.bit.prefix(int(line))
 }
 
@@ -258,7 +277,7 @@ func (fi *foldIndex) expandAll(d *Document) {
 // Returns true if anything changed. It unfolds incrementally (O(touched lines)
 // per ancestor) rather than rebuilding the whole projection.
 func (fi *foldIndex) revealLine(d *Document, line int32) bool {
-	if line < 0 || fi.vis[line] == 1 {
+	if line < 0 || int(line) >= len(fi.vis) || fi.vis[line] == 1 {
 		return false
 	}
 	return fi.unfoldAncestors(d, d.Lines[line].Owner)

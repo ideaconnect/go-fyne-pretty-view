@@ -230,9 +230,34 @@ func (pv *PrettyView) FocusLost() {
 	pv.refreshSelectionView()
 }
 func (pv *PrettyView) TypedRune(rune) {}
+
+// TypedKey handles Escape (clear selection) and keyboard scrolling/navigation:
+// Up/Down scroll one row, PageUp/PageDown one viewport, Home/End jump to the top/
+// bottom. A multi-megabyte viewer should be navigable without the mouse.
 func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
-	if ev.Name == fyne.KeyEscape {
+	if pv.r == nil {
+		if ev.Name == fyne.KeyEscape {
+			pv.ClearSelection()
+		}
+		return
+	}
+	vpH := pv.r.scroll.Size().Height
+	switch ev.Name {
+	case fyne.KeyEscape:
 		pv.ClearSelection()
+	case fyne.KeyDown:
+		pv.r.scrollBy(0, pv.met.RowH)
+	case fyne.KeyUp:
+		pv.r.scrollBy(0, -pv.met.RowH)
+	case fyne.KeyPageDown, fyne.KeySpace:
+		pv.r.scrollBy(0, vpH)
+	case fyne.KeyPageUp:
+		pv.r.scrollBy(0, -vpH)
+	case fyne.KeyHome:
+		pv.r.scrollToOffset(fyne.NewPos(0, 0))
+	case fyne.KeyEnd:
+		cs := pv.contentSize()
+		pv.r.scrollToOffset(fyne.NewPos(pv.r.scroll.Offset.X, maxf(0, cs.Height-vpH)))
 	}
 }
 

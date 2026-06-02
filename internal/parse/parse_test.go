@@ -82,6 +82,22 @@ func TestUTF8BOMStripped(t *testing.T) {
 	}
 }
 
+// TestModelAccessorsGuardOutOfRange checks the projection accessors no longer panic
+// or return a fake one-past-last index for an out-of-range line/row, so the public
+// API is defensively safe for external callers (P9).
+func TestModelAccessorsGuardOutOfRange(t *testing.T) {
+	d := Parse([]byte(`{"a":1,"b":2}`), FormatJSON, 0)
+	nLines := int32(d.TotalLines())
+	nRows := d.TotalVisibleRows()
+	// None of these may panic on an out-of-range argument.
+	_ = d.VisibleLine(nLines + 3)
+	_ = d.RowOfLine(nLines + 3)
+	_ = d.RevealLine(nLines + 3)
+	if got := d.LineAtRow(nRows + 3); int(got) >= d.TotalLines() {
+		t.Errorf("LineAtRow past the end returned a fake index %d (>= %d lines)", got, d.TotalLines())
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {
