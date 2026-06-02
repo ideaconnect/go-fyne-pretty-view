@@ -26,7 +26,7 @@ func TestE2EUserFlow(t *testing.T) {
 	// checkbox, with the viewer filling the rest — like a host app would assemble.
 	search := widget.NewEntry()
 	search.OnChanged = func(s string) { pv.Search(SearchQuery{Text: s}) }
-	wrap := NewWrapToggle(pv).(*iconButton)
+	wrap := NewWrapToggle(pv).(*widget.Button)
 	ui := container.NewBorder(container.NewVBox(search, wrap), nil, nil, nil, pv)
 
 	win := test.NewWindow(ui)

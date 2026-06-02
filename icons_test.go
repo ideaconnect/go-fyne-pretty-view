@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/test"
 )
 
@@ -28,25 +27,4 @@ func TestIconResourcesRecolored(t *testing.T) {
 			t.Errorf("%s stroke was not set to a hex color", res.Name())
 		}
 	}
-}
-
-// TestIconButtonTooltip exercises the hover-tooltip icon button: show on MouseIn,
-// hide on MouseOut, and the tap action; an empty tip pops nothing.
-func TestIconButtonTooltip(t *testing.T) {
-	test.NewApp()
-	tapped := false
-	btn := newIconButton(iconSearch(), "Search", func() { tapped = true })
-	win := test.NewWindow(btn)
-	defer win.Close()
-	win.Resize(fyne.NewSize(120, 80))
-
-	btn.MouseIn(&desktop.MouseEvent{}) // -> showTip (creates the popup)
-	btn.MouseIn(&desktop.MouseEvent{}) // -> reuses the popup
-	btn.MouseOut()                     // -> hideTip
-	btn.OnTapped()
-	if !tapped {
-		t.Error("icon button tap did not fire its action")
-	}
-
-	newIconButton(iconFolder(), "", nil).showTip() // empty tip: no-op, no panic
 }

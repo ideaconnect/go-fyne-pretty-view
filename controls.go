@@ -5,9 +5,11 @@ import (
 	"io"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -48,7 +50,7 @@ func DefaultToolbarConfig() ToolbarConfig {
 func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 	left := container.NewHBox()
 	if cfg.ShowOpen && (cfg.OnOpen != nil || cfg.Window != nil) {
-		left.Add(newIconButton(iconFolder(), "Open…", func() {
+		left.Add(iconBtn(iconFolder(), func() {
 			if cfg.OnOpen != nil {
 				cfg.OnOpen()
 				return
@@ -57,7 +59,6 @@ func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 		}))
 	}
 	if cfg.ShowFormat {
-		left.Add(widget.NewLabel("Format:"))
 		left.Add(NewFormatSelect(pv))
 	}
 	if cfg.ShowExpandCollapse {
@@ -80,21 +81,27 @@ func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 	return left
 }
 
-// NewFoldButtons returns an expand-all / collapse-all icon pair (with hover
-// tooltips) bound to pv.
+// iconBtn is a compact, flat (low-importance) icon-only button.
+func iconBtn(icon fyne.Resource, tapped func()) *widget.Button {
+	b := widget.NewButtonWithIcon("", icon, tapped)
+	b.Importance = widget.LowImportance
+	return b
+}
+
+// NewFoldButtons returns an expand-all / collapse-all icon pair bound to pv.
 func NewFoldButtons(pv *PrettyView) fyne.CanvasObject {
 	return container.NewHBox(
-		newIconButton(iconExpand(), "Expand all", pv.ExpandAll),
-		newIconButton(iconCollapse(), "Collapse all", pv.CollapseAll),
+		iconBtn(iconExpand(), pv.ExpandAll),
+		iconBtn(iconCollapse(), pv.CollapseAll),
 	)
 }
 
-// NewWrapToggle returns a wrap-text icon toggle (with a hover tooltip) bound to pv:
-// it flips between soft-wrap (WrapWord) and horizontal scroll (WrapNone), and is
-// highlighted (HighImportance) while wrapping is on so the state is visible.
+// NewWrapToggle returns a wrap-text icon toggle bound to pv: it flips between
+// soft-wrap (WrapWord) and horizontal scroll (WrapNone), and is highlighted
+// (HighImportance) while wrapping is on so the state is visible.
 func NewWrapToggle(pv *PrettyView) fyne.CanvasObject {
-	var btn *iconButton
-	btn = newIconButton(iconWrapText(), "Wrap text", func() {
+	var btn *widget.Button
+	btn = iconBtn(iconWrapText(), func() {
 		if pv.Wrap() == WrapWord {
 			pv.SetWrap(WrapNone)
 		} else {
@@ -139,20 +146,24 @@ func NewFormatSelect(pv *PrettyView) fyne.CanvasObject {
 func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 	entry := widget.NewEntry()
 	entry.SetPlaceHolder("search…")
-	count := widget.NewLabel("")
+	// A canvas.Text (not a widget.Label) for the match counter: a Label's inner
+	// padding would make the entry→counter gap wider than the gap between the nav
+	// buttons. Centered so it lines up vertically with the buttons.
+	count := canvas.NewText("", theme.Color(theme.ColorNameForeground))
 
 	update := func() {
 		active, total, capped := pv.SearchStatus()
 		switch {
 		case total == 0 && entry.Text == "":
-			count.SetText("")
+			count.Text = ""
 		case total == 0:
-			count.SetText("0/0")
+			count.Text = "0/0"
 		case capped:
-			count.SetText(fmt.Sprintf("%d/%d+", active, total))
+			count.Text = fmt.Sprintf("%d/%d+", active, total)
 		default:
-			count.SetText(fmt.Sprintf("%d/%d", active, total))
+			count.Text = fmt.Sprintf("%d/%d", active, total)
 		}
+		count.Refresh()
 	}
 	entry.OnChanged = func(s string) { pv.searchDebounced(SearchQuery{Text: s}) }
 	entry.OnSubmitted = func(string) {
@@ -163,11 +174,13 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 	pv.SetOnSearchChanged(update)
 	pv.SetOnSearchRequested(func() { focusObject(entry) })
 
-	prev := newIconButton(iconArrowUp(), "Previous match", pv.SearchPrev)
-	next := newIconButton(iconArrowDown(), "Next match", pv.SearchNext)
+	prev := iconBtn(iconArrowUp(), pv.SearchPrev)
+	next := iconBtn(iconArrowDown(), pv.SearchNext)
 
+	// The entry expands (Border center); the counter and nav buttons sit in one
+	// HBox so entry→counter, counter→prev and prev→next are all one padding wide.
 	return container.NewBorder(nil, nil, widget.NewIcon(iconSearch()),
-		container.NewHBox(count, prev, next), entry)
+		container.NewHBox(container.NewCenter(count), prev, next), entry)
 }
 
 // ShowOpenDialog opens a native file-open dialog and loads the chosen file into

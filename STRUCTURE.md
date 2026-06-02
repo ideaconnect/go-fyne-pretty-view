@@ -73,7 +73,6 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 | `theme.go` | `SyntaxColors`, the default dark/light palettes, `buildPalette`, theme-color helpers. |
 | `controls.go` | **Optional** ready-made controls: `NewToolbar` (+ `ToolbarConfig`), `NewSearchBar`, `NewFormatSelect`, `NewFoldButtons`, `NewWrapToggle`, `ShowOpenDialog`. |
 | `icons.go` | Embedded Iconoir toolbar glyphs (`icons/iconoir/*.svg`, MIT) recolored to the theme foreground (`iconResource`). |
-| `tooltip.go` | `iconButton`: an icon-only button with a hover tooltip (Fyne 2.7 has no built-in widget tooltips). |
 | `renderer.go` | `prettyViewRenderer`: manual `container.Scroll` virtualization, `reflow`, `contentLayout`, `contentSize`, metric/palette recompute. |
 | `row.go` | `rowWidget` + `rowRenderer`: per-row colored text (horizontally culled), indent guides, fold triangle. |
 | `widget_input.go` | Input-interface assertions, `Tapped` (fold toggle), `Cursor`, coordinate conversion. |
