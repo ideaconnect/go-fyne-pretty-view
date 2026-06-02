@@ -14,7 +14,7 @@
 
 # prettyview — Performance Review (original; pre-fix snapshot)
 
-**Scope:** virtualized JSON/XML/HTML/raw viewer. Hot paths reviewed against the pinned Fyne v2.7.4. Hardware: AMD Ryzen AI MAX+ 395, Go 1.26.3, linux/amd64. Fixtures: `big.json` ≈ 7.5 MB / 440k display rows, `openapi.json` ≈ 478 KB.
+**Scope:** virtualized JSON/XML/HTML/raw viewer. Hot paths reviewed against the pinned Fyne v2.7.4. Hardware: a modern x86-64 laptop, Go 1.26.3, linux/amd64. Fixtures: `big.json` ≈ 7.5 MB / 440k display rows, `openapi.json` ≈ 478 KB.
 
 > **Benchmark provenance.** The `…Big` / `RowBuildWide` / `ReflowOnlyBig` / `SearchKeystrokeBig` / `SearchNextCollapsedBig` names cited as evidence below were the **review-time harness** and are **not committed** to the repo. The benchmarks that ship are `BenchmarkSearch`, `BenchmarkSearchManyMatchesOneLine`, `BenchmarkHorizontalScrollHugeLine`, `BenchmarkParseJSON`/`ParseBigJSON`/`ParseXML`/`ParseHTML`, `BenchmarkFoldToggle`, `BenchmarkProjectionLookup`, `BenchmarkExpandCollapseAll`, and `BenchmarkSelectAllCopyBig`; the resolved-state guards are `TestReflowBuildsEachRowOnce` and `TestRevealLineMatchesRebuild` (`perf_test.go`). Read the numbers below as the original measurements, not as reproducible from the committed suite verbatim. Likewise, the file paths and line numbers cited as evidence are from the **pre-reorganization tree**, before `model`, `parse`, and `geometry` moved under `internal/`: references such as `model.go`, `builder.go`, and `foldindex.go` now live at `internal/model/…`, and `geometry.go` at `internal/geometry/geometry.go`. Same-file line numbers may also have drifted as the code evolved.
 
