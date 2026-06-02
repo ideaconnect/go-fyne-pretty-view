@@ -70,12 +70,12 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 | `prettyview.go` | The `PrettyView` widget: constructors, `SetData`/`SetText`/`Reparse`, fold/selection/search public methods, host-hook setters. |
 | `format.go` | Re-exports `Format` (alias of `model.Format`) + constants, and `WrapMode`, so the public API stays `prettyview.FormatJSON`. |
 | `options.go` | `config`, functional `Option`s (`WithFormat`, `WithWrap`, …), `SearchConfig`. |
-| `theme.go` | `SyntaxColors`, the default dark/light palettes, `buildPalette`, theme-color helpers. |
+| `theme.go` | `SyntaxColors`, the default dark/light palettes, the `palette()` builder, theme-color helpers. |
 | `controls.go` | **Optional** ready-made controls: `NewToolbar` (+ `ToolbarConfig`), `NewSearchBar`, `NewFormatSelect`, `NewFoldButtons`, `NewWrapToggle`, `ShowOpenDialog`. |
 | `icons.go` | Embedded Iconoir toolbar glyphs (`icons/iconoir/*.svg`, MIT) recolored to the theme foreground (`iconResource`). |
 | `renderer.go` | `prettyViewRenderer`: manual `container.Scroll` virtualization, `reflow`, `contentLayout`, `contentSize`, metric/palette recompute. |
 | `row.go` | `rowWidget` + `rowRenderer`: per-row colored text (horizontally culled), indent guides, fold triangle. |
-| `widget_input.go` | Input-interface assertions, `Tapped` (fold toggle), `Cursor`, coordinate conversion. |
+| `widget_input.go` | Input-interface assertions, `Tapped` (fold toggle), `TappedSecondary` (right-click Copy / Select-all menu), `Cursor`, coordinate conversion. |
 | `selection.go` | `modelPos` + the `hitTest` wrapper over `geometry`; char-level selection state + mouse/drag/focus/shortcut handlers, copy, select-all. |
 | `selection_words.go` | Word / line bounds for double- and triple-click. |
 | `search.go` | `SearchQuery`/`Match`, the (byte-scan, debounced) scan, reveal-into-folds, navigation, status. |
@@ -90,7 +90,8 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 
 ## Tests (co-located with the package they test)
 
-- `internal/model/`: `sizes_test` (arena struct sizes; empty document).
+- `internal/model/`: `sizes_test` (arena struct sizes; empty document), `wrap_test`
+  (soft-wrap projection, fold/unfold under wrap).
 - `internal/parse/`: `parse_test` (format detection, raw fallback), `model_test`
   (parser → node/segment/summary output, zero-copy), `foldindex_test` (projection
   round-trip, fold/unfold, expand/collapse-all) — all via the exported model API.
@@ -98,10 +99,13 @@ index and the selection/search state mutate, always on the Fyne goroutine.
   hit-test** round-trip — the single most important correctness guard).
 - root `prettyview`: `selection_test`, `search_test`, `renderer_test`
   (virtualization bound), `memory_test` (heap ceiling + long-line culling),
-  `perf_test` (single-build-per-reflow, incremental reveal), `fold_tap_test`,
-  `controls_test`, `theme_test`, `bench_test`, `screenshot_test`
-  (software-rendered PNGs, gated by `PV_SHOTS=1`), and `testhelpers_test`
-  (shared helpers built on the exported model API).
+  `perf_test` (single-build-per-reflow, incremental reveal), `wrap_view_test`
+  (wrap rendering + virtualization), `context_menu_test` (right-click menu),
+  `fold_tap_test`, `controls_test`, `theme_test`, `icons_test`, `e2e_test`,
+  `polish_test`, `bench_test`, `screenshot_test` (software-rendered PNGs, gated
+  by `PV_SHOTS=1`), the `*_coverage_test` files (`api_`, `controls_`, `input_`,
+  `options_`), and `testhelpers_test` (shared helpers built on the exported
+  model API).
 
 ## Mental model in one paragraph
 

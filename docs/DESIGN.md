@@ -37,49 +37,61 @@ All Fyne citations below are verified against `/home/bartosz/go/pkg/mod/fyne.io/
 
 ## 2. Package layout
 
-Single module, one public package `prettyview`, with small unexported helper files. No `internal/` Fyne imports anywhere (A3 constraint C: `go vet` rejects `fyne.io/fyne/v2/internal/...`; we use `sync.Pool`, `container.Scroll`, `fyne.MeasureText` instead).
+One module: a public package `prettyview` (the widget, renderer, input, controls, theme) plus three internal leaf packages — `internal/parse`, `internal/model`, `internal/geometry`. No `internal/` Fyne imports anywhere (A3 constraint C: `go vet` rejects `fyne.io/fyne/v2/internal/...`; we use `sync.Pool`, `container.Scroll`, `fyne.MeasureText` instead).
 
 ```
 github.com/ideaconnect/go-fyne-pretty-view/
 ├── go.mod                       // module path, Go 1.26, require fyne.io/fyne/v2 v2.7.4, golang.org/x/net
 │
+│   # Root: the public package `prettyview`.
 ├── prettyview.go                // PrettyView widget: BaseWidget, CreateRenderer, public ctor + options
-├── widget_input.go              // input interfaces: Mouseable/Draggable/DoubleTappable/Cursorable/Focusable/Keyable/Shortcutable
+├── widget_input.go              // input interfaces (Tappable/SecondaryTappable/Mouseable/Draggable/Hoverable/Cursorable/Focusable/Shortcutable); Tapped (fold), TappedSecondary (context menu)
 ├── renderer.go                  // prettyViewRenderer: container.Scroll + manual visible-window virtualization
-├── contentbox.go                // contentBox: sized spacer + 3 layers (sel/match/rows); MinSize=full doc extent
-├── row.go                       // rowWidget + rowRenderer: per-row colored canvas.Text runs, indent guides, fold triangle
-├── geometry.go                  // metrics: exact charWidth + rounded rowHeight, col<->x, pixel<->(row,col) hit-test, ONE origin convention
-├── pool.go                      // sync.Pool wrappers for rowWidget and *canvas.Rectangle
-│
-├── model.go                     // Document SoA: Node, Segment, ColorRole, arenas; LineText/source-byte mapping
-├── foldindex.go                 // fenwick + foldIndex: visible-row projection, nodeAtRow, rowOfNode, fold/unfold
-├── builder.go                   // Builder: parser-facing arena construction (Open/AddLeaf/Close), subtree-size pass
-├── parse.go                     // Parser interface, AutoDetect, Format
-├── parse_json.go                // hand-written zero-copy JSON/JSONC byte scanner
-├── parse_xml.go                 // XML via encoding/xml.Decoder.Token
-├── parse_html.go                // HTML via golang.org/x/net/html tokenizer (tolerant)
-├── parse_raw.go                 // raw: split on \n, one KindRawLine per physical line (fallback)
-├── summary.go                   // fold-summary text generation ("{ N items }", "[ N items ]")
-│
-├── selection.go                 // Selection state (anchor/focus Pos), hit-test wiring, normalize, copy, selectAll
+├── row.go                       // rowWidget + rowRenderer: per-row colored canvas.Text runs (horizontally culled), indent guides, fold triangle
+├── highlight.go                 // pooled selection + search-match rectangles (visible-window only)
+├── selection.go                 // selection state (anchor/focus modelPos), hit-test wiring, copy, select-all
 ├── selection_words.go           // token-aware word/line bounds for double/triple-click
-├── search.go                    // SearchController, SearchQuery/Result/Match, matcher, chunked scan, nav, reveal
+├── search.go                    // SearchQuery/Match, debounced byte-scan, reveal-into-folds, nav, status
+├── theme.go                     // Theme + SyntaxColors, default dark/light palettes, palette() builder, theme-color helpers
+├── options.go                   // functional Options: WithFormat, WithWrap, WithSearchConfig, WithTheme, ...
+├── format.go                    // public Format / WrapMode aliases of the model types
+├── controls.go                  // OPTIONAL ready-made controls: NewToolbar (+ToolbarConfig), NewSearchBar, NewFormatSelect, NewFoldButtons, NewWrapToggle, ShowOpenDialog
+├── icons.go                     // embedded Iconoir toolbar glyphs (icons/iconoir/*.svg, MIT), recolored to the theme foreground
 │
-├── theme.go                     // syntax ColorRole -> theme color names; wrapping theme; palette build
-├── options.go                   // Option funcs (functional options): WithFormat, WithWrap, WithSearchConfig, ...
+├── internal/geometry/
+│   └── geometry.go              // Metrics: exact charWidth + rounded rowHeight, col<->x, pixel<->(row,col) hit-test, ColsForDepth (wrap), ONE origin convention
+│
+├── internal/model/              // Document SoA + fold index + soft-wrap projection (no Fyne imports)
+│   ├── api.go                   // exported model API consumed by the view
+│   ├── model.go                 // Document SoA: Node, Line, Segment, ColorRole, arenas; display/source-byte mapping
+│   ├── foldindex.go             // Fenwick fold index: visible-row projection (per-line weight), fold/unfold
+│   ├── wrap.go                  // soft word-wrap: per-line visual-row weights + break computation
+│   ├── builder.go               // Builder: parser-facing arena construction (Open/AddLeaf/Close), subtree-size pass
+│   ├── summary.go               // fold-summary text ("{ N items }", "[ N items ]", "<tag> N children")
+│   └── format.go                // Format enum + String()
+│
+├── internal/parse/              // Parser interface + implementations (call into the model Builder)
+│   ├── parse.go                 // Parser interface, AutoDetect
+│   ├── parse_json.go            // hand-written zero-copy JSON/JSONC byte scanner
+│   ├── parse_xml.go             // XML via encoding/xml.Decoder.Token
+│   ├── parse_html.go            // HTML via golang.org/x/net/html tokenizer (tolerant)
+│   └── parse_raw.go             // raw: split on \n, one line per physical line (fallback)
 │
 ├── testdata/                    // small.json, openapi.json (~478KB), catalog.xml, page.html, big.json (~7.5MB)
 │
-├── internal_math_test.go        // geometry round-trip, hit-test off-by-one, charWidth integer
-├── foldindex_test.go            // projection complexity + correctness
-├── model_test.go                // parser -> node counts, segments, summaries, zero-copy assertions
-├── selection_test.go            // selection math, copy substring, tabs round-trip, copy-after-collapse
-├── search_test.go               // scan offsets (byte->rune), reveal-ancestors, nav wrap
-├── memory_test.go               // OBJECT-COUNT + heap-ceiling assertions (scroll + select-all on big.json)
+├── .github/
+│   ├── workflows/ci.yml         // tests + >90% coverage gate + codecov + cross-platform demo build
+│   └── dependabot.yml           // weekly gomod + github-actions updates
 │
 └── cmd/prettyview-demo/
-    └── main.go                  // demo app: file picker / load testdata, format toggle, search bar, ExpandAll/CollapseAll
+    └── main.go                  // demo app: fixture dropdown + NewToolbar (Open/format/expand/collapse/wrap/search)
 ```
+
+Tests are co-located with the code they cover: headless `*_test.go` under each
+`internal/` package (model arena sizes, fold/wrap projection, geometry golden
+hit-test, parser output) and root `*_test.go` for the rendering, selection,
+search, virtualization, and memory-ceiling guards. See
+[STRUCTURE.md](../STRUCTURE.md) for the full test map.
 
 ---
 
@@ -580,16 +592,20 @@ The root `PrettyView` (not each triangle) handles `Tapped`; it hit-tests in cont
 
 ```go
 var (
-	_ desktop.Mouseable   = (*PrettyView)(nil) // MouseDown/MouseUp  (driver/desktop/mouse.go:45-48)
-	_ fyne.Draggable      = (*PrettyView)(nil) // Dragged/DragEnd    (canvasobject.go:54-57)
-	_ fyne.DoubleTappable = (*PrettyView)(nil) // DoubleTapped       (canvasobject.go:48-50)
-	_ desktop.Cursorable  = (*PrettyView)(nil) // Cursor             (driver/desktop/cursor.go:45-47)
-	_ desktop.Hoverable   = (*PrettyView)(nil) // MouseIn/Moved/Out  (driver/desktop/mouse.go:51-58)
-	_ fyne.Focusable      = (*PrettyView)(nil) // FocusGained/Lost…  (canvasobject.go:66-76)
-	_ fyne.Shortcutable   = (*PrettyView)(nil) // TypedShortcut      (canvasobject.go:90-92)
-	_ desktop.Keyable     = (*PrettyView)(nil) // KeyDown/KeyUp      (driver/desktop/key.go:61-66)
+	_ fyne.Tappable          = (*PrettyView)(nil) // Tapped           (fold-triangle toggle)
+	_ fyne.SecondaryTappable = (*PrettyView)(nil) // TappedSecondary  (right-click context menu)
+	_ desktop.Cursorable     = (*PrettyView)(nil) // Cursor           (pointer over triangle / I-beam)
+	_ desktop.Mouseable      = (*PrettyView)(nil) // MouseDown/MouseUp (selection press)
+	_ desktop.Hoverable      = (*PrettyView)(nil) // MouseIn/Moved/Out (triangle hover tracking)
+	_ fyne.Draggable         = (*PrettyView)(nil) // Dragged/DragEnd   (drag-select + edge autoscroll)
+	_ fyne.Focusable         = (*PrettyView)(nil) // FocusGained/Lost, TypedKey (keyboard nav)
+	_ fyne.Shortcutable      = (*PrettyView)(nil) // TypedShortcut     (Ctrl/Cmd+C / +A / +F)
 )
 ```
+
+(`PrettyView` implements neither `DoubleTappable` nor `desktop.Keyable`:
+double/triple-click is timed in `MouseDown`, and keyboard navigation rides on
+`fyne.Focusable`'s `TypedKey`.)
 
 ### 6.2 State (4 ints + flags, mirroring selectable.go:16-24)
 

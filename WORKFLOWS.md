@@ -72,7 +72,7 @@ The code is three packages (`internal/model` ← `internal/parse` ← root
 ### Add a syntax color role
 1. Add the `ColorRole` constant in `internal/model/model.go` (before
    `NumColorRoles`).
-2. Map it in `buildPalette` (root `theme.go`) for dark and light, and in
+2. Map it in the `palette()` method (root `theme.go`) for dark and light, and in
    `SyntaxColors` if it should be user-overridable.
 3. Emit it from the relevant parser via `model.LitSeg`/`model.SrcSeg`.
 
