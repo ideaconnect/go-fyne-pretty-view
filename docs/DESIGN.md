@@ -97,7 +97,7 @@ search, virtualization, and memory-ceiling guards. See
 
 ## 3. Public API
 
-All real Fyne signatures. The widget is **read-only** (a viewer); it exposes `Disabled()==true` and a `SelectedText() string`, mirroring how the glfw driver auto-routes only the Copy shortcut to a disabled widget exposing `SelectedText` (window.go:830-836; R3 §8).
+The core public signatures. The widget is **read-only** (a viewer): it exposes `SelectedText() string` and routes `Ctrl/Cmd+C` to `CopySelection` through its own `TypedShortcut` (it implements `fyne.Shortcutable`). The once-considered "disabled widget so the driver auto-routes only Copy" trick was not needed and is **not** implemented — there is no `Disabled()` method.
 
 ```go
 package prettyview
@@ -141,9 +141,11 @@ func NewWithData(src []byte, format Format, opts ...Option) *PrettyView
 
 // --- Content ---
 
-// SetData parses src under format (FormatAuto detects). Parsing runs off the Fyne
-// goroutine; the model is swapped and the view refreshed via fyne.Do when done.
-// Safe to call from any goroutine.
+// SetData parses src under format (FormatAuto detects) and refreshes the view.
+// Parsing is SYNCHRONOUS on the calling goroutine; the compact model (~5x source)
+// builds fast even for multi-MB input. PrettyView is NOT safe for concurrent use —
+// call on the Fyne goroutine (marshal with fyne.Do from a worker). src is retained
+// zero-copy: do not mutate it after the call.
 func (pv *PrettyView) SetData(src []byte, format Format)
 
 // SetText is shorthand for SetData([]byte(s), FormatAuto).
@@ -167,8 +169,7 @@ func (pv *PrettyView) SetDefaultCollapseDepth(depth int)
 
 // --- Selection / clipboard ---
 
-// SelectedText returns the exact source substring currently selected, or "".
-// Also the method the disabled-widget Copy shortcut path reads.
+// SelectedText returns the exact displayed text currently selected, or "".
 func (pv *PrettyView) SelectedText() string
 
 func (pv *PrettyView) SelectAll()
@@ -181,9 +182,6 @@ func (pv *PrettyView) CopySelection()
 // (the whole {…}/[…]/<tag>…</tag> span), regardless of fold state.
 func (pv *PrettyView) CopySubtree(byteOffset int)
 
-// Disabled always reports true (read-only viewer); enables Copy-only shortcut routing.
-func (pv *PrettyView) Disabled() bool
-
 // --- Search ---
 
 // Search starts/replaces an incremental search (debounced, synchronous, capped).
@@ -195,9 +193,15 @@ func (pv *PrettyView) ClearSearch()
 // SearchStatus returns (active 1-based index, total, capped) for a count label "3/27" / "3/10000+".
 func (pv *PrettyView) SearchStatus() (active, total int, capped bool)
 
-// --- Theming hook ---
+// --- Wrap / theming ---
 
-// SetSyntaxColors overrides the syntax palette for a given variant.
+// SetWrap switches long-line handling at runtime; Wrap reports the current mode.
+func (pv *PrettyView) SetWrap(m WrapMode)
+func (pv *PrettyView) Wrap() WrapMode
+
+// SetTheme overrides any colors for a variant; SetSyntaxColors is the token-only
+// shorthand. Both compose with prior overrides.
+func (pv *PrettyView) SetTheme(variant fyne.ThemeVariant, t Theme)
 func (pv *PrettyView) SetSyntaxColors(variant fyne.ThemeVariant, c SyntaxColors)
 ```
 
@@ -212,10 +216,11 @@ func WithSearchConfig(c SearchConfig) Option  // MaxMatches, DebounceFor, MinQue
 func WithDefaultCollapseDepth(d int) Option   // auto-collapse below depth d on load
 func WithTabWidth(n int) Option               // tab expansion width for display (default 4)
 func WithIndentStep(px float32) Option        // pixels per indent level
-func WithSyntaxColors(v fyne.ThemeVariant, c SyntaxColors) Option
+func WithTheme(v fyne.ThemeVariant, t Theme) Option              // override any colors for a variant
+func WithSyntaxColors(v fyne.ThemeVariant, c SyntaxColors) Option // token-only shorthand
 ```
 
-`CreateRenderer`, `MinSize`, `Refresh` come from embedded `widget.BaseWidget` (widget.go:71,119,134). The widget registers shortcuts (Copy, SelectAll, Ctrl+F) through an embedded `fyne.ShortcutHandler` in `ExtendBaseWidget` (pattern at entry.go:298-301,1042-1135; `fyne.ShortcutHandler` at shortcut.go:5-30).
+`MinSize`/`Refresh` come from the embedded `widget.BaseWidget`; `CreateRenderer` is implemented in `renderer.go`. Copy and Select-all are handled directly by the widget's `TypedShortcut` (it implements `fyne.Shortcutable`); `Ctrl/Cmd+F` is additionally registered on the window canvas by `registerFindShortcut` (controls.go) and routed to the host via `SetOnSearchRequested`.
 
 ---
 
@@ -245,6 +250,7 @@ const (
 	KindText         // XML/HTML text / CDATA
 	KindComment      // JSONC/XML/HTML comment
 	KindRawLine      // raw mode: one physical source line
+	KindError        // a recovered parse-error marker line
 )
 
 // ColorRole: 1 byte per segment; resolved to color.Color at draw time. NOT a color value.
@@ -304,15 +310,28 @@ type Line struct {
 }
 
 type Document struct {
-	Src    []byte    // original bytes, retained once for zero-copy segments
-	Aux    []byte    // synthesized text: summaries, punctuation, tab-expansion spaces
-	Nodes  []Node    // structural arena; Nodes[0] == synthetic root
-	Lines  []Line    // display arena (the projection/render unit)
-	Segs   []Segment // segment arena
+	Src   []byte    // original bytes, retained once for zero-copy segments
+	Aux   []byte    // synthesized text: summaries, decoded entities, tab-expansion spaces
+	Nodes []Node    // structural arena; Nodes[0] == synthetic root
+	Lines []Line    // display arena (the projection/render unit)
+	Segs  []Segment // segment arena
+
 	Format Format
 
-	lineRunes []int32    // per-line expanded rune-count cache (extent)
-	fold      *foldIndex // visible-row projection over Lines (§4.4)
+	fold *foldIndex // visible-line projection over Lines (§4.4)
+
+	MaxLineRunes int   // widest expanded line, in runes (content-width upper bound)
+	MaxDepth     uint8 // deepest indentation level present
+
+	lineRunes []int32 // per-line expanded rune-count cache (extent)
+
+	// Soft-wrap projection (§4.4). rowsOf[line] is the visual-row count of the line's
+	// currently-displayed text at the active wrap width; nil ⇒ WrapNone fast path.
+	// colsByDepth is the per-depth column budget the view supplies (the model cannot
+	// import geometry), retained so one fold/unfold can re-weight a head without a full
+	// reprojection.
+	rowsOf      []int32
+	colsByDepth []int
 }
 ```
 
@@ -416,9 +435,9 @@ type Parser interface {
 
 type Builder struct { /* doc *Document; stack []NodeID; unexported */ }
 
-func (b *Builder) OpenContainer(k Kind, head []Seg) NodeID // foldable; head segs e.g. `"key": {` or `<product id="0">`
-func (b *Builder) AddLeaf(k Kind, segs []Seg) NodeID       // single-line node
-func (b *Builder) CloseContainer() NodeID                  // computes ChildCount, caches summary, pops stack
+func (b *Builder) Open(k Kind, srcStart int, head []Seg) NodeID        // foldable; head segs e.g. `"key": {` or `<product id="0">`
+func (b *Builder) Leaf(k Kind, srcStart, srcEnd int, segs []Seg) NodeID // single-line node
+func (b *Builder) Close(srcEnd int, closeSegs []Seg) NodeID             // computes Subtree, pops the stack
 
 type Seg struct {
 	Role  ColorRole
@@ -428,20 +447,20 @@ type Seg struct {
 }
 ```
 
-`OpenContainer`/`CloseContainer` keep an explicit `stack []NodeID` so children land contiguously after the parent's slot; `CloseContainer` records `FirstChild`/`ChildCount`. A post-order pass after parse fills `foldIndex.subtree[]` and `ownRows[]` (one O(n) walk).
+`Open`/`Close` keep an explicit `stack []NodeID` so children land contiguously after the parent's slot. `ChildCount` is bumped in `linkChild` (called from `Open` and `Leaf`); `Close` computes the node's `Subtree` size and pops the stack. There is no separate post-order pass: the fold index is built once by `newFoldIndex` after parse (all-visible), and a final `finish` pass interns each fold-head's collapsed (summary) rendering once trailing commas are placed.
 
 `AutoDetect(src)` runs each `Detect` and picks the max: leading `{`/`[` → JSON; `<?xml`/leading `<root>` → XML; `<!doctype html`/`<html` → HTML; else Raw.
 
 ### 4.6 The four parsers
 
-- **JSON / JSONC** (`parse_json.go`): a **hand-written byte scanner** over `Src` yielding tokens with `(start,end)` offsets — zero-copy, preserves key order and comment positions for Bruno fidelity. `encoding/json.Decoder.Token` is the reference but is **not** the path: it allocates per-token strings and loses offsets (A1: that re-allocates ≈ the whole file). Mapping: `{…}`→`KindObject`, `[…]`→`KindArray`, `"key": scalar`→`KindKeyValue`, bare scalar→`KindScalar`, value-container carries its `"key":` prefix in the container's head segs (saves a node/member). Closing brace is rendered as a synthetic continuation row of the container (counted in `ExtraRows`), not a separate node.
+- **JSON / JSONC** (`parse_json.go`): a **hand-written byte scanner** over `Src` yielding tokens with `(start,end)` offsets — zero-copy, preserves key order and comment positions for Bruno fidelity. `encoding/json.Decoder.Token` is the reference but is **not** the path: it allocates per-token strings and loses offsets (A1: that re-allocates ≈ the whole file). Mapping: `{…}`→`KindObject`, `[…]`→`KindArray`, `"key": scalar`→`KindKeyValue`, bare scalar→`KindScalar`, value-container carries its `"key":` prefix in the container's head segs (saves a node/member). The closing brace is the container's own close line (`Node.CloseLine`), owned by the same node — not a separate node.
 - **XML** (`parse_xml.go`): `encoding/xml.Decoder.Token` (present in Go 1.26 stdlib). `StartElement`+children→`KindElement` with attributes inline in head segs; self-closing/empty→`KindEmptyElement`; `CharData`→`KindText` (entity-decoded into `Aux`); `Comment`→`KindComment`. Token offsets aren't exposed by `xml.Decoder`, so for XML/HTML the head/text segments use **interned `Aux` literals**, not zero-copy `Src` ranges — copy uses the display text directly (acceptable: XML copy fidelity is the reconstructed canonical form).
 - **HTML** (`parse_html.go`): `golang.org/x/net/html` tokenizer (`x/net` already a transitive Fyne dep; `go get golang.org/x/net/html`). Tolerant of unclosed tags; void elements→`KindEmptyElement`; `<!DOCTYPE …>`→a muted comment-style leaf.
 - **Raw** (`parse_raw.go`): split `Src` on `\n`; each line→`KindRawLine` with one `RolePlain` segment spanning the line's `Src` byte range (zero-copy). The universal fallback when a structured parse fails mid-stream.
 
 ### 4.7 Summaries
 
-Cached once at `CloseContainer` into `Aux`, pointed at by `SummarySeg` (`RoleMuted`): `KindObject`→`{ N items }` (`{ }`, `{ 1 item }` special-cased), `KindArray`→`[ N items ]`, `KindElement`→`<tag> N children`. A collapsed container renders head segs + summary on one row; toggling flips the `collapsed` bit + the incremental Fenwick update only — no re-parse, no full re-flatten.
+Built in the post-parse `finish` pass as a `Segment` with `Role==RoleMuted`, interned into `Aux`, forming the fold-head's collapsed rendering (`Line.CollFirst`/`CollCount`): `KindObject`→`{ N items }` (`{ }`, `{ 1 item }` special-cased), `KindArray`→`[ N items ]`, `KindElement`→`<tag> N children`. A collapsed container renders head segs + summary + close on one row; toggling flips the `collapsed` bit + the incremental Fenwick update only — no re-parse, no full re-flatten.
 
 ### 4.8 Memory budget — measured on openapi.json (~478 KB / 467 KiB)
 
@@ -469,7 +488,7 @@ storm**, live `CanvasObject` count unchanged (M-1).
 
 **Verdict, grounded in A3.** A3 proved (window.go:460-471 single-predicate deepest-match dispatch + util.go:57-61 deepest-wins hit-test) that a custom interactive child *can* own its input inside a `widget.List` row — so List is not disqualified on input grounds. We still choose **manual `container.Scroll`**, on two independent grounds A3 explicitly endorses:
 
-1. **Single content-space selection/match overlay.** `widget.List` owns and rebuilds `scroller.Content.Objects` every layout pass (list.go:758-763) and boxes each row in a `listItem` with its own background rect (list.go:512-543). A free-text selection that spans mid-row N→mid-row M as one continuous layer must be a **sibling of the rows in content space**; List won't allow that without fighting the layout. With `container.Scroll` we own a `contentBox` with three stacked layers.
+1. **Single content-space selection/match overlay.** `widget.List` owns and rebuilds `scroller.Content.Objects` every layout pass (list.go:758-763) and boxes each row in a `listItem` with its own background rect (list.go:512-543). A free-text selection that spans mid-row N→mid-row M as one continuous layer must be a **sibling of the rows in content space**; List won't allow that without fighting the layout. With `container.Scroll` we own a content container (`contentLayout`) with three stacked layers.
 2. **Horizontal scroll of long unwrapped lines.** `widget.List` is vertical-only. `container.Scroll` with `Direction = container.ScrollBoth` (= `fyne.ScrollBoth`, container/scroll.go:22) gives free horizontal scroll + bar.
 
 Cost accepted: we re-implement the fixed-height visible-window math (transcribed from list.go:413-435) and the recycle pool (a plain `sync.Pool`; List's `internal/async.Pool` is just a wrapper and is unimportable anyway, A3 constraint C). ~120 LOC we fully control.
@@ -480,14 +499,14 @@ Cost accepted: we re-implement the fixed-height visible-window math (transcribed
 PrettyView (BaseWidget; implements input interfaces in §6.1)
 └─ prettyViewRenderer (fyne.WidgetRenderer)
    └─ scroll *container.Scroll          // Direction = container.ScrollBoth
-      └─ content *contentBox            // MinSize = (maxLineRunes*charWidth+pad, totalRows*rowH)
+      └─ content *fyne.Container        // layout = contentLayout; MinSize = (maxLineRunes*charWidth+pad, totalRows*rowH)
          Objects() (low→high z):
          ├─ selLayer   *fyne.Container   // pooled selection rects (translucent, A=0x40)
          ├─ matchLayer *fyne.Container   // pooled search-match rects
          └─ rowLayer   *fyne.Container   // ~V pooled rowWidgets (the only document text objects)
 ```
 
-Z-order by slice position — earlier = drawn first = lower (entry.go:1813-1819: "selection rectangles to appear underneath the text"). `contentBox.MinSize()` returns the **full document extent** (pure arithmetic, never walks children — A1 case (d)), so the scrollbar geometry is correct, but `contentBox` holds only visible children.
+Z-order by slice position — earlier = drawn first = lower (entry.go:1813-1819: "selection rectangles to appear underneath the text"). The content is a plain `*fyne.Container` whose layout manager is `contentLayout`; `contentLayout.MinSize()` returns the **full document extent** (pure arithmetic, never walks children — A1 case (d)), so the scrollbar geometry is correct, while the layers hold only visible children.
 
 ### 5.3 ONE coordinate origin (resolves A2 Issues #2, #3, #9)
 
@@ -519,29 +538,30 @@ col      = round((contentX - indentX(depth)) / charWidth)   // half-glyph roundi
 ```go
 type rowWidget struct {
 	widget.BaseWidget
-	pv *PrettyView
-	// model snapshot for this row (set by Update):
-	depth    uint16
-	foldable bool
-	folded   bool
-	segs     []Segment // visible (culled) segments for this row
+	pv   *PrettyView
+	line int32 // display-line index this row shows (-1 = unused)
+	sub  int32 // wrapped sub-row of `line` (0 unless soft-wrapped)
+	// Under soft-wrap the renderer supplies the sub-row's column span; startCol < 0
+	// is the WrapNone sentinel (cull to the horizontal visible window instead).
+	startCol, endCol int32 // endCol exclusive
+	rr               *rowRenderer
 }
 
 type rowRenderer struct {
-	row          *rowWidget
-	indentGuides []*canvas.Line // pooled, ≤32, surplus Hidden
-	triangle     *canvas.Text   // "▶"/"▼"; Hidden when !foldable
-	texts        []*canvas.Text // pooled colored runs; surplus Hidden
-	objects      []fyne.CanvasObject
+	row      *rowWidget
+	guides   []*canvas.Line // pooled indent rules, ≤32, surplus Hidden
+	triangle *canvas.Text   // "▶"/"▼"; Hidden unless line is a fold head on sub-row 0
+	texts    []*canvas.Text // pooled colored runs; surplus Hidden
+	objects  []fyne.CanvasObject
 }
 ```
 
-**`rowRenderer.Update(vr VisibleRow)` (recycle hot path, no steady-state alloc):**
+**`rowRenderer.build()` (recycle hot path, no steady-state alloc):** there is no `VisibleRow` argument — `reflow` sets the row's `(line, sub, startCol, endCol)` fields, then triggers exactly one `build` via `Show` (new row) or `Refresh` (reused row).
 
-1. indent guides: ensure len==depth (cap 32), reuse, `Move`/`Resize`/`Show`, `Hide` surplus.
-2. triangle: if foldable set `"▶"`/`"▼"` and Show, else Hide.
-3. **Horizontal cull (MANDATORY, M-2):** compute `firstCol = floor(Offset.X/charWidth)`, `lastCol = ceil((Offset.X+viewportW)/charWidth)`. For each segment intersecting `[firstCol,lastCol]`, set `text.Text = seg.Text[clipStart:clipEnd]` (sub-range of runes), `text.Move(indentX + clipFirstCol*charWidth, 0)`, `text.Color = pv.palette[seg.Role]`. **Hard-cap** emitted text length at `2*viewportCols` runes regardless. This guarantees every texture ≤ viewport-width (texture.go:171-173 sizes the bitmap to `text.MinSize().Width`).
-4. trim surplus `texts`→`Hide()`; rebuild `objects` = visible guides + triangle + visible texts; `canvas.Refresh(r.row)` (scroller.go:477 idiom: "we have no Redraw()").
+1. indent guides: ensure `len==depth` (cap 32), reuse, `Move`/`Resize`/`Show`, `Hide` surplus.
+2. triangle: only on a fold head's first visual row (`line.Fold != NoNode && sub == 0`) — set `"▶"`/`"▼"` from the collapsed bit and Show, else Hide.
+3. **Horizontal cull (MANDATORY, M-2):** the column window is the sub-row's `[startCol,endCol)` under soft-wrap (drawn from the left edge, `colBase = startCol`), else `[FirstVisibleCol, LastVisibleCol]` of the horizontal viewport. Each `DisplaySeg` is walked **once, never past `lastCol`** (so a multi-MB single-segment line costs O(window), not O(line length)); the intersecting byte slice becomes one `canvas.Text` at `ColX(depth, a-colBase)`, colored `pv.palette[seg.Role]` and sized `width*CharWidth × RowH` **directly** (no `MeasureText` — the grid is uniform). A `2*windowCols` hard cap bounds emitted runes, so every texture ≤ viewport width.
+4. trim surplus `texts`→`Hide()`; rebuild `objects` = visible guides + triangle + visible texts; `canvas.Refresh(r.row)`.
 
 Pooling discipline (grow with `append` only when `len<=i`, trim by `Hide()`) mirrors selectable.go:382-385.
 
@@ -549,28 +569,41 @@ Pooling discipline (grow with `append` only when `len<=i`, trim by `Hide()`) mir
 
 ```go
 func (r *prettyViewRenderer) reflow() {
-	off, vpH := r.scroll.Offset, r.scroll.Size().Height
-	rowH := r.pv.rowH
-	total := int(r.pv.doc.fold.TotalVisibleRows())
+	pv := r.pv
+	if pv.doc == nil || pv.met.RowH <= 0 { return }
+	pv.viewOffX, pv.viewW = r.scroll.Offset.X, r.scroll.Size().Width
+	vpH, m := r.scroll.Size().Height, pv.met
 
-	first := max(0, int(math.Floor(float64(off.Y/rowH))))
-	last  := min(total-1, int(math.Ceil(float64((off.Y+vpH)/rowH))))
+	pv.syncWrap()                            // a resize crossing a column boundary reprojects here
+	total := int(pv.doc.TotalVisibleRows())  // O(1)
+	if total == 0 { /* clear rows + sel/match rects */ return }
+
+	first := max(0, int(math.Floor(float64(r.scroll.Offset.Y/m.RowH))))
+	last  := min(total-1, int(math.Ceil(float64((r.scroll.Offset.Y+vpH)/m.RowH))))
 
 	for idx, rw := range r.live { // recycle rows out of [first,last]
-		if idx < first || idx > last { rw.Hide(); r.rowPool.Put(rw); delete(r.live, idx) }
+		if idx < first || idx > last { rw.Hide(); rw.line = -1; r.rowPool.Put(rw); delete(r.live, idx) }
 	}
+	wrapOn := pv.doc.WrapActive()
 	for idx := first; idx <= last; idx++ {
-		rw := r.live[idx]
-		if rw == nil { rw = r.getRow(); r.live[idx] = rw }
-		rw.Move(fyne.NewPos(0, float32(idx)*rowH))          // CONTENT space, no offset
-		rw.Resize(fyne.NewSize(r.pv.contentWidth, rowH))
-		id, rowInNode := r.pv.doc.fold.nodeAtRow(int32(idx)) // O(log n)
-		rw.renderer().Update(r.pv.buildVisibleRow(id, rowInNode, off.X, vpH))
+		rw, existed := r.live[idx]
+		if !existed { rw = r.rowPool.Get().(*rowWidget); r.live[idx] = rw }
+		if wrapOn {
+			rw.line, rw.sub = pv.doc.LineAndSubRowAtRow(int32(idx)) // O(log n)
+			// WrapBreaks computed once per distinct line (cache), sliced by sub →
+			rw.startCol, rw.endCol = breaks[sub], breaks[sub+1]
+		} else {
+			rw.line, rw.sub = pv.doc.LineAtRow(int32(idx)), 0
+			rw.startCol, rw.endCol = -1, -1 // WrapNone sentinel: row culls horizontally
+		}
+		rw.Move(fyne.NewPos(0, float32(idx)*m.RowH))     // CONTENT space, no offset
+		if rw.Size() != size { rw.Resize(size) }
+		if existed { rw.Refresh() } else { rw.Show() }   // exactly ONE build per row
 	}
-	r.rowLayer.Objects = sortedLive(r.live)
-	r.rebuildSelection(first, last) // §6.4
-	r.rebuildMatches(first, last)   // §7.5
-	canvas.Refresh(r.content)
+	r.rowLayer.Objects = r.liveObjects()
+	canvas.Refresh(r.rowLayer)                // NOT rowLayer.Refresh (that rebuilds every child again)
+	r.rebuildSelection(first, last)           // §6.7
+	r.rebuildMatches(first, last)             // §7.5
 }
 ```
 
@@ -610,46 +643,34 @@ double/triple-click is timed in `MouseDown`, and keyboard navigation rides on
 ### 6.2 State (4 ints + flags, mirroring selectable.go:16-24)
 
 ```go
-type Pos struct {
-	node NodeID // STABLE logical-line id (survives fold/unfold)
-	row  int    // resolved current visible row (cache; re-resolved on fold change)
-	col  int    // rune column in the line's DISPLAY text, [0, runeLen]
+type modelPos struct {
+	line int32 // STABLE display-line index (survives fold/unfold)
+	col  int   // rune column into the line's DISPLAY text, [0, runeLen]
 }
 
-type Selection struct {
-	anchor, focus Pos
-	active        bool // anchor != focus
+type selection struct {
+	anchor, focus modelPos
+	active        bool     // there is a non-empty selection
 	dragging      bool
-	grabMode      grabMode // grabNone | grabWord | grabLine
-	grabStart, grabEnd Pos
+	placed        bool     // a caret/anchor has been established by user interaction
+	grab          grabMode // grabNone | grabWord | grabLine
+	grabA, grabB  modelPos // the word/line originally grabbed (double/triple-drag)
 }
 ```
 
-Endpoints persist as `node` (stable). After any fold change, `onFoldChanged` re-resolves `row` via the O(log n) Fenwick prefix query (`doc.fold.rowOfNode`) — **no `lineID→row` map** (A2 Issue #7). If an endpoint's node is now hidden, snap it to the nearest visible ancestor's summary row and **clamp `col` to that row's runeLen**.
+Endpoints persist as a stable `line` index, so they survive folding with **no stored row** and **no `line→row` map** (A2 Issue #7): the row is recovered on demand by the O(log n) Fenwick prefix query (`rowOfLine`, via `snap`/`ordered`). If an endpoint's line is now hidden it is snapped to the nearest visible ancestor, and `col` is **clamped to that line's runeLen**, at render/copy time.
 
 ### 6.3 Hit-test (O(1) monospace, no MeasureText in handlers)
 
 ```go
-func (pv *PrettyView) hitTest(local fyne.Position) Pos {
-	contentY := local.Y + pv.scroll.Offset.Y
-	contentX := local.X + pv.scroll.Offset.X // ADD Offset.X — A2 Issue #3
-	total := int(pv.doc.fold.TotalVisibleRows())
-	row := int(math.Floor(float64(contentY / pv.rowH)))
-	if row < 0 { row = 0 }
-	if row >= total { // clamp to EOD: last row, end column (selectable.go:207-209)
-		row = total - 1
-		id, _ := pv.doc.fold.nodeAtRow(int32(row))
-		ln := pv.lineRunes(id, 0)
-		return Pos{node: id, row: row, col: len(ln)}
-	}
-	id, rin := pv.doc.fold.nodeAtRow(int32(row))
-	ln := pv.lineRunes(id, rin)
-	indentX := pv.innerPad + float32(pv.depthOf(id))*pv.indentStep
-	rel := contentX - indentX
-	col := 0
-	if rel > 0 { col = int(math.Round(float64(rel / pv.charWidth))) } // ≡ selectable.go:190 half-glyph
-	if col > len(ln) { col = len(ln) }
-	return Pos{node: id, row: row, col: col}
+// The widget delegates all pixel<->model mapping to the geometry leaf, which owns
+// the single coordinate convention (§5.3): resolve the row from contentY, the
+// (line, sub-row) under soft-wrap, then the rune column from contentX on the
+// uniform monospace grid — clamping to the line's runeLen and to end-of-document.
+// Handlers pass already-content-space coords (Offset.X/Y added by contentPos).
+func (pv *PrettyView) hitTest(contentX, contentY float32) modelPos {
+	line, col := geometry.HitTest(pv.doc, pv.met, contentX, contentY)
+	return modelPos{line: line, col: col}
 }
 ```
 
@@ -660,9 +681,10 @@ func (pv *PrettyView) hitTest(local fyne.Position) Pos {
 - **MouseDown** sets the anchor authoritatively at the true press position (`hitTest(m.Position)`); detects triple-tap first via `isTripleTap(doubleTappedAtMs, now)` vs `DoubleTapDelay()` (300 ms, selectable.go:413-415); shift extends `focus` keeping `anchor`. Secondary button never starts drag/clears selection.
 - **Dragged** — **anchor is NEVER recomputed here** (resolves A2 Issue #1: the first `DragEvent.Dragged` delta is relative to the previous mouse-move sample, not the press point, because `mouseDragPos` updates every move at window.go:417 — so `d.Position.Subtract(d.Dragged)` mis-anchors by up to one sample). We delete that idiom from `selectable.go:84` deliberately. `Dragged` only moves `focus = hitTest(d.Position)`, applies word/line grab extension, then autoscrolls (§6.6).
 - **DragEnd** drops empty selections (selectable.go:63-73 analog).
-- **DoubleTapped** word-select (token-aware, §6.5); arms triple-tap timestamp.
-- **Cursor/Focus/Shift**: `TextCursor` over text, `PointerCursor` over triangles (Hoverable-driven on MouseMoved); selection drawn only when focused (selectable.go:312-316); shift tracked via `KeyDown`/`KeyUp` watching `desktop.KeyShiftLeft/Right` (entry.go:346-372).
-- **Shortcuts**: embedded `fyne.ShortcutHandler`; `AddShortcut(&fyne.ShortcutCopy{}, copySelection)`, `AddShortcut(&fyne.ShortcutSelectAll{}, selectAll)`, `AddShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyF, Modifier: fyne.KeyModifierShortcutDefault}, focusSearch)`.
+- **Double/triple-click** is detected inside `MouseDown` by timing successive presses (a `clickCount` within `multiClickWindow` ≈ 300 ms), **not** via a `DoubleTappable` handler: 2 = word-select (token-aware, §6.5), 3 = whole-line. A word/line grab is remembered (`grabA`/`grabB`) so a subsequent drag extends by word/line.
+- **Right-click** (`TappedSecondary`) opens the context menu (Copy / Select all) and never disturbs the selection.
+- **Cursor/Focus/Shift**: `TextCursor` over text, `PointerCursor` over triangles (Hoverable-driven on `MouseMoved`); selection drawn only when focused; shift-extend reads the **press event's modifier** (`ev.Modifier & fyne.KeyModifierShift`) in `MouseDown`, not a separate key handler (the widget implements no `desktop.Keyable`).
+- **Shortcuts**: handled directly by the widget's `TypedShortcut` (`fyne.Shortcutable`) — `*fyne.ShortcutCopy`→`CopySelection`, `*fyne.ShortcutSelectAll`→`SelectAll`, and a `*desktop.CustomShortcut` for `Ctrl/Cmd+F`→`onSearchRequested`. The `Ctrl/Cmd+F` accelerator is also registered on the window canvas by `registerFindShortcut` (controls.go).
 
 ### 6.5 Word/line bounds (token-aware)
 
@@ -676,27 +698,28 @@ Edge autoscroll is a cursor-driven nudge (`ScrollToOffset(Offset.Add(move))`) co
 
 ```go
 func (r *prettyViewRenderer) rebuildSelection(first, last int) {
-	a, b, active := r.pv.sel.normalized() // swap so a precedes b (selectable.go:247-250)
-	if !active { hideAll(r.selRects); r.selLayer.Objects = nil; return }
+	a, b, ok := r.pv.ordered() // snapped endpoints in document order; ok == non-empty
+	if !ok { r.applyRects(r.selLayer, &r.selRects, &r.selObjs, 0); return }
+	m, wrapOn := r.pv.met, r.pv.doc.WrapActive()
 	n := 0
-	for row := max(a.row, first); row <= min(b.row, last); row++ {
-		id, rin := r.pv.doc.fold.nodeAtRow(int32(row))
-		ln := r.pv.lineRunes(id, rin)
-		s, e := 0, len(ln)
-		if row == a.row { s = a.col }
-		if row == b.row { e = b.col }
-		if row < b.row { e = max(e, r.pv.visibleCols()) } // middle rows bleed to right edge (Bruno)
-		if e <= s { continue }
-		indentX := r.pv.innerPad + float32(r.pv.depthOf(id))*r.pv.indentStep
-		x1, x2 := indentX+float32(s)*r.pv.charWidth, indentX+float32(e)*r.pv.charWidth
-		rect := poolRect(&r.selRects, n, r.pv.selColor) // grow append-only, reuse (selectable.go:382-385)
-		rect.Resize(fyne.NewSize(x2-x1+1, r.pv.rowH))   // +1 (selectable.go:402)
-		rect.Move(fyne.NewPos(x1-1, float32(row)*r.pv.rowH)) // -1; CONTENT space, NO offset (scroller.go:454)
-		if r.pv.focused { rect.Show() } else { rect.Hide() }
-		n++
+	for row := first; row <= last; row++ {
+		// Map this VISUAL ROW to its logical line (and sub-row under wrap). The
+		// selection is (line, col) with no row field, so we go row -> line, never the
+		// reverse; lines outside [a.line, b.line] are skipped.
+		li := int32(row); var sub int32
+		if wrapOn { li, sub = r.pv.doc.LineAndSubRowAtRow(int32(row)) } else { li = r.pv.doc.LineAtRow(int32(row)) }
+		if li < a.line || li > b.line { continue }
+		depth, runeLen := r.pv.doc.Lines[li].Depth, r.pv.doc.LineRuneLen(li)
+		selS, selE := 0, runeLen
+		if li == a.line { selS = clampInt(a.col, 0, runeLen) }
+		if li == b.line { selE = clampInt(b.col, 0, runeLen) }
+		// Intersect with this visual row's displayed-column window [w0,w1) (the whole
+		// line at base 0 under WrapNone). A selected line break "bleeds" trailing width.
+		w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &breaks, &breaksLine)
+		lo, hi := max(selS, w0), min(selE, w1)
+		n = r.placeSpanRect(&r.selRects, n, m, depth, lo, max(hi, lo), colBase, row, r.pv.selColor, bleed)
 	}
-	for ; n < len(r.selRects); n++ { r.selRects[n].Hide() } // trim by Hide, never destroy
-	r.selLayer.Objects = r.selRects[:countVisible(r.selRects)]
+	r.applyRects(r.selLayer, &r.selRects, &r.selObjs, n) // hide surplus, publish first n (≤ V, M-1)
 }
 ```
 
@@ -722,16 +745,20 @@ type SearchQuery struct {
 	CaseSensitive bool
 }
 
-// Match is in MODEL coordinates: stable NodeID + rune columns into the line's display text.
-type Match struct { Node NodeID; ColStart, ColEnd int }
+// Match is in MODEL coordinates: a stable display-line index + rune columns into
+// the line's expanded display text. Keying by LINE (not visible row) makes matches
+// survive fold/unfold; the visible row is an O(log n) Fenwick lookup at draw time.
+type Match struct { Line int32; ColStart, ColEnd int }
 
-type SearchResult struct {
-	Query    SearchQuery
-	Matches  []Match // ordered by (doc-order of Node, then ColStart)
-	Active   int     // -1 if none
-	Capped   bool
-	Complete bool
-	Err      error
+// Search state is INTERNAL — there is no exported SearchResult. byLine indexes the
+// matches falling on each line for O(1) per-row highlight intersection.
+type searchState struct {
+	query   SearchQuery
+	matches []Match         // ordered by (line, then ColStart)
+	byLine  map[int32][]int // line -> indices into matches
+	active  int             // -1 if none
+	capped  bool
+	err     error
 }
 
 type SearchConfig struct {
@@ -741,7 +768,7 @@ type SearchConfig struct {
 }
 ```
 
-Keying by **`NodeID`** (not visible-row) makes matches survive fold/unfold; `match→visibleRow` is the O(log n) Fenwick lookup, recomputed per projection change. This is the single most important search decision.
+Keying by **line index** (not visible row) makes matches survive fold/unfold; `match→visibleRow` is the O(log n) Fenwick lookup, recomputed per projection change. This is the single most important search decision.
 
 ### 7.2 Scan (RE2, single-pass byte→rune — resolves A2 Issue #5)
 
@@ -755,46 +782,37 @@ The originally-designed **off-thread chunked scan** (a worker producing `ChunkBy
 
 ### 7.4 Navigation & reveal (resolves A2 Issue #6)
 
-`Next`/`Prev` are index arithmetic with wrap (`(a+dir+n)%n`); while `!Complete`, **do not wrap past the last known match** — clamp and show "searching…". Count label `"3/27"` (or `"3/10000+"` when capped).
+`Next`/`Prev` are index arithmetic with **unconditional** wrap (`((active+dir)%n+n)%n`, in `step`). The scan is synchronous and complete before navigation, so there is no `Complete`/"searching…" partial state. Count label `"3/27"` (or `"3/10000+"` when capped).
 
-**`revealActive`:** (1) `RevealLine(line)` — unfold each collapsed ancestor (outermost-first, `unfoldAncestors`); (2) `row := rowOfLine(line)`; (3) center: `y := clamp(row*rowH - (vpH-rowH)/2, 0, maxOffsetY)`; (4) `scroll.ScrollToOffset(NewPos(matchX, y))` then `reflow()` (ScrollToOffset doesn't fire OnScrolled, scroller.go:572). **Order is load-bearing: expand → recompute total → resolve row → scroll.** **Stay on the fixed-height fast path** (never `SetItemHeight`-equivalent) so offset math is O(1). **Auto-reveal only on explicit user intent** (typed query / pressed Enter), gated by a `userHasInteracted` flag — never yank the viewport on a later streamed chunk's arrival (A2 Issue #6 trigger 2). Holding Next/Prev: step the index every keystroke but **debounce the scroll+reflow** to the trailing ~16 ms.
+**`revealActive`:** (1) `RevealLine(line)` — unfold each collapsed ancestor (outermost-first, `unfoldAncestors`); (2) `row := rowOfLine(line)`; (3) center: `y := clamp(row*rowH - (vpH-rowH)/2, 0, maxOffsetY)`; (4) `scroll.ScrollToOffset(NewPos(matchX, y))` then `reflow()` (ScrollToOffset doesn't fire OnScrolled, scroller.go:572). **Order is load-bearing: expand → recompute total → resolve row → scroll.** **Stay on the fixed-height fast path** (never `SetItemHeight`-equivalent) so offset math is O(1). Because the scan is synchronous (no streamed chunks), there is no `userHasInteracted` gate and no separate scroll debounce: `revealActive` runs right after each `Search`/`SearchNext`/`SearchPrev`. Keystroke coalescing happens upstream, at the debounced scan (`searchDebounced`, §7.3).
 
 ### 7.5 Highlight (reuses §6.7 mechanism, separate pools)
 
-Per visible row, intersect `Matches` with the row's `NodeID` (a `map[NodeID][]int` built once per published result for O(1) lookup; switch to binary search only if the 10k cap profiles hot). Z-order low→high: `selection → other-match → active-match → text`. Active match: `th.Color(ColorNameMatchHighlight, v)` at higher alpha; others lower; both translucent. Same pooled-rect, visible-window-only discipline as §6.7 (≤ V rects, M-1).
+Per visible row, resolve the row's line and intersect that line's matches via `search.byLine[line]` (a `map[int32][]int` built once per scan for O(1) lookup). Z-order low→high: `selection → other-match → active-match → text`. The active match fills with `pv.activeMatchColor` (from `Theme.ActiveMatch`, strong orange), others with `pv.matchColor` (`Theme.Match`, soft yellow) — both translucent, applied directly in `placeSpanRect`. Same pooled-rect, visible-window-only discipline as §6.7 (≤ V rects, M-1).
 
 ---
 
 ## 8. Theming / colors
 
-Syntax roles are extra `fyne.ThemeColorName` strings (they coexist with builtins). A **wrapping theme** forwards everything to `theme.DefaultTheme()` except our names. The interface form `widget.Theme().Color(name, variant)` is used (theme.go:29; the package func `theme.Color(name)` is single-arg, A3 §D2 — both real).
+Colors live in a plain `Theme` struct (theme.go), **not** as custom `fyne.ThemeColorName` registrations (the originally-designed `prettyview.*` color names and "wrapping theme" were not shipped). `Theme` carries the nine syntax-token colors plus the structural/UI colors; `SyntaxColors` is the token-only subset.
 
 ```go
-const (
-	ColorNameSynKey   fyne.ThemeColorName = "prettyview.key"
-	ColorNameSynString = "prettyview.string"
-	ColorNameSynNumber = "prettyview.number"
-	ColorNameSynBool   = "prettyview.bool"
-	ColorNameSynNull   = "prettyview.null"
-	ColorNameSynPunct  = "prettyview.punct"
-	ColorNameSynTag    = "prettyview.tag"
-	ColorNameSynAttr   = "prettyview.attr"
-	ColorNameSynComment = "prettyview.comment"
-	ColorNameMatchHighlight = "prettyview.match"
-	// Selection reuses builtin theme.ColorNameSelection; Plain falls back to ColorNameForeground.
-)
+type Theme struct {
+	Key, String, Number, Bool, Null, Punct, Tag, Attr, Comment color.Color // syntax tokens
+	Foreground, Summary, IndentGuide, Selection, Match, ActiveMatch color.Color // structural / UI
+}
 ```
 
-Tokens store a 1-byte `ColorRole`; a `palette []color.Color` is rebuilt **once per `Refresh()`** from `th.Color(name, v)` with `v := fyne.CurrentApp().Settings().ThemeVariant()` (settings.go:23). Dark defaults (Bruno-ish): key `#9CDCFE`, string `#CE9178`, number `#B5CEA8`, bool/null `#569CD6`, tag `#569CD6`, attr `#9CDCFE`, comment `#6A9955`, punct = `ColorNameForeground`; light variant derives darker equivalents. Monospace font is the bundled `DejaVuSansMono-Powerline.ttf` via `fyne.TextStyle{Monospace:true}` (theme/bundled-fonts.go:41-47) — zero setup. Dark/light toggle recolors on the next `Refresh` (selectable.go:305 re-reads `v` each pass).
+Each segment stores a 1-byte `model.ColorRole`. `recomputeMetrics` (renderer.go) resolves the effective theme for the active variant — `defaultTheme(variant)` with any per-variant `WithTheme`/`SetTheme` override merged in — then builds `pv.palette = theme.palette()`, a `[]color.Color` indexed by `ColorRole`, **once per metrics rebuild** (i.e. once per `Refresh` when the text size or variant changed). The structural defaults are pulled from the host Fyne theme via `themeColor(name, variant)` using **builtin** names (`ColorNameForeground` for plain/punct fallback, `ColorNameDisabled` for the summary, `ColorNameSelection` for the selection fill), so an un-themed viewer tracks the app. The syntax tokens default to a Bruno-ish, VS Code Dark+/Light palette (dark: key `#9CDCFE`, string `#CE9178`, number `#B5CEA8`, bool/null/tag `#569CD6`, attr `#9CDCFE`, comment `#6A9955`, punct `#D4D4D4`; the light variant uses darker equivalents). `Match` (soft yellow) and `ActiveMatch` (strong orange) are literals. The monospace style is `fyne.TextStyle{Monospace:true}`; the variant is read via `app.Settings().ThemeVariant()`, so a dark/light toggle recolors on the next `Refresh`.
 
 ---
 
 ## 9. Threading & large-file handling
 
-- **Parse off-thread, swap on-thread.** `SetData` launches `go parse(...)`; on completion `fyne.Do(func(){ pv.swapModel(m); pv.recomputeContentSize(); pv.Refresh() })` (thread.go:18; R4 §4). The worker never touches widgets, `Offset`, pooled rows, or `Refresh`.
+- **Parse synchronously on the Fyne goroutine.** `SetData` calls `parse.Parse(src, …)` directly (prettyview.go), then `ClearSearch`/`ClearSelection`/`Refresh` — no worker, no model swap. The compact model (~5× source) builds fast enough that a multi-MB document parses within a frame or two. `PrettyView` is **not** safe for concurrent use, so a caller loading data from another goroutine marshals the whole `SetData` with `fyne.Do`. `src` is retained zero-copy.
 - **Search** as §7.3 (synchronous on the Fyne goroutine, debounced, `searchGen` last-query-wins).
-- **Autoscroll ticker** as §6.6 (pure clock; all UI work inside `fyne.Do`).
-- **Invariant:** post-parse arenas (`Src`, `Nodes`, `Segs`, `Aux`, precomputed `LineText`) are read-only; only `foldIndex` and selection/search state mutate, always on the Fyne goroutine. Workers read only the immutable arenas.
+- **Drag autoscroll** as §6.6 — a cursor-driven nudge inside the `Dragged` handler on the Fyne goroutine, **not** a ticker, so there is no off-thread clock and no data race.
+- **Invariant:** post-parse arenas (`Src`, `Nodes`, `Lines`, `Segs`, `Aux`, the `lineRunes` extent cache) are read-only; only `foldIndex` (visibility + wrap weights) and selection/search state mutate, always on the Fyne goroutine.
 
 ---
 
@@ -813,20 +831,22 @@ Tokens store a 1-byte `ColorRole`; a `palette []color.Color` is rebuilt **once p
 | R-9 | **Tabs → clipboard ≠ source** — A2 Issue #4 | Med | **Resolved (no colMap):** raw lines expand tabs to interned space pads; copy rewrites each pad back to a real `\t` via `AppendDisplayLine(restoreTabs)`. §4.3. Test: `TestSelectedTextRawTabsRoundTrip`. |
 | R-10 | **O(K·L) byte→rune in search** — A2 Issue #5 | High (freeze) | **Resolved:** single forward pass per line (`colCursor`, §7.2); ~5 ms full scan of the 7.5 MB fixture, so the synchronous scan needs no chunking (§7.3). |
 | R-11 | **Reveal frame-drops + mid-scan viewport yank** — A2 Issue #6 | High | Fixed-height fast path; batched ancestor expand; debounced reveal scroll; auto-reveal only on user intent. §7.4. |
-| R-12 | **`lineID→row` map → O(n) rebuild per fold; "O(log n) fold" overclaim** — A2 Issue #7, D1 open risk | High | `NodeID` *is* the line id; `rowOfNode` is O(log n) Fenwick prefix (no map). Fold honestly O(k visible descendants) with O(log n) row delta; `hiddenBy` array keeps lookups O(log n). §4.4/§6.2. |
+| R-12 | **`lineID→row` map → O(n) rebuild per fold; "O(log n) fold" overclaim** — A2 Issue #7, D1 open risk | High | the stable `line` index *is* the id; `rowOfLine` is an O(log n) Fenwick prefix (no map). Fold honestly O(k visible descendants) with O(log n) row delta; `hiddenBy` array keeps lookups O(log n). §4.4/§6.2. |
 | R-13 | **Autoscroll ticker data race** (reads UI fields off-thread) — A2 Issue #8 | n/a | **No ticker shipped.** Drag-edge autoscroll runs inside `Dragged` (pointer-motion only), entirely on the Fyne goroutine, so there is no off-thread race to begin with. Held-stationary edge autoscroll (which a ticker would add) is a known limitation on the backlog, not shipped. §6.6. |
 | R-14 | **Selection rects drift 2×** (subtracting Offset on a scrolled-content child; scroller.go:454 already translates both axes) — A2 Issue #9 | Blocker (visible) | Rects in raw content space, **no** offset subtraction either axis. §5.3/§6.7. Round-trip test. |
 | R-15 | Fractional `charWidth` drift on long lines — A2 minor | Low | Keep `charWidth` at the font's **exact** advance so the grid matches the rendered text (rounding it is what *causes* the drift — a long run overruns its column and overlaps the next segment). `rowH` is still rounded. §5.3. |
 | R-16 | Next-wrap during incomplete scan jumps backward — A2 minor | Low | While `!Complete`, clamp at last known match, show "searching…". §7.4. |
 | R-17 | Double-click on summary row indexes nil run slice — A2 minor | Low | Guard: `if line.runs==nil` use whitespace heuristic. §6.5. |
 | R-18 | **`internal/...` packages unimportable** (`go vet`) — A3 constraint C | Blocker (build) | Use `sync.Pool`, `container.Scroll`, `fyne.MeasureText` — never any `fyne.io/fyne/v2/internal/...`. §2, §5.1. |
-| R-19 | Deep fully-expanded tree min-size cost — A1 case (d) | Low | `contentBox.MinSize()` is pure arithmetic, never walks children; indent guides capped at 32. §5.2/§5.4. |
+| R-19 | Deep fully-expanded tree min-size cost — A1 case (d) | Low | `contentLayout.MinSize()` is pure arithmetic, never walks children; indent guides capped at 32. §5.2/§5.4. |
 
 ---
 
 ## 11. Build plan (ordered, milestone-based, each independently testable)
 
 Each milestone ends with green tests and (from M7) a runnable demo. `go test ./...` and `go vet ./...` (the latter enforces R-18) must pass at every milestone.
+
+> **Historical.** This is the original ordered plan; the file and helper names below reflect the *intended* milestones, not the shipped layout (see §2 for the actual package tree — e.g. the planned `contentbox.go`/`pool.go` were folded into `renderer.go`/`row.go`, and the model/parse/geometry code lives under `internal/`).
 
 **M0 — Repo skeleton.**
 `go.mod` (`module github.com/ideaconnect/go-fyne-pretty-view`, `go 1.26`, `require fyne.io/fyne/v2 v2.7.4`, `golang.org/x/net`). Empty `prettyview.go` with `PrettyView` embedding `widget.BaseWidget` + a stub `CreateRenderer` returning `widget.NewSimpleRenderer(canvas.NewRectangle(...))` (widget.go:203). Add testdata fixtures incl. `tabs.json`. *Test:* `go build ./...`, `go vet ./...` clean.
