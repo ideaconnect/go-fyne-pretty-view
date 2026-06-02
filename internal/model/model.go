@@ -241,5 +241,6 @@ func EmptyDocument() *Document {
 		Nodes: []Node{{Parent: NoNode, Subtree: 1, Kind: KindRoot, HeadLine: -1, CloseLine: -1}},
 	}
 	d.fold = newFoldIndex(d)
+	d.fold.buildFenwick()
 	return d
 }

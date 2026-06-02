@@ -111,6 +111,32 @@ func TestHTMLEmptyElementInline(t *testing.T) {
 	}
 }
 
+// TestDefaultCollapseProjection guards the single-Fenwick-build construction path
+// (P11): a parse with a default-collapse depth must still yield a correct, consistent
+// projection — some lines hidden, lineAtRow/rowOfLine round-trips, and ExpandAll
+// restores the full row count.
+func TestDefaultCollapseProjection(t *testing.T) {
+	src := `{"a":{"b":{"c":1}},"d":[1,2,3]}`
+	full := Parse([]byte(src), FormatJSON, 0)
+	collapsed := Parse([]byte(src), FormatJSON, 1) // collapse below depth 1
+
+	if collapsed.TotalVisibleRows() >= full.TotalVisibleRows() {
+		t.Fatalf("collapseDepth=1 hid no rows: collapsed=%d full=%d",
+			collapsed.TotalVisibleRows(), full.TotalVisibleRows())
+	}
+	for row := int32(0); row < collapsed.TotalVisibleRows(); row++ {
+		li := collapsed.LineAtRow(row)
+		if got := collapsed.RowOfLine(li); got != row {
+			t.Errorf("projection round-trip: row %d -> line %d -> row %d", row, li, got)
+		}
+	}
+	collapsed.ExpandAll()
+	if collapsed.TotalVisibleRows() != full.TotalVisibleRows() {
+		t.Errorf("ExpandAll after default-collapse = %d rows, want %d",
+			collapsed.TotalVisibleRows(), full.TotalVisibleRows())
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {

@@ -256,7 +256,9 @@ func (b *Builder) Finish() *Document {
 	b.buildCollapsedRenderings()
 	b.computeExtent()
 	b.doc.fold = newFoldIndex(b.doc)
-	b.doc.fold.applyDefaults(b.doc)
+	if !b.doc.fold.applyDefaults(b.doc) {
+		b.doc.fold.buildFenwick() // no default-collapse: build the all-visible Fenwick once
+	}
 	return b.doc
 }
 

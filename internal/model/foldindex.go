@@ -85,6 +85,11 @@ type foldIndex struct {
 	bit       fenwick  // over vis
 }
 
+// newFoldIndex constructs the all-visible projection ARRAYS for d (every line
+// visible, no collapsed ancestors). It deliberately does NOT build the Fenwick — the
+// caller builds it exactly once: a default-collapse parse builds it via applyDefaults'
+// rebuild, every other caller calls buildFenwick directly. Building here as well would
+// rebuild the Fenwick twice whenever collapseDepth > 0.
 func newFoldIndex(d *Document) *foldIndex {
 	n := len(d.Lines)
 	fi := &foldIndex{
@@ -96,7 +101,6 @@ func newFoldIndex(d *Document) *foldIndex {
 		fi.hiddenBy[i] = NoNode
 		fi.vis[i] = 1
 	}
-	fi.buildFenwick()
 	return fi
 }
 
@@ -233,8 +237,11 @@ func (fi *foldIndex) toggle(d *Document, node NodeID) {
 	}
 }
 
-// applyDefaults collapses nodes flagged default-collapsed and rebuilds once.
-func (fi *foldIndex) applyDefaults(d *Document) {
+// applyDefaults collapses nodes flagged default-collapsed and, if any were, rebuilds
+// the projection once (rebuild also builds the Fenwick). It returns whether it
+// rebuilt, so the caller can build the all-visible Fenwick itself when there were no
+// defaults — keeping construction to a single Fenwick build either way.
+func (fi *foldIndex) applyDefaults(d *Document) bool {
 	any := false
 	for id := range d.Nodes {
 		if d.Nodes[id].Flags&flagDefaultCollapsed != 0 {
@@ -245,6 +252,7 @@ func (fi *foldIndex) applyDefaults(d *Document) {
 	if any {
 		fi.rebuild(d)
 	}
+	return any
 }
 
 // foldable reports whether node id is a collapsible container.
