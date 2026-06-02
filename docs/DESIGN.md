@@ -22,9 +22,9 @@ All Fyne citations below are verified against `/home/bartosz/go/pkg/mod/fyne.io/
 
 > **INVARIANT M-2 (per-object GPU/heap bytes).** No single `canvas.Text` may be wider than the viewport. Each text run is horizontally **culled to the visible column window** before its `.Text` is set, so its rasterized texture is `≤ viewportWidth × rowHeight × 4` bytes. This is **mandatory**, not an optimization (see Risk R-1).
 
-> **INVARIANT M-3 (model size).** The parsed document is a struct-of-arrays of flat arenas: one shared `[]byte` source (zero-copy segments), one `[]Node` (32 B/node, no pointers), one `[]Segment` (12 B), plus the fold index. Target ≈ 5× source bytes. A 151 KB JSON ⇒ ≈ 770 KB model (§4.7). No per-node heap allocation; no per-token `color.Color`; no per-line `[]rune` stored for the whole document.
+> **INVARIANT M-3 (model size).** The parsed document is a struct-of-arrays of flat arenas: one shared `[]byte` source (zero-copy segments), one `[]Node` (32 B/node, no pointers), one `[]Line` (24 B), one `[]Segment` (12 B), plus the fold index. Target ≈ 5× source bytes. The 467 KiB `openapi.json` ⇒ ≈ 2.3 MB model (≈4.85×, the measured ratio guarded by `TestModelSizeRatio`). No per-node heap allocation; no per-token `color.Color`; no per-line `[]rune` stored for the whole document.
 
-> **INVARIANT M-4 (selection/search/copy are model-based).** Selection state is four integers; matches are `(NodeID, colStart, colEnd)` triples; copy slices the source byte arena. **No `CanvasObject` is ever read to produce clipboard text, and nothing per-character/per-token/per-off-screen-row is ever a widget.** This mirrors Fyne's own `widget/selectable.go` (state = 4 ints + flag, selectable.go:16-24; `SelectedText` slices `[]rune(provider.String())[start:stop]`, selectable.go:120-131).
+> **INVARIANT M-4 (selection/search/copy are model-based).** Selection state is four integers; matches are `(line, colStart, colEnd)` triples (line-keyed so they survive folding); copy reconstructs text from the displayed segments of the model. **No `CanvasObject` is ever read to produce clipboard text, and nothing per-character/per-token/per-off-screen-row is ever a widget.** This mirrors Fyne's own `widget/selectable.go` (state = 4 ints + flag, selectable.go:16-24; `SelectedText` slices `[]rune(provider.String())[start:stop]`, selectable.go:120-131).
 
 ### 1.2 Why these are reachable (and where naïve designs break)
 
@@ -68,7 +68,7 @@ github.com/ideaconnect/go-fyne-pretty-view/
 ├── theme.go                     // syntax ColorRole -> theme color names; wrapping theme; palette build
 ├── options.go                   // Option funcs (functional options): WithFormat, WithWrap, WithSearchConfig, ...
 │
-├── testdata/                    // small.json, openapi.json (~478KB), catalog.xml, page.html, big.json (~7.5MB), tabs.json
+├── testdata/                    // small.json, openapi.json (~478KB), catalog.xml, page.html, big.json (~7.5MB)
 │
 ├── internal_math_test.go        // geometry round-trip, hit-test off-by-one, charWidth integer
 ├── foldindex_test.go            // projection complexity + correctness
@@ -261,70 +261,95 @@ type Segment struct {
 	Buf   uint8  // 0 = Document.Src, 1 = Document.Aux
 }
 
-// Node is the SoA record. 32 bytes, no pointers. (verified field accounting: 28→pad 32)
+// Node is the SoA structural record. 32 bytes, no pointers. A subtree is the
+// contiguous id range [id, id+Subtree).
 type Node struct {
-	Parent     NodeID // -1 for root
-	FirstChild NodeID // -1 if leaf; children are a contiguous run in Nodes[]
-	ChildCount int32
-	SegFirst   uint32 // index into Document.Segs of this node's first display segment (row 0)
-	SegCount   uint16 // segment count for the node's own (first) display line
-	ExtraRows  uint16 // hard-newline continuation rows beyond row 0
+	Parent     NodeID // -1 for the root
+	Subtree    int32  // nodes in this subtree incl. self (>= 1)
+	ChildCount int32  // direct children
+	HeadLine   int32  // index into Lines of this node's own/opening line
+	CloseLine  int32  // index into Lines of its closing line (== HeadLine for a leaf)
+	SrcStart   uint32 // byte span into Src covering the whole node (copy-subtree)
+	SrcEnd     uint32
 	Kind       Kind
-	Depth      uint8 // indentation level (clamped 0..255)
-	Flags      uint8 // bit0 Foldable, bit1 DefaultCollapsed, bit2 HasSummary
-	SummarySeg uint32 // index into Segs of cached "{ N items }" segment; valid if HasSummary
+	Depth      uint8
+	Flags      uint8 // bit0 DefaultCollapsed
+	_          uint8 // padding
 }
 
-const (
-	flagFoldable uint8 = 1 << iota
-	flagDefaultCollapsed
-	flagHasSummary
-)
-
-func (n *Node) Foldable() bool  { return n.Flags&flagFoldable != 0 }
-func (n *Node) HasSummary() bool { return n.Flags&flagHasSummary != 0 }
+// Line is the SoA display record — the unit the projection and renderer work in.
+// 24 bytes. Foldability and the collapsed ("{ N items }") rendering live per LINE
+// (Fold + CollFirst/CollCount), which is why the projection (§4.4) is line-granular.
+type Line struct {
+	Owner     NodeID // structural node this line belongs to
+	Fold      NodeID // node whose fold triangle sits on this line, or NoNode
+	SegFirst  uint32 // first segment of the expanded rendering
+	CollFirst uint32 // first segment of the collapsed (folded-head) rendering
+	SegCount  uint16
+	CollCount uint16
+	Depth     uint8
+	_         [3]uint8
+}
 
 type Document struct {
-	Src   []byte    // original bytes, retained once for zero-copy segments
-	Aux   []byte    // synthesized text: summaries, decoded entities, tab-expansion spaces
-	Nodes []Node    // SoA arena; Nodes[0] == synthetic root
-	Segs  []Segment // segment arena
+	Src    []byte    // original bytes, retained once for zero-copy segments
+	Aux    []byte    // synthesized text: summaries, punctuation, tab-expansion spaces
+	Nodes  []Node    // structural arena; Nodes[0] == synthetic root
+	Lines  []Line    // display arena (the projection/render unit)
+	Segs   []Segment // segment arena
 	Format Format
 
-	colMap  []colSpan  // per-node display-col -> source-byte map (only for tab/entity lines; see 4.6)
-	fold    *foldIndex // visible-row projection (§4.4)
-	palette []color.Color // ColorRole -> color.Color, rebuilt per Refresh
+	lineRunes []int32    // per-line expanded rune-count cache (extent)
+	fold      *foldIndex // visible-row projection over Lines (§4.4)
 }
 ```
 
+> **Shipped model is line-granularity.** A separate `Lines` arena is the
+> projection/render unit, and the fold index (§4.4) maps visible rows to **lines**
+> via `lineAtRow`/`rowOfLine`. The original design vocabulary in the rest of this
+> section was node-granularity (`nodeAtRow`/`rowOfNode`, `ExtraRows`,
+> `SegFirst`/`SummarySeg` on `Node`, `Foldable()`/`HasSummary()`); where those names
+> still appear below, read them as their `Lines`-arena equivalents. The size
+> invariants hold: `Node` 32 B, `Line` 24 B, `Segment` 12 B (guarded by
+> `internal/model/sizes_test.go`). The palette lives on the widget, not the model.
+
 **Why segments are offsets, not strings:** a JSON `"key": 42` line is 3–4 segments all pointing into `Src` at existing byte ranges → zero string allocation. Only synthesized text (summaries, entity-decoded runs, tab-expansion) lands in `Aux` once. This is RichText's per-segment-color idea (richtext.go `TextSegment`→`canvas.Text`) without RichText's per-segment live objects (R2 §4 rejects RichText for exactly this: no virtualization, O(doc) refresh).
 
-### 4.3 LineText and the source-byte map (resolves A2 Issue #4)
+### 4.3 Display text and tab handling (resolves A2 Issue #4)
 
-The renderer/selection/search all consume one **display string per logical line** (tab-expanded, entity-decoded). Copy must round-trip the **original** bytes (tabs preserved). So each line carries two views:
+The renderer/selection/search consume one **display string per line**, derived on
+demand from the line's segments. A display line *is* its segment runs; there is **no
+`colMap`** (the originally-envisaged display-col→source-byte map was never needed).
 
-- **display runes** — derived on demand from the line's segments (tab-expanded). Used for hit-test columns, rendering, search.
-- **`colMap`** *(envisaged, not shipped)* — a per-line `[]colSpan{dispColStart, srcByteStart, srcByteEnd}` mapping display columns back to `Src` byte ranges, intended for lines containing tabs or decoded entities. The shipped model stores no such map: a display line is its segment runs, copy reconstructs text from the displayed segments directly (`DisplayString`/`selectedText`), and tabs are **not** expanded (one rune = one cell, see §6.3). `WithTabWidth` is currently inert — tab handling and the `colMap` round-trip are deferred.
+Raw/fallback lines **expand tabs to stops** at parse time (`WithTabWidth`, default 4,
+now live): each tab becomes an interned run of spaces in `Aux` (a `RolePlain` pad
+segment), so the uniform monospace grid (§6.3) stays exact. The original tab byte
+stays in `Src`.
 
-The copy path slices the displayed segments for a display-column span `[c0,c1)` (`selection.go`), so it round-trips the segments' bytes as shown. Tab expansion (which would need `colMap` to copy real `\t` without corrupting columns, per A2 Issue #4) is future work.
+**Copy round-trips the original bytes.** `selectedText` walks the visible lines of the
+span and appends each whole line's displayed bytes directly (no per-line `[]rune`);
+for raw documents it rewrites each pad segment back to a single `\t` via
+`Document.AppendDisplayLine(restoreTabs)`, so a copy reproduces the source tabs rather
+than the expanded spaces. Only a partial endpoint line is rune-sliced for the column
+cut. (Structured JSON/XML/HTML lines have no pad segments; in-string `\t` escapes are
+preserved as source bytes.)
 
-### 4.4 Visible-row projection — Fenwick over per-node visible-row counts
+### 4.4 Visible-row projection — Fenwick over per-line visibility
 
-Maps `visibleRow ↔ NodeID` and supports fold/unfold without O(n) work per toggle. Children are contiguous in `Nodes[]`, so a subtree is the contiguous id range `[id, id+subtree[id])`.
+Maps `visibleRow ↔ line` and supports fold/unfold without O(n) work per toggle. A
+subtree's lines are the contiguous range `[HeadLine, CloseLine]`.
 
 ```go
-type fenwick struct{ tree []int32 } // 1-indexed BIT, len = nNodes+1
-
-func (f *fenwick) update(i int, d int32) { for i++; i < len(f.tree); i += i & -i { f.tree[i] += d } }
-func (f *fenwick) prefix(i int) int32    { var s int32; for ; i > 0; i -= i & -i { s += f.tree[i] }; return s }
-func (f *fenwick) total() int32          { return f.prefix(len(f.tree) - 1) }
+type fenwick struct {
+	tree   []int32 // 1-indexed BIT over Lines (prefix sums of vis)
+	maxLog int     // for the binary-lift in kth()
+}
 
 type foldIndex struct {
-	collapsed []uint64 // bitset over NodeID
-	subtree   []int32  // node + all descendants, from one post-order pass at parse
-	ownRows   []int32  // per-node 1 + ExtraRows
-	hiddenBy  []NodeID // nearest collapsed ancestor, or -1 (maintained incrementally)
-	bit       fenwick  // vis[id] = ownRows[id] if hiddenBy[id]==-1 else 0
+	collapsed bitset   // over NodeID
+	hiddenBy  []NodeID // per line: nearest collapsed ancestor, or NoNode
+	vis       []int32  // per line: 1 if visible, else 0
+	bit       fenwick  // prefix sums over vis
 }
 ```
 
@@ -333,15 +358,20 @@ type foldIndex struct {
 | Operation | Cost | How |
 |---|---|---|
 | `TotalVisibleRows()` | **O(1)** | `bit.total()` |
-| `visibleRow → (NodeID, rowInNode)` | **O(log n)** | Fenwick lower-bound (binary lift over `bit.tree`) |
-| `NodeID → visibleRow` | **O(log n)** | `bit.prefix(id)` (expand hidden ancestors first if needed) |
-| **fold(id)** | **O(k visible descendants)** for the bitset/`hiddenBy`/Fenwick point-updates of the descendants whose nearest-collapsed-ancestor becomes `id`; **the row-count delta itself is O(log n)** via `bit.prefix(id+subtree[id]) - bit.prefix(id+1)` | sets `hiddenBy=id` and zeroes `vis` only where it was `-1` |
-| **unfold(id)** | symmetric O(k) | restores `vis` where `hiddenBy==id` |
-| `ExpandAncestors(id)` | O(depth · k) worst, **batched into one rebuild** | walk `Parent`, unfold each, single projection refresh |
+| `lineAtRow(row)` → line | **O(log n)** | Fenwick binary-lift (`kth`) |
+| `rowOfLine(line)` → row | **O(log n)** | `bit.prefix(line)` |
+| **fold(id) / unfold(id)** | **O(k lines touched)**, with an O(log n) row-count delta | set/clear the `collapsed` bit, then point-update `vis`/`hiddenBy` over the affected line range |
+| `ExpandAll` / `CollapseAll` / `applyDefaults` | **O(n)** single pass | set the bitset, then one `rebuild` (the Fenwick is rebuilt once) |
+| `RevealLine(line)` | O(depth + k) | `unfoldAncestors` — unfold each collapsed ancestor, outermost-first |
 
-**Resolution of A2 Issue #6 / D1 open risk (the "O(log n) fold" overclaim).** A fold cannot be truly O(log n) when it must hide `k` previously-visible descendants — each needs its `vis` zeroed in the Fenwick. We state honestly: **fold/unfold is O(k) in the visible descendants touched, with an O(log n) row-count delta.** A top-of-document collapse of a huge subtree touches that subtree once. This is unavoidable and bounded by the number of currently-visible nodes, never by total document size when most is already collapsed. We **do not** ship the deferred "collapsed-mask" scheme (it degraded to O(activeFolds) per lookup and complicated `nodeAtRow`); the `hiddenBy` array keeps lookups a clean O(log n) always. If profiling on `big.json` shows top-folds janky, the escalation is to debounce the fold's repaint, not to change the index. `ExpandAll`/`CollapseAll` are single O(n) passes that rebuild the Fenwick once.
+**Honest fold cost (A2 Issue #6 / D1).** A fold cannot be truly O(log n) when it must
+hide `k` previously-visible descendant lines — each needs its `vis` zeroed. So it is
+**O(k lines touched)** with an O(log n) row-count delta; bounded by currently-visible
+lines, never total document size when most is already collapsed. `ExpandAll`/`CollapseAll`
+and the load-time default-collapse use the O(n) `rebuild` (one Fenwick build).
 
-**No separate `lineID→row` map** (resolves A2 Issue #7): `NodeID` *is* the stable line id; `rowOfNode` is the O(log n) Fenwick prefix query, not a materialized map that would need O(n) rebuild per fold.
+**No `line→row` map** (resolves A2 Issue #7): `rowOfLine` is the O(log n) Fenwick prefix
+query, not a materialized map that would need an O(n) rebuild per fold.
 
 ### 4.5 Parser interface and Builder
 
@@ -383,18 +413,23 @@ type Seg struct {
 
 Cached once at `CloseContainer` into `Aux`, pointed at by `SummarySeg` (`RoleMuted`): `KindObject`→`{ N items }` (`{ }`, `{ 1 item }` special-cased), `KindArray`→`[ N items ]`, `KindElement`→`<tag> N children`. A collapsed container renders head segs + summary on one row; toggling flips the `collapsed` bit + the incremental Fenwick update only — no re-parse, no full re-flatten.
 
-### 4.8 Memory budget for 151 KB JSON (≈7,500 nodes)
+### 4.8 Memory budget — measured on openapi.json (~478 KB / 467 KiB)
 
-| Arena | Size |
+The model-vs-source multiple is the only ratio a test asserts (`TestModelSizeRatio`,
+bounded well under budget). Measured: a ≈467 KiB JSON parses to a ≈2.3 MB model
+(≈4.85×). The arenas are flat and pointer-free:
+
+| Arena | Notes |
 |---|---|
-| `Nodes` (7,500 × 32 B) | 240 KB |
-| `Segs` (~3/node × 7,500 × 12 B) | 270 KB |
-| `Src` (retained zero-copy) | 151 KB |
-| `Aux` (summaries + decoded) | ~18 KB |
-| `foldIndex` (tree+subtree+ownRows int32 + bitset) | ~91 KB |
-| **Total model** | **≈ 770 KB** (≈5× source) |
+| `Src` (retained zero-copy) | = source size |
+| `Nodes` (32 B) + `Lines` (24 B) | one record per structural node / display line |
+| `Segs` (12 B) | a few per line, offsets into `Src`/`Aux` |
+| `Aux` | synthesized text (summaries, punctuation, tab pads) |
+| `foldIndex` (`vis` + `hiddenBy` + Fenwick + collapsed bitset) | the projection |
+| **Total** | **≈ 4.85× source** — no per-node alloc, no per-token color, no whole-doc `[]rune` |
 
-`big.json` (7.5 MB) → ~40 MB model, still flat arenas, **no allocation storm**, live objects unchanged (M-1).
+`big.json` (7.5 MB) → a flat-arena model in the same proportion, **no allocation
+storm**, live `CanvasObject` count unchanged (M-1).
 
 ---
 
@@ -601,7 +636,7 @@ Default mirrors `getTextWhitespaceRegion`/`isWordSeparator` (entry.go:1924-1987)
 
 ### 6.6 Autoscroll while dragging past edge (resolves A2 Issue #8 — data race)
 
-Cursor-driven nudge (entry.go:1852-1887: `ScrollToOffset(Offset.Add(move))`), plus a `time.Ticker` (~16 ms) for "held stationary past edge" since `Dragged` fires only on motion (window.go:411-419). **The ticker goroutine does nothing but `fyne.Do(func(){ pv.autoscrollTick() })`** — *all* reads of `Offset`/`lastDragPos`/`focus` and *all* writes happen inside that closure on the Fyne goroutine (R4 §4; thread.go:18). The ticker is a pure clock. It stops on `DragEnd`, `FocusLost`, new-document load, and when `Offset.Y == maxOffsetY` (no busy 60 Hz `fyne.Do` flood). This eliminates the race the detector would otherwise flag and the jitter from reading a half-updated `Offset`.
+Edge autoscroll is a cursor-driven nudge (`ScrollToOffset(Offset.Add(move))`) computed inside `Dragged` and followed by `reflow()`. **It is not shipped as the originally-designed `time.Ticker`.** Because `Dragged` fires only on pointer motion (window.go:411-419), dragging to the viewport edge and then **holding the pointer stationary stops the scroll** — a known limitation (backlogged; the ticker would close it). The upside: all autoscroll reads/writes happen inside the `Dragged` handler on the Fyne goroutine, so there is no off-thread clock and no data race (cf. R-13).
 
 ### 6.7 Selection rectangles (visible-window only — resolves A1 Break #3 / A2 Issue #9)
 
@@ -635,7 +670,7 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 
 ### 6.8 Copy (model-based, source-byte accurate)
 
-`selectedText()` walks rows `a.row..b.row`, slices each line's **source bytes** via `colMap` (§4.3, preserving tabs), joins with `\n`. `SelectedText()` slices model bytes, never reads a `CanvasObject` (selectable.go:120-131 analog). `CopySelection` → `fyne.CurrentApp().Clipboard().SetContent(txt)` (app-level clipboard, app.go:88; `Window.Clipboard()` is deprecated, window.go:104). **Folded-region semantics:** default WYSIWYG — a collapsed node contributes its summary string. `CopySubtree(byteOffset)` re-serializes the node's full `[id, id+subtree[id])` source range regardless of fold. **Copy-after-collapse contract (A2 Issue #7):** if a node inside an active selection is collapsed, copy then returns the summary for that node, not the hidden children — asserted by a test.
+`selectedText()` walks the visible lines of the span and appends each whole line's **displayed bytes** via `AppendDisplayLine` (rewriting tab pads back to `\t` for raw docs, §4.3), rune-slicing only a partial endpoint, joined with `\n`. `SelectedText()` slices model bytes, never reads a `CanvasObject` (selectable.go:120-131 analog). `CopySelection` → `fyne.CurrentApp().Clipboard().SetContent(txt)` (app-level clipboard, app.go:88; `Window.Clipboard()` is deprecated, window.go:104). **Folded-region semantics:** default WYSIWYG — a collapsed node contributes its summary string. `CopySubtree(byteOffset)` re-serializes the node's full `[id, id+subtree[id])` source range regardless of fold. **Copy-after-collapse contract (A2 Issue #7):** if a node inside an active selection is collapsed, copy then returns the summary for that node, not the hidden children — asserted by a test.
 
 ---
 
@@ -688,7 +723,7 @@ The originally-designed **off-thread chunked scan** (a worker producing `ChunkBy
 
 `Next`/`Prev` are index arithmetic with wrap (`(a+dir+n)%n`); while `!Complete`, **do not wrap past the last known match** — clamp and show "searching…". Count label `"3/27"` (or `"3/10000+"` when capped).
 
-**`revealActive`:** (1) `ExpandAncestors(node)` — batched into **one** projection rebuild, not one-per-ancestor; (2) `row := rowOfNode(node)`; (3) center: `y := clamp(row*rowH - (vpH-rowH)/2, 0, maxOffsetY)`; (4) `scroll.ScrollToOffset(NewPos(matchX, y))` then `reflow()` (ScrollToOffset doesn't fire OnScrolled, scroller.go:572). **Order is load-bearing: expand → recompute total → resolve row → scroll.** **Stay on the fixed-height fast path** (never `SetItemHeight`-equivalent) so offset math is O(1). **Auto-reveal only on explicit user intent** (typed query / pressed Enter), gated by a `userHasInteracted` flag — never yank the viewport on a later streamed chunk's arrival (A2 Issue #6 trigger 2). Holding Next/Prev: step the index every keystroke but **debounce the scroll+reflow** to the trailing ~16 ms.
+**`revealActive`:** (1) `RevealLine(line)` — unfold each collapsed ancestor (outermost-first, `unfoldAncestors`); (2) `row := rowOfLine(line)`; (3) center: `y := clamp(row*rowH - (vpH-rowH)/2, 0, maxOffsetY)`; (4) `scroll.ScrollToOffset(NewPos(matchX, y))` then `reflow()` (ScrollToOffset doesn't fire OnScrolled, scroller.go:572). **Order is load-bearing: expand → recompute total → resolve row → scroll.** **Stay on the fixed-height fast path** (never `SetItemHeight`-equivalent) so offset math is O(1). **Auto-reveal only on explicit user intent** (typed query / pressed Enter), gated by a `userHasInteracted` flag — never yank the viewport on a later streamed chunk's arrival (A2 Issue #6 trigger 2). Holding Next/Prev: step the index every keystroke but **debounce the scroll+reflow** to the trailing ~16 ms.
 
 ### 7.5 Highlight (reuses §6.7 mechanism, separate pools)
 
@@ -741,11 +776,11 @@ Tokens store a 1-byte `ColorRole`; a `palette []color.Color` is rebuilt **once p
 | R-6 | **Wrong drag anchor** from `d.Position.Subtract(d.Dragged)` (delta is vs previous sample, window.go:417) — A2 Issue #1 | Med | Anchor set authoritatively in `MouseDown`; never recomputed in `Dragged`. §6.4. |
 | R-7 | **Hit-test off-by-one** (missing origin term) — A2 Issue #2 | Med | One origin convention (top-pad 0, integer `rowH`, `floor(contentY/rowH)`) across reflow/hitTest/rects. §5.3. Golden round-trip test. |
 | R-8 | **Wrong columns copied under horizontal scroll** (Offset.X dropped) — A2 Issue #3 | Blocker (data corruption) | `contentX = local.X + Offset.X` in hit-test. §5.3/§6.3. |
-| R-9 | **Tabs → clipboard ≠ source** — A2 Issue #4 | Med | `colMap` display-col→source-byte; copy slices `Src` with real `\t`. §4.3/§6.8. |
+| R-9 | **Tabs → clipboard ≠ source** — A2 Issue #4 | Med | **Resolved (no colMap):** raw lines expand tabs to interned space pads; copy rewrites each pad back to a real `\t` via `AppendDisplayLine(restoreTabs)`. §4.3. Test: `TestSelectedTextRawTabsRoundTrip`. |
 | R-10 | **O(K·L) byte→rune in search** — A2 Issue #5 | High (freeze) | **Resolved:** single forward pass per line (`colCursor`, §7.2); ~5 ms full scan of the 7.5 MB fixture, so the synchronous scan needs no chunking (§7.3). |
 | R-11 | **Reveal frame-drops + mid-scan viewport yank** — A2 Issue #6 | High | Fixed-height fast path; batched ancestor expand; debounced reveal scroll; auto-reveal only on user intent. §7.4. |
 | R-12 | **`lineID→row` map → O(n) rebuild per fold; "O(log n) fold" overclaim** — A2 Issue #7, D1 open risk | High | `NodeID` *is* the line id; `rowOfNode` is O(log n) Fenwick prefix (no map). Fold honestly O(k visible descendants) with O(log n) row delta; `hiddenBy` array keeps lookups O(log n). §4.4/§6.2. |
-| R-13 | **Autoscroll ticker data race** (reads UI fields off-thread) — A2 Issue #8 | Blocker (CI race) | Ticker only calls `fyne.Do`; all reads/writes inside the closure; stop on DragEnd/FocusLost/reload/at-bottom. §6.6. |
+| R-13 | **Autoscroll ticker data race** (reads UI fields off-thread) — A2 Issue #8 | n/a | **No ticker shipped.** Drag-edge autoscroll runs inside `Dragged` (pointer-motion only), entirely on the Fyne goroutine, so there is no off-thread race to begin with. Held-stationary edge autoscroll (which a ticker would add) is a known limitation on the backlog, not shipped. §6.6. |
 | R-14 | **Selection rects drift 2×** (subtracting Offset on a scrolled-content child; scroller.go:454 already translates both axes) — A2 Issue #9 | Blocker (visible) | Rects in raw content space, **no** offset subtraction either axis. §5.3/§6.7. Round-trip test. |
 | R-15 | Fractional `charWidth` drift on long lines — A2 minor | Low | Round `charWidth`/`rowH` to integers (textgrid.go:646-649). §5.3. |
 | R-16 | Next-wrap during incomplete scan jumps backward — A2 minor | Low | While `!Complete`, clamp at last known match, show "searching…". §7.4. |

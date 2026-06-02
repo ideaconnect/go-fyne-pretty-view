@@ -26,9 +26,9 @@ Measured on the included fixtures:
 
 | Input | Visible rows | Live row widgets | Heap after scrolling the whole file |
 |---|---|---|---|
-| `big.json` (7.5 MB) | 440,005 | **31** | **~80 MB** |
+| `big.json` (7.5 MB) | 440,005 | **31** | **~80–90 MB** |
 
-The parsed model is about **5× the source size** (e.g. a 467 KB JSON → ~2.3 MB),
+The parsed model is about **5× the source size** (e.g. the ~478 KB `openapi.json` → ~2.3 MB),
 and a single multi-megabyte line is horizontally culled so no individual text
 texture is ever wider than the viewport (without that, Fyne would try to
 rasterize a ~1 GB bitmap for the line).
@@ -194,6 +194,7 @@ and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 | [STRUCTURE.md](STRUCTURE.md) | The codebase map — every file, the layering, the mental model. |
 | [WORKFLOWS.md](WORKFLOWS.md) | How to build, run, test, benchmark, and extend (parsers, colors). |
 | [docs/DESIGN.md](docs/DESIGN.md) | The authoritative architecture + adversarial risk analysis. |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Performance review: hot paths, benchmarks, and the measured deltas. |
 | [HUMANS.md](HUMANS.md) | Onboarding and contribution guide for people. |
 | [AGENTS.md](AGENTS.md) | Brief for AI coding agents: invariants to preserve, conventions. |
 | [CLAUDE.md](CLAUDE.md) | Claude Code entry point (points at AGENTS.md). |

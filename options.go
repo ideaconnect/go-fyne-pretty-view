@@ -67,7 +67,11 @@ func WithFormat(f Format) Option { return func(c *config) { c.format = f } }
 // once wrapping ships.
 func WithWrap(m WrapMode) Option { return func(c *config) { c.wrap = m } }
 
-// WithSearchConfig overrides the search tuning parameters.
+// WithSearchConfig overrides the search tuning parameters. The struct is used as
+// given — it replaces the defaults wholesale, not field-by-field. A zero MaxMatches
+// or MinQueryLen still falls back to its default at scan time, but a zero DebounceFor
+// means "no debounce" (scan on every keystroke), NOT 150 ms; set it explicitly to
+// keep keystroke coalescing.
 func WithSearchConfig(s SearchConfig) Option { return func(c *config) { c.search = s } }
 
 // WithDefaultCollapseDepth auto-collapses every container deeper than d on load

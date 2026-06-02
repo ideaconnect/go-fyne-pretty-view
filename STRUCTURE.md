@@ -31,10 +31,13 @@ search, highlight, and input handlers are mutually recursive around the
 cycles and force exporting internals. Only genuine leaves (`model`, `parse`,
 `geometry`) are separate packages.
 
-The model is exposed to the view through a deliberately small public surface
+The model is exposed to the view through a small public surface
 (`internal/model/api.go`): the fold index itself stays unexported, and the view
 drives folding/projection through delegating `Document` methods
-(`TotalVisibleRows`, `LineAtRow`, `Fold`, `RevealLine`, …).
+(`TotalVisibleRows`, `LineAtRow`, `Fold`, `RevealLine`, …). The flat arenas
+(`Src`, `Aux`, `Nodes`, `Lines`, `Segs`) are exported and read directly by the view
+for rendering/selection/search; they are **read-only after parse** — only the fold
+index and the selection/search state mutate, always on the Fyne goroutine.
 
 ## `internal/model` — the document (the source of truth)
 | File | Responsibility |
