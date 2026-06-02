@@ -237,3 +237,29 @@ func TestSearchSupersedesPendingDebounce(t *testing.T) {
 			gen, pv.searchGen)
 	}
 }
+
+// TestSearchMaxMatchesCap guards the load-bearing match cap: a scan must stop at
+// MaxMatches, store no more than the cap, and report capped; a scan below the cap
+// must report capped=false. (Previously only logged, never asserted.)
+func TestSearchMaxMatchesCap(t *testing.T) {
+	const cap = 50
+	const occ = cap + 25
+	src := strings.Repeat("x ", occ) // one raw line, occ occurrences of "x"
+
+	capped := NewWithData([]byte(src), FormatRaw,
+		WithSearchConfig(SearchConfig{MaxMatches: cap, MinQueryLen: 1}))
+	capped.Search(SearchQuery{Text: "x"})
+	if _, total, isCapped := capped.SearchStatus(); total != cap || !isCapped {
+		t.Errorf("capped scan: total=%d capped=%v, want total=%d capped=true", total, isCapped, cap)
+	}
+	if got := len(capped.search.matches); got != cap {
+		t.Errorf("stored %d matches, want exactly the cap %d", got, cap)
+	}
+
+	uncapped := NewWithData([]byte(src), FormatRaw,
+		WithSearchConfig(SearchConfig{MaxMatches: 1000, MinQueryLen: 1}))
+	uncapped.Search(SearchQuery{Text: "x"})
+	if _, total, isCapped := uncapped.SearchStatus(); isCapped || total != occ {
+		t.Errorf("uncapped scan: total=%d capped=%v, want total=%d capped=false", total, isCapped, occ)
+	}
+}

@@ -81,7 +81,7 @@ func (pv *PrettyView) refreshContent() {
 		return
 	}
 	pv.r.scroll.Content.Resize(pv.contentSize())
-	pv.r.scroll.Refresh()
+	pv.r.refreshBars() // bars only; reflow() below rebuilds the visible rows once
 	pv.r.reflow()
 }
 

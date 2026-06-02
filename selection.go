@@ -353,27 +353,39 @@ func (pv *PrettyView) selectedText() string {
 	if !ok {
 		return ""
 	}
-	ra := int(pv.doc.RowOfLine(a.line))
-	rb := int(pv.doc.RowOfLine(b.line))
-	if ra == rb {
-		runes := []rune(pv.doc.DisplayString(a.line))
-		return string(runes[clampInt(a.col, 0, len(runes)):clampInt(b.col, 0, len(runes))])
-	}
+	// Walk the visible display lines of the span directly (a.line..b.line, skipping
+	// folded-away lines) instead of resolving every row through the O(log n) Fenwick
+	// projection. A whole line — every interior line, and either endpoint when its
+	// column cut is the full line — is appended byte-for-byte into a reused buffer
+	// with no per-line string/[]rune allocation; only a genuinely partial endpoint
+	// is decoded to runes for the column slice. raw documents restore real tabs.
+	restoreTabs := pv.Format() == FormatRaw
 	var sb strings.Builder
-	for row := ra; row <= rb; row++ {
-		li := pv.doc.LineAtRow(int32(row))
-		runes := []rune(pv.doc.DisplayString(li))
-		start, end := 0, len(runes)
-		if row == ra {
-			start = clampInt(a.col, 0, len(runes))
+	var buf []byte
+	first := true
+	for li := a.line; li <= b.line; li++ {
+		if !pv.doc.Visible(li) {
+			continue
 		}
-		if row == rb {
-			end = clampInt(b.col, 0, len(runes))
-		}
-		sb.WriteString(string(runes[start:end]))
-		if row < rb {
+		if !first {
 			sb.WriteByte('\n')
 		}
+		first = false
+		runeLen := pv.doc.LineRuneLen(li)
+		start, end := 0, runeLen
+		if li == a.line {
+			start = clampInt(a.col, 0, runeLen)
+		}
+		if li == b.line {
+			end = clampInt(b.col, 0, runeLen)
+		}
+		if start == 0 && end == runeLen {
+			buf = pv.doc.AppendDisplayLine(li, buf[:0], restoreTabs)
+			sb.Write(buf)
+			continue
+		}
+		runes := []rune(pv.doc.DisplayString(li))
+		sb.WriteString(string(runes[clampInt(start, 0, len(runes)):clampInt(end, 0, len(runes))]))
 	}
 	return sb.String()
 }

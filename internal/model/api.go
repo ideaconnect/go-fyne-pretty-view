@@ -74,3 +74,22 @@ func (d *Document) AssembleLine(li int32, buf []byte) []byte {
 	}
 	return buf
 }
+
+// AppendDisplayLine appends line li's currently-displayed, fold-aware bytes into
+// buf (reused; pass buf[:0]) — the no-allocation equivalent of DisplayString, used
+// by the copy path so a whole selected line costs no per-line string/[]rune
+// allocation. When restoreTabs is true (raw documents, whose tab stops render as
+// interned space pads), each pad segment is written as a single '\t' so a copy
+// round-trips the original source tabs instead of the expanded spaces. A pad is the
+// only RolePlain segment that lives in Aux on a raw line (real text is zero-copy
+// from Src), so that pair identifies it unambiguously.
+func (d *Document) AppendDisplayLine(li int32, buf []byte, restoreTabs bool) []byte {
+	for _, s := range d.DisplaySegs(li) {
+		if restoreTabs && s.Buf == BufAux && s.Role == RolePlain {
+			buf = append(buf, '\t')
+			continue
+		}
+		buf = append(buf, d.SegBytes(s)...)
+	}
+	return buf
+}

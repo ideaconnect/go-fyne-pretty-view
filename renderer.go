@@ -93,9 +93,21 @@ func (r *prettyViewRenderer) Layout(size fyne.Size) {
 func (r *prettyViewRenderer) Refresh() {
 	r.pv.recomputeMetrics()
 	r.scroll.Content.Resize(r.pv.contentSize())
-	r.scroll.Refresh()
+	r.refreshBars()
 	r.reflow()
 	canvas.Refresh(r.pv)
+}
+
+// refreshBars updates the scrollbars for the current content extent WITHOUT
+// scroll.Refresh()'s Content.Refresh() cascade, which would rebuild every live row
+// a second time on top of reflow() (which rebuilds the visible window exactly once).
+// container.Scroll exposes no bars-only refresh and ScrollToOffset early-returns on
+// an unchanged offset, so we detach the rows first: scroll.Refresh()'s cascade then
+// finds an empty rowLayer (no row builds) and reflow() repopulates it immediately
+// after, within the same synchronous call (no intervening paint).
+func (r *prettyViewRenderer) refreshBars() {
+	r.rowLayer.Objects = nil
+	r.scroll.Refresh()
 }
 
 // reflow recomputes the visible window from the scroll offset and recycles row

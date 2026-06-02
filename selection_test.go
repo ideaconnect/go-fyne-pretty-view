@@ -89,6 +89,61 @@ func TestSelectedTextMultiLine(t *testing.T) {
 	}
 }
 
+// TestSelectedTextMatchesVisibleDisplay is the oracle for the SelectAll/Copy gather:
+// the copied text must equal exactly the displayed text of each visible line joined
+// by '\n' (WYSIWYG), even with folded nodes — whose head lines show a summary, not
+// their hidden children. Guards the AppendDisplayLine whole-line optimization (P5)
+// against regressing to expanded (non-display) text.
+func TestSelectedTextMatchesVisibleDisplay(t *testing.T) {
+	pv := docPV(`{"outer":{"a":1,"b":2,"c":3},"tail":9}`, FormatJSON)
+	pv.doc.CollapseAll() // exercise collapsed fold-heads in the interior
+	pv.SelectAll()
+
+	var want strings.Builder
+	first := true
+	for li := int32(0); li < int32(pv.doc.TotalLines()); li++ {
+		if !pv.doc.Visible(li) {
+			continue
+		}
+		if !first {
+			want.WriteByte('\n')
+		}
+		first = false
+		want.WriteString(pv.doc.DisplayString(li))
+	}
+	if got := pv.SelectedText(); got != want.String() {
+		t.Errorf("SelectAll copy != visible display:\n got: %q\nwant: %q", got, want.String())
+	}
+}
+
+// TestSelectedTextRawTabsRoundTrip is the regression for the tab copy-fidelity gap
+// (P6): raw-mode tab expansion renders tabs as space pads, but a copy must round-trip
+// the original '\t' bytes (DESIGN.md §4.3), not the expanded spaces.
+func TestSelectedTextRawTabsRoundTrip(t *testing.T) {
+	const src = "a\tb\tc\nx\ty"
+	pv := docPV(src, FormatRaw)
+	pv.SelectAll()
+	if got := pv.SelectedText(); got != src {
+		t.Errorf("raw tab copy = %q, want %q (tabs must round-trip, not expand to spaces)", got, src)
+	}
+}
+
+// TestCopySubtreeIncludesFoldedChildren guards CopySubtree/subtreeText (P7):
+// serializing a node's subtree must include its children regardless of fold state.
+func TestCopySubtreeIncludesFoldedChildren(t *testing.T) {
+	const src = `{"outer":{"a":1,"b":2},"tail":9}`
+	pv := docPV(src, FormatJSON)
+	node := pv.nodeAtByteOffset(strings.Index(src, `{"a"`)) // the inner object's '{'
+	if node == model.NoNode {
+		t.Fatal("expected a node spanning the offset")
+	}
+	pv.doc.CollapseAll() // fold everything; the subtree text must still be complete
+	got := pv.subtreeText(node)
+	if !strings.Contains(got, `"a"`) || !strings.Contains(got, `"b"`) {
+		t.Errorf("CopySubtree omitted folded children:\n%s", got)
+	}
+}
+
 func TestSelectionOrderIndependentOfDirection(t *testing.T) {
 	pv := docPV(`{"a":1,"b":2}`, FormatJSON)
 	la := pv.doc.LineAtRow(1)

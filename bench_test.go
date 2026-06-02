@@ -121,3 +121,18 @@ func BenchmarkSearchManyMatchesOneLine(b *testing.B) {
 		pv.runSearch(SearchQuery{Text: "needle"})
 	}
 }
+
+// BenchmarkSelectAllCopyBig measures the SelectAll+Copy gather (selectedText) on a
+// multi-megabyte document — the largest transient allocation a normal user gesture
+// triggers. The optimized path appends whole interior lines byte-for-byte into a
+// reused buffer with no per-line string/[]rune.
+func BenchmarkSelectAllCopyBig(b *testing.B) {
+	pv := New()
+	pv.doc = parse.Parse(benchSrc(b, "big.json"), FormatJSON, 0)
+	pv.SelectAll()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = pv.selectedText()
+	}
+}

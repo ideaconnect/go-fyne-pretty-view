@@ -109,6 +109,27 @@ func TestFirstReflowBuildsFreshRows(t *testing.T) {
 	}
 }
 
+// TestRefreshBuildsEachRowOnce guards the Refresh()/refreshContent() paths against
+// the double-build regression: scroll.Refresh()'s Content.Refresh() cascade must not
+// rebuild rows that reflow() already builds. After settling, one Refresh() must build
+// each live row exactly once — not twice (the bug was 2x).
+func TestRefreshBuildsEachRowOnce(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"alpha":1,"beta":2,"gamma":3,"delta":4}`), FormatJSON)
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(400, 300))
+	pv.Refresh() // settle metrics + initial reflow
+	if len(pv.r.live) == 0 {
+		t.Fatal("expected visible rows")
+	}
+	atomic.StoreInt64(&debugRowBuilds, 0)
+	pv.Refresh()
+	if got, want := atomic.LoadInt64(&debugRowBuilds), int64(len(pv.r.live)); got != want {
+		t.Errorf("Refresh built %d rows, want %d (one build per visible row; double-build regression)", got, want)
+	}
+}
+
 // rowText concatenates the visible text runs of the live row showing line li,
 // left to right — i.e. exactly what the user sees on that row.
 func rowText(r *prettyViewRenderer, li int32) (string, bool) {
