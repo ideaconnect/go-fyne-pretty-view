@@ -2,23 +2,48 @@
 
 [![CI](https://github.com/ideaconnect/go-fyne-pretty-view/actions/workflows/ci.yml/badge.svg)](https://github.com/ideaconnect/go-fyne-pretty-view/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/ideaconnect/go-fyne-pretty-view/graph/badge.svg)](https://codecov.io/gh/ideaconnect/go-fyne-pretty-view)
+[![Go Reference](https://pkg.go.dev/badge/github.com/ideaconnect/go-fyne-pretty-view.svg)](https://pkg.go.dev/github.com/ideaconnect/go-fyne-pretty-view)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ideaconnect/go-fyne-pretty-view)](https://goreportcard.com/report/github.com/ideaconnect/go-fyne-pretty-view)
+[![Go version](https://img.shields.io/github/go-mod/go-version/ideaconnect/go-fyne-pretty-view)](go.mod)
+[![License](https://img.shields.io/github/license/ideaconnect/go-fyne-pretty-view)](LICENSE)
 
 A memory-efficient, virtualized [Fyne](https://fyne.io) widget for viewing
-structured data - **JSON, JSONC, XML, HTML, and raw text** - in the style of
+structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 [Bruno](https://www.usebruno.com)'s response viewer.
 
-![JSON](docs/shot-json.png)
+![JSON and XML views](docs/sample-two.png)
+
+## Contents
+
+- [Features](#features)
+- [Why it stays small](#why-it-stays-small)
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Functionality and how to toggle it](#functionality-and-how-to-toggle-it)
+- [Construction options](#construction-options)
+- [Controls: built-in, your own, or both](#controls-built-in-your-own-or-both)
+- [Key methods](#key-methods)
+- [Theming](#theming)
+- [Threading](#threading)
+- [Demo](#demo)
+- [Design and documentation](#design-and-documentation)
+- [Contributing](#contributing)
+- [Sponsorship](#sponsorship)
+- [Credits](#credits)
+- [License](#license)
 
 ## Features
 
-- **Syntax highlighting** for JSON / XML / HTML, with a dark/light palette you can override.
+- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override.
+- **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
 - **Expand / fold** every container, with a collapse summary on folded nodes (`{ 38 items }`, `[ 3 items ]`, `<tag> 5 children`).
-- **Copy a whole section** (subtree) to the clipboard.
 - **True character-level free-text selection** across rows, with exact-substring copy (`Ctrl/Cmd+C`) and select-all (`Ctrl/Cmd+A`).
 - **Right-click context menu** (Copy / Select all) — the standard Fyne pop-up menu, the same one Fyne's own text widgets use.
-- **Search** with plain or regular-expression matching, match navigation, and **auto-reveal into folded nodes**.
-- **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally - selection, search, and copy still operate on whole logical lines.
-- **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
+- **Copy a whole section** (subtree) to the clipboard, regardless of fold state.
+- **Search** with plain or regular-expression matching, case sensitivity, match navigation, and **auto-reveal into folded nodes**.
+- **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally — selection, search, and copy still operate on whole logical lines.
+- **Keyboard navigation**: arrows, `PageUp`/`PageDown`, `Home`/`End`, `Esc` to clear the selection, `Ctrl/Cmd+F` to focus search.
+- **Optional, à-la-carte controls**: a built-in toolbar (Open, format, expand/collapse, wrap, search) you can enable control-by-control — or drive everything from your own widgets via the public API.
 
 ## Why it stays small
 
@@ -47,7 +72,7 @@ go get github.com/ideaconnect/go-fyne-pretty-view
 Requires Go 1.26+ and the usual Fyne build dependencies (a C compiler and the
 OpenGL/X11 headers on Linux).
 
-## Usage
+## Quick start
 
 ```go
 import (
@@ -60,14 +85,64 @@ func main() {
     w := a.NewWindow("viewer")
 
     pv := prettyview.New()
-    pv.SetData(jsonBytes, prettyview.FormatAuto) // or FormatJSON/FormatXML/FormatHTML/FormatRaw
+    pv.SetData(jsonBytes, prettyview.FormatAuto) // or FormatJSON/FormatJSONC/FormatXML/FormatHTML/FormatRaw
 
     w.SetContent(pv)
     w.ShowAndRun()
 }
 ```
 
-### Construction options
+The widget itself is just the viewer — it has **no built-in buttons**. Add the
+optional toolbar (or your own controls) as shown under
+[Controls](#controls-built-in-your-own-or-both).
+
+## Functionality and how to toggle it
+
+Everything the viewer can do, and how to turn it on or off. The core viewing
+behaviors are **always on**; behavior is tuned with construction `Option`s or the
+matching runtime setters; the on-screen chrome is **entirely opt-in**.
+
+### Viewer behavior
+
+| Capability | Default | How to change it |
+|---|---|---|
+| Syntax highlighting | On | Always on; recolor with `WithTheme` / `SetTheme` (use `FormatRaw` for plain, unhighlighted text). |
+| Input format | Auto-detect | `WithFormat(f)` at build, or `SetData(src, f)` / `Reparse(f)` / `SetText(s)` at runtime. |
+| Expand / fold a node | On (click the triangle) | Always available; `ExpandAll()` / `CollapseAll()` programmatically. |
+| Initial collapse depth | Fully expanded (`0`) | `WithDefaultCollapseDepth(d)` at build, or `SetDefaultCollapseDepth(d)` at runtime. |
+| Free-text selection & copy | On | Always on; `SelectAll()`, `SelectedText()`, `CopySelection()`, `ClearSelection()`, `Ctrl/Cmd+A`, `Ctrl/Cmd+C`. |
+| Right-click context menu | On | Always on (Copy / Select all). |
+| Copy a subtree | On demand | `CopySubtree(byteOffset)`. |
+| Search | On demand | `Search(SearchQuery{Text, Mode, CaseSensitive})`, `SearchNext()`, `SearchPrev()`, `ClearSearch()`, `SearchStatus()`. Tune with `WithSearchConfig(...)`. |
+| Soft word-wrap | Off (`WrapNone`) | `WithWrap(WrapWord)` at build, or `SetWrap(WrapWord)` / `SetWrap(WrapNone)` at runtime; `Wrap()` reads it. |
+| Tab display width | `4` | `WithTabWidth(n)`. |
+| Indent step (px/level) | `16` | `WithIndentStep(px)`. |
+| Theme / colors | Track the host Fyne theme | `WithTheme` / `WithSyntaxColors` at build; `SetTheme` / `SetSyntaxColors` at runtime. |
+| Keyboard navigation | On | Always on (arrows, `PageUp`/`PageDown`, `Home`/`End`, `Esc`). |
+
+`SearchQuery.Mode` is `SearchPlain` (default) or `SearchRegex`; matches are capped
+by `SearchConfig.MaxMatches` (10 000 by default) and revealed even inside folded
+nodes.
+
+### Built-in controls (all opt-in)
+
+The toolbar is assembled from `ToolbarConfig` — every control is a `Show*` flag,
+so you include exactly the ones you want:
+
+| Control | Flag | Notes |
+|---|---|---|
+| Open file | `ShowOpen` | Needs `Window` (built-in file dialog) **or** `OnOpen` (your own handler). |
+| Format selector | `ShowFormat` | auto / json / jsonc / xml / html / raw; re-parses the current source. |
+| Expand all / Collapse all | `ShowExpandCollapse` | |
+| Word-wrap toggle | `ShowWrap` | Highlighted while wrapping is on. |
+| Search bar | `ShowSearch` | Find box, prev/next, live match counter. |
+| `Ctrl/Cmd+F` focuses search | set `Window` | Registered when a `Window` is supplied. |
+
+Each control is also available à la carte (`NewSearchBar`, `NewFormatSelect`,
+`NewFoldButtons`, `NewWrapToggle`) so you can place it anywhere, and host widgets
+can stay in sync via `SetOnSearchChanged` and `SetOnDataChanged`.
+
+## Construction options
 
 ```go
 pv := prettyview.New(
@@ -80,7 +155,65 @@ pv := prettyview.New(
 )
 ```
 
-### Theming
+`NewWithData(src, format, opts...)` is the one-shot form that constructs and loads
+in a single call.
+
+## Controls: built-in, your own, or both
+
+The package *optionally* provides ready-made controls bound to a `PrettyView`;
+every control is individually opt-in, so a host app can use the provided ones
+as-is, disable them and drive the public API from its own widgets, or mix the two.
+
+```go
+pv := prettyview.New()
+
+// (a) Drop in the built-in control bar — pick exactly which controls appear.
+bar := prettyview.NewToolbar(pv, prettyview.ToolbarConfig{
+    ShowOpen:           true,   // "Open…" file dialog (needs Window or OnOpen)
+    ShowFormat:         true,   // format selector (re-parses current source)
+    ShowExpandCollapse: true,   // Expand all / Collapse all
+    ShowWrap:           true,   // soft-wrap toggle
+    ShowSearch:         true,   // find box + prev/next + match counter
+    Window:             w,      // enables the Open dialog and Ctrl/Cmd+F focus
+})
+w.SetContent(container.NewBorder(bar, nil, nil, nil, pv))
+```
+
+```go
+// (b) Or omit the toolbar and wire your own controls to the public API:
+myFind.OnChanged       = func(s string) { pv.Search(prettyview.SearchQuery{Text: s}) }
+myExpandButton.OnTapped = pv.ExpandAll
+```
+
+`prettyview.DefaultToolbarConfig()` returns a config with every control enabled.
+À-la-carte constructors let you place individual built-ins anywhere:
+`prettyview.NewSearchBar(pv)`, `prettyview.NewFormatSelect(pv)`,
+`prettyview.NewFoldButtons(pv)`, `prettyview.NewWrapToggle(pv)`. To keep host
+controls in sync, register `pv.SetOnSearchChanged(fn)` (match counter),
+`pv.SetOnDataChanged(fn)` (format), and `pv.SetOnSearchRequested(fn)` (focus the
+search box, e.g. on `Ctrl/Cmd+F`).
+
+> **Note on the file dialog:** the built-in *Open* uses **Fyne's own** in-canvas
+> file browser, not the OS-native picker (Fyne draws all its UI on the GL canvas).
+> For a platform-native dialog, set `ToolbarConfig.OnOpen` to your own picker and
+> feed the bytes to `pv.SetData`.
+
+## Key methods
+
+| Method | Purpose |
+|---|---|
+| `SetData(src, format)` / `SetText(s)` | load content |
+| `Reparse(format)` / `Source()` / `Format()` | re-parse the current bytes / read them back / current format |
+| `ExpandAll()` / `CollapseAll()` / `SetDefaultCollapseDepth(d)` | fold control |
+| `ExpandTo(byteOffset)` | reveal & scroll to a node |
+| `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
+| `CopySelection()` / `CopySubtree(byteOffset)` | clipboard |
+| `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` | search |
+| `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
+| `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
+| `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
+
+## Theming
 
 The viewer ships a built-in dark/light palette (`theme.go`), but every color is
 overridable. The structural colors (foreground, selection, indent guides) default
@@ -94,7 +227,7 @@ pv := prettyview.New(
     prettyview.WithTheme(theme.VariantDark, prettyview.Theme{
         Key:         myKeyColor,
         String:      myStringColor,
-        Selection:   mySelectionFill,   // previously not customizable
+        Selection:   mySelectionFill,   // free-text selection fill
         Match:       myMatchFill,        // search highlight
         ActiveMatch: myActiveMatchFill,
         IndentGuide: myGuideColor,
@@ -111,58 +244,10 @@ pv.SetTheme(theme.VariantLight, prettyview.Theme{Selection: myLightSelection})
 `Summary`, `IndentGuide`, `Selection`, `Match`, `ActiveMatch`). `SyntaxColors` is
 the token-only shorthand. Overrides merge, so repeated calls accumulate.
 
-### Controls: use the built-ins, hook your own, or both
-
-The widget itself is just the viewer - it has **no built-in buttons**. The package
-*optionally* provides ready-made controls bound to a `PrettyView`; every control
-is individually opt-in, so a host app can use the provided ones as-is, disable
-them and drive the public API from its own widgets, or mix the two.
-
-```go
-pv := prettyview.New()
-
-// (a) Drop in the built-in control bar - pick exactly which controls appear.
-bar := prettyview.NewToolbar(pv, prettyview.ToolbarConfig{
-    ShowOpen:           true,   // "Open…" file dialog (needs Window or OnOpen)
-    ShowFormat:         true,   // format selector (re-parses current source)
-    ShowExpandCollapse: true,   // Expand all / Collapse all
-    ShowWrap:           true,   // soft-wrap toggle ("Wrap" checkbox)
-    ShowSearch:         true,   // find box + prev/next + match counter
-    Window:             w,      // enables the Open dialog and Ctrl/Cmd+F focus
-})
-w.SetContent(container.NewBorder(bar, nil, nil, nil, pv))
-```
-
-```go
-// (b) Or omit the toolbar and wire your own controls to the public API:
-myFind.OnChanged   = func(s string) { pv.Search(prettyview.SearchQuery{Text: s}) }
-myExpandButton.OnTapped = pv.ExpandAll
-```
-
-À-la-carte constructors let you place individual built-ins anywhere:
-`prettyview.NewSearchBar(pv)`, `prettyview.NewFormatSelect(pv)`,
-`prettyview.NewFoldButtons(pv)`, `prettyview.NewWrapToggle(pv)`. To keep host controls in sync, register
-`pv.SetOnSearchChanged(fn)` (match counter) and `pv.SetOnDataChanged(fn)` (format).
-
-### Key methods
-
-| Method | Purpose |
-|---|---|
-| `SetData(src, format)` / `SetText(s)` | load content |
-| `Reparse(format)` / `Source()` | re-parse the current bytes under another format / read them back |
-| `ExpandAll()` / `CollapseAll()` | fold control |
-| `ExpandTo(byteOffset)` | reveal & scroll to a node |
-| `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
-| `CopySelection()` / `CopySubtree(byteOffset)` | clipboard |
-| `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `SearchStatus()` | search |
-| `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
-| `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
-| `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
-
-### Threading
+## Threading
 
 `PrettyView` follows the usual Fyne widget rule: it is **not safe for concurrent
-use** - call its methods (`SetData`, `Search`, `ExpandAll`, the selection and theme
+use** — call its methods (`SetData`, `Search`, `ExpandAll`, the selection and theme
 mutators, …) on the goroutine that runs the Fyne event loop. To drive it from
 another goroutine (e.g. after a network fetch), marshal the call with `fyne.Do`:
 
@@ -173,8 +258,8 @@ go func() {
 }()
 ```
 
-The widget holds no locks by design; its one internal background task - the search
-debounce - already marshals back onto the Fyne goroutine.
+The widget holds no locks by design; its one internal background task — the search
+debounce — already marshals back onto the Fyne goroutine.
 
 ## Demo
 
@@ -187,28 +272,57 @@ The demo shows both control styles at once: the built-in `NewToolbar` (Open,
 format, expand/collapse, wrap, search) used as-is, plus an app-supplied fixture
 dropdown that drives the public API directly.
 
-Prebuilt binaries are produced by CI for Linux, Windows, and macOS - each is
+Prebuilt binaries are produced by CI for Linux, Windows, and macOS — each is
 downloaded as a zip containing the executable alongside the `testdata/` fixtures,
 so the fixture dropdown works as soon as you extract and run it.
 
-## Design
+## Design and documentation
 
 The full, source-grounded architecture (the virtualization invariant, the
 struct-of-arrays model, the Fenwick fold index, the char-level selection math,
 and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 
-## Documentation
-
 | File | For whom / what |
 |---|---|
 | [README.md](README.md) | This overview: features, install, usage, API. |
-| [STRUCTURE.md](STRUCTURE.md) | The codebase map - every file, the layering, the mental model. |
+| [STRUCTURE.md](STRUCTURE.md) | The codebase map — every file, the layering, the mental model. |
 | [WORKFLOWS.md](WORKFLOWS.md) | How to build, run, test, benchmark, and extend (parsers, colors). |
 | [docs/DESIGN.md](docs/DESIGN.md) | The authoritative architecture + adversarial risk analysis. |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Performance review: hot paths, benchmarks, and the measured deltas. |
 | [HUMANS.md](HUMANS.md) | Onboarding and contribution guide for people. |
 | [AGENTS.md](AGENTS.md) | Brief for AI coding agents: invariants to preserve, conventions. |
 | [CLAUDE.md](CLAUDE.md) | Claude Code entry point (points at AGENTS.md). |
+
+## Contributing
+
+Contributions are welcome — issues and pull requests both. A few things keep the
+project healthy:
+
+- **Read the briefs first.** [HUMANS.md](HUMANS.md) is the human onboarding guide;
+  [WORKFLOWS.md](WORKFLOWS.md) covers build/run/test/bench and how to add a parser
+  or a color; [AGENTS.md](AGENTS.md) lists the non-negotiable invariants.
+- **`make check` must pass.** It runs `gofmt`, `go vet` (which also forbids
+  `internal/` Fyne imports), and `go test -race ./...`. CI additionally enforces
+  **> 90 % coverage**, so ship a regression test with each change.
+- **Respect the memory invariants.** Only viewport-many rows are ever live
+  widgets; selection/search/copy operate on the model, not on widgets; per-row
+  text is horizontally culled. The arena sizes (`Node`=32 B, `Line`=24 B,
+  `Segment`=12 B) are locked by `internal/model/sizes_test.go`. If a change
+  regresses `renderer_test.go` or `memory_test.go`, it's the change that's wrong.
+- **See the UI without a display.** `make shots` renders the fixtures to PNGs via
+  Fyne's software painter, so you can verify layout/colors/highlight z-order
+  headlessly.
+- Keep changes milestone-sized and ship the test in the same change.
+
+## Sponsorship
+
+This project is maintained on the side and looking for sponsors to keep the
+modernization moving forward. If your team relies on it, please consider chipping
+in ❤️ — every contribution helps keep this library alive:
+
+[![Sponsor on GitHub](https://img.shields.io/github/sponsors/ideaconnect?style=for-the-badge&logo=githubsponsors&logoColor=white&label=Sponsor&color=ea4aaa)](https://github.com/sponsors/ideaconnect) [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/idct)
+
+Thank you to everyone who already supports the project! 🙏
 
 ## Credits
 
