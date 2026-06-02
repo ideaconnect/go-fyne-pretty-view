@@ -272,9 +272,11 @@ The demo shows both control styles at once: the built-in `NewToolbar` (Open,
 format, expand/collapse, wrap, search) used as-is, plus an app-supplied fixture
 dropdown that drives the public API directly.
 
-Prebuilt binaries are produced by CI for Linux, Windows, and macOS — each is
-downloaded as a zip containing the executable alongside the `testdata/` fixtures,
-so the fixture dropdown works as soon as you extract and run it.
+Prebuilt binaries are produced by CI for Linux, Windows, and macOS — each is a
+zip containing the executable alongside the `testdata/` fixtures, so the fixture
+dropdown works as soon as you extract and run it. Tagged versions publish these
+zips to the project's [GitHub Releases](https://github.com/ideaconnect/go-fyne-pretty-view/releases)
+page; CI runs also keep them as build artifacts.
 
 ## Design and documentation
 

@@ -98,5 +98,13 @@ make check                      # must be green
 git tag vX.Y.Z && git push --tags
 ```
 
+Pushing a `vX.Y.Z` tag also triggers the **release** workflow
+([.github/workflows/release.yml](.github/workflows/release.yml)): it builds the
+demo for Linux/Windows/macOS, zips each binary together with the `testdata/`
+fixtures, and attaches the zips to a GitHub Release with auto-generated notes. A
+tag with a pre-release suffix (e.g. `v1.2.3-rc1`) is marked as a pre-release; you
+can also re-run it manually from the Actions tab (workflow_dispatch) against an
+existing tag.
+
 Follow semver; the public API is everything exported from package `prettyview`
 (see [README.md](README.md) for the surface).
