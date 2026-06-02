@@ -257,7 +257,7 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 		pv.r.scrollToOffset(fyne.NewPos(0, 0))
 	case fyne.KeyEnd:
 		cs := pv.contentSize()
-		pv.r.scrollToOffset(fyne.NewPos(pv.r.scroll.Offset.X, maxf(0, cs.Height-vpH)))
+		pv.r.scrollToOffset(fyne.NewPos(pv.r.scroll.Offset.X, max(0, cs.Height-vpH)))
 	}
 }
 
@@ -425,7 +425,9 @@ func (pv *PrettyView) subtreeText(node model.NodeID) string {
 	var sb strings.Builder
 	for li := n.HeadLine; li <= n.CloseLine; li++ {
 		l := &pv.doc.Lines[li]
-		sb.WriteString(strings.Repeat("  ", int(l.Depth)-int(n.Depth)))
+		if d := int(l.Depth) - int(n.Depth); d > 0 { // guard: a shallower descendant would panic strings.Repeat
+			sb.WriteString(strings.Repeat("  ", d))
+		}
 		sb.WriteString(pv.doc.LineString(li))
 		if li < n.CloseLine {
 			sb.WriteByte('\n')

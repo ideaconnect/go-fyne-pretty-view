@@ -65,19 +65,40 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 		}
 	}
 
-	for {
+	havePending := false
+	var pendTT html.TokenType
+	var pendTok html.Token
+	nextToken := func() (html.TokenType, html.Token) {
+		if havePending {
+			havePending = false
+			return pendTT, pendTok
+		}
 		tt := z.Next()
+		return tt, z.Token()
+	}
+
+	for {
+		tt, tok := nextToken()
 		if tt == html.ErrorToken {
 			break // EOF or read error; Finish() closes danglers
 		}
-		tok := z.Token()
 		switch tt {
 		case html.StartTagToken:
-			if isVoidElement(tok.Data) {
+			switch {
+			case isVoidElement(tok.Data):
 				b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, false))
-			} else {
-				b.Open(model.KindElement, 0, htmlStartSegs(tok, false))
-				names = append(names, tok.Data)
+			default:
+				// Peek one token: a start tag immediately followed by its matching end
+				// tag is an empty element, emitted inline (non-foldable) like the XML
+				// path, rather than a foldable node that collapses to "0 children".
+				ntt, ntok := nextToken()
+				if ntt == html.EndTagToken && ntok.Data == tok.Data {
+					b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, true))
+				} else {
+					b.Open(model.KindElement, 0, htmlStartSegs(tok, false))
+					names = append(names, tok.Data)
+					havePending, pendTT, pendTok = true, ntt, ntok // re-process the peeked token
+				}
 			}
 		case html.SelfClosingTagToken:
 			b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, true))

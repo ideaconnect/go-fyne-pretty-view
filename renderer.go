@@ -229,16 +229,9 @@ func (r *prettyViewRenderer) scrollBy(dx, dy float32) {
 	cs := r.pv.contentSize()
 	vp := r.scroll.Size()
 	off := r.scroll.Offset
-	nx := clampf(off.X+dx, 0, maxf(0, cs.Width-vp.Width))
-	ny := clampf(off.Y+dy, 0, maxf(0, cs.Height-vp.Height))
+	nx := clampf(off.X+dx, 0, max(0, cs.Width-vp.Width))
+	ny := clampf(off.Y+dy, 0, max(0, cs.Height-vp.Height))
 	r.scrollToOffset(fyne.NewPos(nx, ny))
-}
-
-func maxf(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // contentLayout reports the full document extent as the scroll content's MinSize

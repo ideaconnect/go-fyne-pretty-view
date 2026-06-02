@@ -22,9 +22,6 @@ func (d *Document) Toggle(node NodeID) { d.fold.toggle(d, node) }
 // anything changed.
 func (d *Document) RevealLine(line int32) bool { return d.fold.revealLine(d, line) }
 
-// ExpandAncestors expands every collapsed ancestor of node.
-func (d *Document) ExpandAncestors(node NodeID) bool { return d.fold.expandAncestors(d, node) }
-
 // ExpandAll expands every node; CollapseAll collapses below the top level.
 func (d *Document) ExpandAll()   { d.fold.expandAll(d) }
 func (d *Document) CollapseAll() { d.fold.collapseAll(d) }

@@ -192,7 +192,12 @@ func (pv *PrettyView) CollapseAll() {
 
 // SetDefaultCollapseDepth sets the auto-collapse depth applied on subsequent
 // SetData calls (0 disables).
-func (pv *PrettyView) SetDefaultCollapseDepth(depth int) { pv.cfg.collapseDepth = depth }
+func (pv *PrettyView) SetDefaultCollapseDepth(depth int) {
+	if depth < 0 {
+		depth = 0
+	}
+	pv.cfg.collapseDepth = depth
+}
 
 // ExpandTo expands every collapsed ancestor of the node owning byte offset off
 // (JSON only; XML/HTML lack source offsets) and scrolls it into view.
@@ -236,7 +241,7 @@ func (pv *PrettyView) centerOnLine(line int32, col int) {
 	depth := pv.doc.Lines[line].Depth
 	vp := pv.r.scroll.Size()
 	cs := pv.contentSize()
-	y := clampf(float32(row)*pv.met.RowH-(vp.Height-pv.met.RowH)/2, 0, maxf(0, cs.Height-vp.Height))
-	x := clampf(pv.met.ColX(depth, col)-vp.Width/2, 0, maxf(0, cs.Width-vp.Width))
+	y := clampf(float32(row)*pv.met.RowH-(vp.Height-pv.met.RowH)/2, 0, max(0, cs.Height-vp.Height))
+	x := clampf(pv.met.ColX(depth, col)-vp.Width/2, 0, max(0, cs.Width-vp.Width))
 	pv.r.scrollToOffset(fyne.NewPos(x, y))
 }

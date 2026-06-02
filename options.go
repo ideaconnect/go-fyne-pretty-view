@@ -61,14 +61,25 @@ type Option func(*config)
 // WithFormat forces a specific input format, skipping auto-detection.
 func WithFormat(f Format) Option { return func(c *config) { c.format = f } }
 
-// WithWrap selects the long-line handling mode (default WrapNone).
+// WithWrap selects the long-line handling mode (default WrapNone). NOTE: soft-wrap
+// is not yet implemented, so the value is stored but not currently consulted — long
+// lines always scroll horizontally. The option exists so callers stay source-stable
+// once wrapping ships.
 func WithWrap(m WrapMode) Option { return func(c *config) { c.wrap = m } }
 
 // WithSearchConfig overrides the search tuning parameters.
 func WithSearchConfig(s SearchConfig) Option { return func(c *config) { c.search = s } }
 
-// WithDefaultCollapseDepth auto-collapses every container deeper than d on load.
-func WithDefaultCollapseDepth(d int) Option { return func(c *config) { c.collapseDepth = d } }
+// WithDefaultCollapseDepth auto-collapses every container deeper than d on load
+// (d <= 0 disables auto-collapse).
+func WithDefaultCollapseDepth(d int) Option {
+	return func(c *config) {
+		if d < 0 {
+			d = 0
+		}
+		c.collapseDepth = d
+	}
+}
 
 // WithTabWidth sets the display width of a tab character (default 4).
 func WithTabWidth(n int) Option {

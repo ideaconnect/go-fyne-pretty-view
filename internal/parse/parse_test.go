@@ -98,6 +98,19 @@ func TestModelAccessorsGuardOutOfRange(t *testing.T) {
 	}
 }
 
+// TestHTMLEmptyElementInline checks an explicit empty element <div></div> renders as
+// a single inline (non-foldable) line, like the XML path, instead of a foldable node
+// that collapses to a nonsensical "0 children" summary (P12).
+func TestHTMLEmptyElementInline(t *testing.T) {
+	if got := int(Parse([]byte(`<div></div>`), FormatHTML, 0).TotalVisibleRows()); got != 1 {
+		t.Errorf("<div></div> = %d visible rows, want 1 (inline empty element)", got)
+	}
+	// A non-empty parent stays foldable; only the empty child is inlined.
+	if got := int(Parse([]byte(`<a><b></b></a>`), FormatHTML, 0).TotalVisibleRows()); got != 3 {
+		t.Errorf("<a><b></b></a> = %d visible rows, want 3 (<a> / <b></b> / </a>)", got)
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {

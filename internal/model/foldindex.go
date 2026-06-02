@@ -283,12 +283,6 @@ func (fi *foldIndex) revealLine(d *Document, line int32) bool {
 	return fi.unfoldAncestors(d, d.Lines[line].Owner)
 }
 
-// expandAncestors expands every collapsed ancestor of node so that node's head
-// line becomes visible. Returns true if anything changed.
-func (fi *foldIndex) expandAncestors(d *Document, node NodeID) bool {
-	return fi.unfoldAncestors(d, d.Nodes[node].Parent)
-}
-
 // unfoldAncestors unfolds every collapsed node on the chain from start up to the
 // root, OUTERMOST-FIRST. Order is load-bearing: unfold's precondition is that the
 // node is currently visible and it only restores lines whose nearest collapsed

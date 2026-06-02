@@ -29,7 +29,7 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 	rb := int(pv.doc.RowOfLine(b.line))
 
 	n := 0
-	for row := maxInt(ra, first); row <= minInt(rb, last); row++ {
+	for row := max(ra, first); row <= min(rb, last); row++ {
 		li := pv.doc.LineAtRow(int32(row))
 		depth := pv.doc.Lines[li].Depth
 		runeLen := pv.doc.LineRuneLen(li)
@@ -132,18 +132,4 @@ func (r *prettyViewRenderer) applyRects(layer *fyne.Container, pool *[]*canvas.R
 	*objs = buf
 	layer.Objects = buf
 	layer.Refresh()
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
