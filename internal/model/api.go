@@ -35,7 +35,7 @@ func (d *Document) Visible(line int32) bool {
 	if line < 0 || int(line) >= len(d.fold.vis) {
 		return false
 	}
-	return d.fold.vis[line] == 1
+	return d.fold.vis[line] != 0
 }
 
 // Rebuild recomputes the projection from the collapsed bitset (used by tests and
@@ -45,7 +45,8 @@ func (d *Document) Rebuild() { d.fold.rebuild(d) }
 // ProjectionBytes estimates the heap footprint of the fold/visibility index
 // (used by memory accounting/tests).
 func (d *Document) ProjectionBytes() int {
-	return len(d.fold.vis)*4 + len(d.fold.hiddenBy)*4 + len(d.fold.bit.tree)*4 + len(d.fold.collapsed.words)*8
+	return len(d.fold.vis)*4 + len(d.fold.hiddenBy)*4 + len(d.fold.bit.tree)*4 +
+		len(d.fold.collapsed.words)*8 + len(d.rowsOf)*4
 }
 
 // VisibleLine returns line itself if visible, else the head line of its nearest
@@ -54,7 +55,7 @@ func (d *Document) VisibleLine(line int32) int32 {
 	if line < 0 || int(line) >= len(d.fold.vis) {
 		return line
 	}
-	if d.fold.vis[line] == 1 {
+	if d.fold.vis[line] != 0 {
 		return line
 	}
 	if hb := d.fold.hiddenBy[line]; hb != NoNode {

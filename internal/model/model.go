@@ -144,6 +144,14 @@ type Document struct {
 	MaxDepth     uint8 // deepest indentation level present
 
 	lineRunes []int32 // cached expanded displayed-rune-length per line (computeExtent)
+
+	// Soft-wrap projection. rowsOf[line] is the number of visual rows a line's
+	// currently-displayed text occupies at the active wrap width; nil means WrapNone
+	// — every visible line is exactly one row (the fast path, with zero extra cost).
+	// wrapCols is the depth-0 column budget, retained only as the reprojection key so
+	// a resize reprojects merely when the integer column count actually changes.
+	rowsOf   []int32
+	wrapCols int
 }
 
 // SegBytes returns the raw bytes a segment references.

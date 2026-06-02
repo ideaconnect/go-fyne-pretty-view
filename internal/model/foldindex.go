@@ -99,9 +99,21 @@ func newFoldIndex(d *Document) *foldIndex {
 	}
 	for i := range fi.hiddenBy {
 		fi.hiddenBy[i] = NoNode
-		fi.vis[i] = 1
+		fi.vis[i] = fi.weightOf(d, int32(i))
 	}
 	return fi
+}
+
+// weightOf is the Fenwick weight a *visible* line contributes: its visual-row
+// count. Under WrapNone (d.rowsOf == nil) that is always 1 — a single nil check,
+// so the non-wrap path pays nothing. Under WrapWord it is the line's wrapped-row
+// count for its currently-displayed rendering (fold-aware, maintained by the wrap
+// projection pass and the fold/unfold weight updates).
+func (fi *foldIndex) weightOf(d *Document, li int32) int32 {
+	if d.rowsOf == nil {
+		return 1
+	}
+	return d.rowsOf[li]
 }
 
 // buildFenwick rebuilds the Fenwick tree from vis in O(n). It reuses the existing
@@ -149,7 +161,7 @@ func (fi *foldIndex) rebuild(d *Document) {
 		hb := innermostCollapsed()
 		fi.hiddenBy[li] = hb
 		if hb == NoNode {
-			fi.vis[li] = 1
+			fi.vis[li] = fi.weightOf(d, li)
 		} else {
 			fi.vis[li] = 0
 		}
@@ -285,7 +297,7 @@ func (fi *foldIndex) expandAll(d *Document) {
 // Returns true if anything changed. It unfolds incrementally (O(touched lines)
 // per ancestor) rather than rebuilding the whole projection.
 func (fi *foldIndex) revealLine(d *Document, line int32) bool {
-	if line < 0 || int(line) >= len(fi.vis) || fi.vis[line] == 1 {
+	if line < 0 || int(line) >= len(fi.vis) || fi.vis[line] != 0 {
 		return false
 	}
 	return fi.unfoldAncestors(d, d.Lines[line].Owner)
