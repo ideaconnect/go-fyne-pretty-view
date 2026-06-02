@@ -8,7 +8,7 @@ All facts confirmed. Here is the authoritative architecture and build plan.
 
 A reusable Go+Fyne widget: a Bruno-like structured-data viewer for JSON / JSONC / XML / HTML / raw text with syntax highlighting, per-node expand/fold with collapse summaries, copy-subtree, true character-level free-text drag selection across rows, and incremental search with reveal-into-folds. Built for hard memory bounds via row virtualization.
 
-All Fyne citations below are verified against `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/`.
+All Fyne citations below are verified against `fyne.io/fyne/v2@v2.7.4/`.
 
 ---
 
@@ -895,12 +895,12 @@ Root `Tapped`/`Cursor` model-space hit-test; triangle hot-zone; `toggle`→`Refr
 ---
 
 Relevant Fyne source files this design is grounded on (absolute paths):
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/widget/list.go` (fast-path window math 413-435; recycle pool 649-754; Content.Objects rebuild 758-763)
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/internal/widget/scroller.go` (Offset 490, OnScrolled 495, ScrollToOffset 572 no-OnScrolled, both-axes Content.Move 454, canvas.Refresh idiom 477)
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/widget/selectable.go` (state 16-24, getRowCol 197-215, selection/normalize 235-263, SelectedText 120-131, buildSelection pooled rects 329-405, isTripleTap 413-415)
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/widget/entry.go` (z-order under text 1813-1819, TextCursor 248-250, shift/word/autoscroll 346-372/1852-1922/1924-1987, shortcuts 1042-1135, disabled-Copy routing context)
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/internal/painter/gl/texture.go` (full-line-width text bitmap 171-173 — drives M-2)
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/internal/cache/base.go` (content-keyed text textures, 60 s ValidDuration 9 — drives R-2)
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/internal/driver/glfw/window.go` (drag threshold + incremental Dragged delta + mouseDragPos per-move 405-424; deepest-match dispatch 460-471)
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/widget/textgrid.go` (rounded monospace cell size 646-649)
-- `/home/bartosz/go/pkg/mod/fyne.io/fyne/v2@v2.7.4/canvas/text.go` (single-color Text 16-31), `text.go` (MeasureText 71), `thread.go` (Do/DoAndWait 8/18), `clipboard.go` (4-9), `app.go` (Clipboard 88), `theme.go` (Color 28-33), `widget.go` (WidgetRenderer 17-33; NewSimpleRenderer 203)
+- `fyne.io/fyne/v2@v2.7.4/widget/list.go` (fast-path window math 413-435; recycle pool 649-754; Content.Objects rebuild 758-763)
+- `fyne.io/fyne/v2@v2.7.4/internal/widget/scroller.go` (Offset 490, OnScrolled 495, ScrollToOffset 572 no-OnScrolled, both-axes Content.Move 454, canvas.Refresh idiom 477)
+- `fyne.io/fyne/v2@v2.7.4/widget/selectable.go` (state 16-24, getRowCol 197-215, selection/normalize 235-263, SelectedText 120-131, buildSelection pooled rects 329-405, isTripleTap 413-415)
+- `fyne.io/fyne/v2@v2.7.4/widget/entry.go` (z-order under text 1813-1819, TextCursor 248-250, shift/word/autoscroll 346-372/1852-1922/1924-1987, shortcuts 1042-1135, disabled-Copy routing context)
+- `fyne.io/fyne/v2@v2.7.4/internal/painter/gl/texture.go` (full-line-width text bitmap 171-173 — drives M-2)
+- `fyne.io/fyne/v2@v2.7.4/internal/cache/base.go` (content-keyed text textures, 60 s ValidDuration 9 — drives R-2)
+- `fyne.io/fyne/v2@v2.7.4/internal/driver/glfw/window.go` (drag threshold + incremental Dragged delta + mouseDragPos per-move 405-424; deepest-match dispatch 460-471)
+- `fyne.io/fyne/v2@v2.7.4/widget/textgrid.go` (rounded monospace cell size 646-649)
+- `fyne.io/fyne/v2@v2.7.4/canvas/text.go` (single-color Text 16-31), `text.go` (MeasureText 71), `thread.go` (Do/DoAndWait 8/18), `clipboard.go` (4-9), `app.go` (Clipboard 88), `theme.go` (Color 28-33), `widget.go` (WidgetRenderer 17-33; NewSimpleRenderer 203)

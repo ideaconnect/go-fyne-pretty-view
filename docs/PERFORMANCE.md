@@ -1,4 +1,4 @@
-> **Status — all 9 findings resolved.** Tracked as phase "7 · Performance Hardening — Response Viewer (prettyview)" in the Helena Asana plan. Measured deltas after the fixes:
+> **Status — all 9 findings resolved.** Measured deltas after the fixes:
 >
 > | Path | Before | After |
 > |---|---|---|
