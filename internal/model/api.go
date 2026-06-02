@@ -10,8 +10,20 @@ func (d *Document) TotalVisibleRows() int32 { return d.fold.TotalVisibleRows() }
 // LineAtRow maps a 0-based visible row to its display-line index.
 func (d *Document) LineAtRow(row int32) int32 { return d.fold.lineAtRow(row) }
 
-// RowOfLine maps a display line to the visible row it occupies.
+// RowOfLine maps a display line to the visible row it occupies. Under soft-wrap a
+// line spans several visual rows; this returns the FIRST (top) one.
 func (d *Document) RowOfLine(line int32) int32 { return d.fold.rowOfLine(line) }
+
+// FirstVisualRowOfLine is RowOfLine under its wrap-aware name: the top visual row
+// of a (possibly multi-row) display line.
+func (d *Document) FirstVisualRowOfLine(line int32) int32 { return d.fold.rowOfLine(line) }
+
+// LineAndSubRowAtRow maps a visible visual row to its display line and the 0-based
+// sub-row within that line (0 unless the line is soft-wrapped). The renderer uses
+// the sub-row to pick which column slice of the line a given screen row shows.
+func (d *Document) LineAndSubRowAtRow(row int32) (line, sub int32) {
+	return d.fold.lineAndSubRow(row)
+}
 
 // Fold collapses node; Unfold expands it; Toggle flips it.
 func (d *Document) Fold(node NodeID)   { d.fold.fold(d, node) }

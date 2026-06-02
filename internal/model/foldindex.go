@@ -193,6 +193,27 @@ func (fi *foldIndex) lineAtRow(row int32) int32 {
 	return li
 }
 
+// lineAndSubRow maps a 0-based visible visual row to its display line and the
+// 0-based sub-row within that line (0 unless the line is soft-wrapped). O(log n).
+// Out-of-range rows clamp, matching lineAtRow.
+func (fi *foldIndex) lineAndSubRow(visualRow int32) (line, sub int32) {
+	n := int32(len(fi.vis))
+	if n == 0 {
+		return 0, 0
+	}
+	if visualRow < 0 {
+		visualRow = 0
+	}
+	if total := fi.bit.total(); visualRow >= total {
+		visualRow = total - 1
+	}
+	line = int32(fi.bit.kth(visualRow + 1))
+	if line >= n {
+		line = n - 1
+	}
+	return line, visualRow - fi.bit.prefix(int(line))
+}
+
 // rowOfLine maps a display line to the visible row it occupies (or, if hidden,
 // the row it would occupy). O(log n). An out-of-range line is clamped to the
 // valid prefix range rather than indexing the Fenwick tree out of bounds.

@@ -94,6 +94,25 @@ func (m Metrics) ColX(depth uint8, col int) float32 {
 	return m.TextOriginX(depth) + float32(col)*m.CharWidth
 }
 
+// minWrapCols floors a line's soft-wrap budget: even at an indentation so deep that
+// almost no width remains, a line wraps to at least this many columns per visual
+// row rather than degenerating to one rune per row.
+const minWrapCols = 4
+
+// ColsForDepth is the number of text columns available to soft-wrap a line at the
+// given depth within a viewport of width viewportW (content space). It mirrors the
+// renderer's content-width slack (CharWidth*2) so a wrapped row leaves the same
+// right-edge breathing room a non-wrapped line has, and clamps to minWrapCols. The
+// view passes the per-depth results into the model, which cannot import geometry.
+func (m Metrics) ColsForDepth(depth uint8, viewportW float32) int {
+	avail := viewportW - m.TextOriginX(depth) - m.CharWidth*2
+	cols := int(math.Floor(float64(avail / m.CharWidth)))
+	if cols < minWrapCols {
+		cols = minWrapCols
+	}
+	return cols
+}
+
 // ColAtX maps a content-space x to a rune column using half-glyph rounding.
 func (m Metrics) ColAtX(depth uint8, x float32) int {
 	rel := x - m.TextOriginX(depth)

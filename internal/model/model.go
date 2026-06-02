@@ -148,10 +148,11 @@ type Document struct {
 	// Soft-wrap projection. rowsOf[line] is the number of visual rows a line's
 	// currently-displayed text occupies at the active wrap width; nil means WrapNone
 	// — every visible line is exactly one row (the fast path, with zero extra cost).
-	// wrapCols is the depth-0 column budget, retained only as the reprojection key so
-	// a resize reprojects merely when the integer column count actually changes.
-	rowsOf   []int32
-	wrapCols int
+	// colsByDepth is the per-depth text-column budget the view supplies (the model
+	// cannot import geometry, so the column math is passed in); it is retained so a
+	// single fold/unfold can re-weight one head line without a full reprojection.
+	rowsOf      []int32
+	colsByDepth []int
 }
 
 // SegBytes returns the raw bytes a segment references.
