@@ -146,7 +146,8 @@ func (m Metrics) LastVisibleCol(depth uint8, x1 float32) int {
 
 // HitTest maps a content-space pixel to a model position (display line + rune
 // column). Out-of-range rows clamp to the document's start/end. A returned line
-// of -1 means the document is empty.
+// of -1 means the document is empty. Under soft-wrap the clicked visual row is one
+// sub-row of a wrapped line, so the column is offset by that sub-row's start.
 func HitTest(d *model.Document, m Metrics, contentX, contentY float32) (line int32, col int) {
 	total := d.TotalVisibleRows()
 	if total == 0 {
@@ -162,8 +163,19 @@ func HitTest(d *model.Document, m Metrics, contentX, contentY float32) (line int
 		// end — so a below-and-left click maps to a near-start column, not EOL.
 		row = int(total - 1)
 	}
-	li := d.LineAtRow(int32(row))
-	col = m.ColAtX(d.Lines[li].Depth, contentX)
+	li, sub := d.LineAndSubRowAtRow(int32(row))
+	local := m.ColAtX(d.Lines[li].Depth, contentX) // column offset within this (sub-)row's text
+	if local < 0 {
+		local = 0
+	}
+	col = local
+	if d.WrapActive() {
+		start, end := wrapRowSpan(d, li, sub)
+		col = int(start) + local
+		if col > int(end) {
+			col = int(end) // a click past the row's text stays within the row, not the next one
+		}
+	}
 	if n := d.LineRuneLen(li); col > n {
 		col = n
 	}
@@ -174,8 +186,33 @@ func HitTest(d *model.Document, m Metrics, contentX, contentY float32) (line int
 }
 
 // CellOrigin returns the content-space top-left pixel of (line, col): the inverse
-// of HitTest at a column's left edge.
+// of HitTest at a column's left edge. Under soft-wrap it resolves which sub-row
+// holds col and offsets x by that sub-row's start column.
 func CellOrigin(d *model.Document, m Metrics, line int32, col int) (x, y float32) {
-	row := d.RowOfLine(line)
-	return m.ColX(d.Lines[line].Depth, col), m.RowY(int(row))
+	depth := d.Lines[line].Depth
+	row := d.RowOfLine(line) // first (top) visual row of the line
+	local := col
+	if d.WrapActive() {
+		breaks := d.WrapBreaks(line, nil)
+		sub := 0
+		for sub < len(breaks)-2 && col >= int(breaks[sub+1]) {
+			sub++
+		}
+		local = col - int(breaks[sub])
+		row += int32(sub)
+	}
+	return m.ColX(depth, local), m.RowY(int(row))
+}
+
+// wrapRowSpan returns the [start, end) displayed-rune-column range of sub-row sub
+// of line li. Caller must have checked d.WrapActive().
+func wrapRowSpan(d *model.Document, li, sub int32) (start, end int32) {
+	breaks := d.WrapBreaks(li, nil) // [0, b1, …, lineLen]; row k spans [breaks[k], breaks[k+1])
+	if sub < 0 {
+		sub = 0
+	}
+	if int(sub) > len(breaks)-2 {
+		sub = int32(len(breaks) - 2)
+	}
+	return breaks[sub], breaks[sub+1]
 }

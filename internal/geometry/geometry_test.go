@@ -89,6 +89,43 @@ func TestHitTestGoldenRoundTrip(t *testing.T) {
 	}
 }
 
+// TestHitTestGoldenRoundTripWrapped is the soft-wrap counterpart: with a narrow
+// viewport forcing lines to wrap, CellOrigin∘HitTest must still round-trip across
+// sub-rows, including columns that straddle a soft-break boundary.
+func TestHitTestGoldenRoundTripWrapped(t *testing.T) {
+	d := loadDoc(t, "openapi.json")
+	m := testMetrics()
+	const viewW = 360 // narrow: many lines wrap to several visual rows
+	cols := make([]int, int(d.MaxDepth)+1)
+	for depth := range cols {
+		cols[depth] = m.ColsForDepth(uint8(depth), viewW)
+	}
+	d.SetWrapColumns(cols)
+
+	total := d.TotalVisibleRows()
+	rows := []int32{0, 1, 2, 5, 13, total / 2, total - 2, total - 1}
+	var dst []int32
+	for _, r := range rows {
+		if r < 0 || r >= total {
+			continue
+		}
+		li, sub := d.LineAndSubRowAtRow(r)
+		dst = d.WrapBreaks(li, dst[:0])
+		start, end := int(dst[sub]), int(dst[sub+1])
+		for _, col := range []int{start, start + 1, (start + end) / 2, end} {
+			if col < start || col > end {
+				continue
+			}
+			cx, cy := CellOrigin(d, m, li, col)
+			gotLine, gotCol := HitTest(d, m, cx, cy+1)
+			if gotLine != li || gotCol != col {
+				t.Fatalf("wrapped row %d (line %d sub %d) col %d -> origin (%.1f,%.1f) -> {line %d col %d}",
+					r, li, sub, col, cx, cy, gotLine, gotCol)
+			}
+		}
+	}
+}
+
 func TestHitTestClampsBeyondEnd(t *testing.T) {
 	d := loadDoc(t, "small.json")
 	m := testMetrics()
