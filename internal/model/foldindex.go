@@ -139,7 +139,13 @@ func (fi *foldIndex) buildFenwick() {
 
 // rebuild recomputes hiddenBy/vis from the collapsed bitset in one O(n·depth)
 // pass, then rebuilds the Fenwick. Used by defaults / ExpandAll / CollapseAll.
+// When soft-wrap is active it first refreshes every line's visual-row weight, so a
+// bulk fold change that flips many heads between expanded/collapsed renderings is
+// reflected (the incremental fold/unfold path re-weights only the one toggled head).
 func (fi *foldIndex) rebuild(d *Document) {
+	if d.rowsOf != nil {
+		d.computeWrapRows()
+	}
 	type frame struct {
 		node      NodeID
 		closeLine int32
@@ -227,6 +233,22 @@ func (fi *foldIndex) rowOfLine(line int32) int32 {
 	return fi.bit.prefix(int(line))
 }
 
+// reweightHead patches a fold-head line whose displayed rendering just switched
+// between its expanded and collapsed forms. Under soft-wrap the two forms can
+// occupy a different number of visual rows, so the head's Fenwick weight changes
+// even though the head itself stays visible across the toggle. No-op under WrapNone.
+func (fi *foldIndex) reweightHead(d *Document, head int32) {
+	if d.rowsOf == nil {
+		return
+	}
+	old := d.rowsOf[head]
+	d.reweightLine(head) // recompute from the now-current (fold-aware) display segs
+	if delta := d.rowsOf[head] - old; delta != 0 && fi.vis[head] != 0 {
+		fi.bit.add(int(head), delta)
+		fi.vis[head] = d.rowsOf[head]
+	}
+}
+
 // fold collapses node. Precondition: node currently visible (see invariant).
 func (fi *foldIndex) fold(d *Document, node NodeID) {
 	if fi.collapsed.get(node) {
@@ -237,12 +259,13 @@ func (fi *foldIndex) fold(d *Document, node NodeID) {
 	for li := n.HeadLine + 1; li <= n.CloseLine; li++ {
 		if fi.hiddenBy[li] == NoNode {
 			fi.hiddenBy[li] = node
-			if fi.vis[li] == 1 {
+			if w := fi.vis[li]; w != 0 { // subtract the line's whole visual-row weight
 				fi.vis[li] = 0
-				fi.bit.add(int(li), -1)
+				fi.bit.add(int(li), -w)
 			}
 		}
 	}
+	fi.reweightHead(d, n.HeadLine)
 }
 
 // unfold expands node. Precondition: node currently visible.
@@ -255,10 +278,12 @@ func (fi *foldIndex) unfold(d *Document, node NodeID) {
 	for li := n.HeadLine + 1; li <= n.CloseLine; li++ {
 		if fi.hiddenBy[li] == node {
 			fi.hiddenBy[li] = NoNode
-			fi.vis[li] = 1
-			fi.bit.add(int(li), 1)
+			w := fi.weightOf(d, li) // restore the line's visual-row weight (collapsed count if it is itself a nested collapsed head)
+			fi.vis[li] = w
+			fi.bit.add(int(li), w)
 		}
 	}
+	fi.reweightHead(d, n.HeadLine)
 }
 
 // toggle flips the fold state of node.

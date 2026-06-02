@@ -19,6 +19,100 @@ func rawDoc(lines ...string) *Document {
 	return b.Finish()
 }
 
+// nestedDoc builds a small foldable document: an outer object holding a leaf with
+// a long (wrapping) value and an inner foldable object. Used for fold/unfold-under-
+// wrap tests where a collapsed head's summary wraps differently than its expanded
+// head, and where folding a parent hides a multi-visual-row leaf.
+func nestedDoc() *Document {
+	b := NewBuilder(nil, FormatJSON, 0)
+	b.Open(KindObject, 0, []Seg{LitSeg(RoleKey, `"root"`), LitSeg(RolePunct, ": {")})
+	b.Leaf(KindKeyValue, 0, 0, []Seg{
+		LitSeg(RoleKey, `"k"`), LitSeg(RolePunct, ": "),
+		LitSeg(RoleString, `"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"`), // 30 a's: wraps to several rows
+	})
+	b.Open(KindObject, 0, []Seg{LitSeg(RoleKey, `"inner"`), LitSeg(RolePunct, ": {")})
+	b.Leaf(KindKeyValue, 0, 0, []Seg{LitSeg(RoleKey, `"x"`), LitSeg(RolePunct, ": "), LitSeg(RoleNumber, "1")})
+	b.Leaf(KindKeyValue, 0, 0, []Seg{LitSeg(RoleKey, `"y"`), LitSeg(RolePunct, ": "), LitSeg(RoleNumber, "2")})
+	b.Close(0, []Seg{LitSeg(RolePunct, "}")})
+	b.Close(0, []Seg{LitSeg(RolePunct, "}")})
+	return b.Finish()
+}
+
+func snapshotRows(d *Document) [][2]int32 {
+	out := make([][2]int32, d.TotalVisibleRows())
+	for r := int32(0); r < d.TotalVisibleRows(); r++ {
+		line, sub := d.LineAndSubRowAtRow(r)
+		out[r] = [2]int32{line, sub}
+	}
+	return out
+}
+
+func equalRows(a, b [][2]int32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestWrapFoldUnfoldRoundTrip drives M-W2: under soft-wrap, incremental fold/unfold
+// must apply per-line visual-row weight deltas (a hidden multi-row line removes all
+// its rows) and re-weight the toggled head (its collapsed summary may wrap to a
+// different row count). A full fold/unfold cycle must restore the projection
+// exactly, and a single incremental fold must match a from-scratch rebuild.
+func TestWrapFoldUnfoldRoundTrip(t *testing.T) {
+	d := nestedDoc()
+	const cols = 8
+	d.SetWrapColumns([]int{cols})
+
+	wantTotal := d.TotalVisibleRows()
+	wantRows := snapshotRows(d)
+
+	var dst []int32
+	for id := int32(0); id < int32(len(d.Nodes)); id++ {
+		if !foldable(d, id) {
+			continue
+		}
+		d.Fold(id)
+		// While collapsed, the head's weight must equal its collapsed WrapBreaks rows.
+		head := d.Nodes[id].HeadLine
+		dst = d.WrapBreaks(head, dst[:0])
+		if got, want := d.RowsOfLine(head), int32(len(dst)-1); got != want {
+			t.Errorf("collapsed head (node %d) weight %d != WrapBreaks rows %d", id, got, want)
+		}
+		d.Unfold(id)
+	}
+	if got := d.TotalVisibleRows(); got != wantTotal {
+		t.Errorf("after fold/unfold cycle TotalVisibleRows = %d, want %d", got, wantTotal)
+	}
+	if !equalRows(snapshotRows(d), wantRows) {
+		t.Errorf("projection not restored after fold/unfold cycle")
+	}
+
+	// Incremental fold of the inner (depth-1) object must equal a full rebuild.
+	var inner int32 = -1
+	for id := int32(0); id < int32(len(d.Nodes)); id++ {
+		if foldable(d, id) && d.Nodes[id].Depth == 1 {
+			inner = id
+			break
+		}
+	}
+	if inner < 0 {
+		t.Fatal("no depth-1 foldable node in fixture")
+	}
+	d.Fold(inner)
+	incTotal := d.TotalVisibleRows()
+	incRows := snapshotRows(d)
+	d.Rebuild() // from-scratch projection of the same collapsed state
+	if d.TotalVisibleRows() != incTotal || !equalRows(snapshotRows(d), incRows) {
+		t.Errorf("incremental fold projection != rebuild projection")
+	}
+}
+
 // TestWeightGeneralizationNoOp pins the M-W0 invariant: under WrapNone the fold
 // index keeps rowsOf nil and projects every visible line to exactly one row, so
 // generalizing the Fenwick weight from {0,1} to a per-line count is a true no-op

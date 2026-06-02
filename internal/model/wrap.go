@@ -27,8 +27,12 @@ func (d *Document) SetWrapColumns(colsByDepth []int) {
 		return
 	}
 	d.colsByDepth = append(d.colsByDepth[:0], colsByDepth...) // copy; caller may reuse its slice
-	d.computeWrapRows()
-	d.fold.rebuild(d)
+	if cap(d.rowsOf) < len(d.Lines) {
+		d.rowsOf = make([]int32, len(d.Lines))
+	} else {
+		d.rowsOf = d.rowsOf[:len(d.Lines)]
+	}
+	d.fold.rebuild(d) // rowsOf is now non-nil, so rebuild refreshes it and projects
 }
 
 // computeWrapRows fills rowsOf[line] with each line's visual-row count for its
