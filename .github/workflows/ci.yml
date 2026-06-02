@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main, struct]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test & coverage (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Fyne is a CGO/OpenGL widget toolkit, so even the headless (software-driver)
+      # tests need the GL + X11 headers to compile.
+      - name: Install Fyne build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev xvfb
+
+      - name: gofmt + vet
+        run: |
+          test -z "$(gofmt -l .)" || { echo 'gofmt needs running on:'; gofmt -l .; exit 1; }
+          go vet ./...
+
+      # -coverpkg=./... credits cross-package coverage (the root widget tests
+      # exercise internal/model, internal/geometry, …); -covermode=atomic is
+      # required alongside -race. xvfb-run gives a virtual display as a safety net.
+      - name: Run tests (race) with cross-package coverage
+        run: xvfb-run -a go test ./... -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out
+
+      - name: Enforce coverage threshold (> 90%)
+        run: |
+          total=$(go tool cover -func=coverage.out | awk 'END { gsub("%","",$3); print $3 }')
+          echo "Total coverage: ${total}%"
+          awk -v c="$total" 'BEGIN {
+            if (c+0 <= 90) { printf "FAIL: coverage %.1f%% is not above 90%%\n", c+0; exit 1 }
+            printf "OK: coverage %.1f%% is above 90%%\n", c+0
+          }'
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.out
+          token: ${{ secrets.CODECOV_TOKEN }} # add this repo secret (codecov.io). Public repos can also run tokenless.
+          fail_ci_if_error: false
+          verbose: true
+
+  build-demo:
+    name: Build demo (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: prettyview-demo-linux-amd64
+            binary: prettyview-demo
+          - os: windows-latest
+            artifact: prettyview-demo-windows-amd64
+            binary: prettyview-demo.exe
+          - os: macos-latest
+            artifact: prettyview-demo-macos-arm64
+            binary: prettyview-demo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Fyne build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev
+
+      # The Windows runner ships an MSYS2/MinGW gcc on PATH, which CGO needs;
+      # surface it (and fail fast with a clear message if it is ever missing).
+      - name: Show C compiler (Windows)
+        if: runner.os == 'Windows'
+        run: gcc --version
+
+      - name: Build demo
+        env:
+          CGO_ENABLED: "1"
+        run: go build -v -o ${{ matrix.binary }} ./cmd/prettyview-demo
+
+      - name: Upload demo binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error

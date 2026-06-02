@@ -1,5 +1,8 @@
 # go-fyne-pretty-view
 
+[![CI](https://github.com/ideaconnect/go-fyne-pretty-view/actions/workflows/ci.yml/badge.svg)](https://github.com/ideaconnect/go-fyne-pretty-view/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ideaconnect/go-fyne-pretty-view/graph/badge.svg)](https://codecov.io/gh/ideaconnect/go-fyne-pretty-view)
+
 A memory-efficient, virtualized [Fyne](https://fyne.io) widget for viewing
 structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 [Bruno](https://www.usebruno.com)'s response viewer.
