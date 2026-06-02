@@ -348,7 +348,7 @@ type fenwick struct {
 type foldIndex struct {
 	collapsed bitset   // over NodeID
 	hiddenBy  []NodeID // per line: nearest collapsed ancestor, or NoNode
-	vis       []int32  // per line: 1 if visible, else 0
+	vis       []int32  // per line: visual-row weight if visible (1 without wrap), else 0
 	bit       fenwick  // prefix sums over vis
 }
 ```
@@ -372,6 +372,24 @@ and the load-time default-collapse use the O(n) `rebuild` (one Fenwick build).
 
 **No `line→row` map** (resolves A2 Issue #7): `rowOfLine` is the O(log n) Fenwick prefix
 query, not a materialized map that would need an O(n) rebuild per fold.
+
+**Soft word-wrap — the same Fenwick, weighted by visual rows** (`wrap.go`). Wrapping
+makes one display line occupy several *visual* rows whose count depends on the
+viewport width. Rather than a second projection, we **generalize the per-line Fenwick
+weight from `{0,1}` to `rowsOf[line]`** — the number of wrapped rows the line's
+currently-displayed text occupies (`0` when hidden). `kth`/`prefix` already sum
+arbitrary weights, so `TotalVisibleRows`, `lineAtRow`, and `rowOfLine` are unchanged;
+`lineAndSubRow(visualRow)` adds one extra `prefix` to recover the sub-row. Fold/unfold
+add `±rowsOf[line]` and re-weight the toggled head (its collapsed summary can wrap to a
+different count). `rowsOf` is a side array (nil ⇒ WrapNone, a single nil check on every
+projection path — the non-wrap fast path pays nothing); per-line break columns are
+recomputed on demand for the ~viewport-many visible lines, never stored. The per-depth
+column budget is supplied by the view (`geometry.ColsForDepth`) because the model
+cannot import geometry. A resize reprojects (O(n)) only when the integer column count
+changes. Because each visual row paints at most one column budget of text, no
+`canvas.Text` can exceed the viewport (M-2) under wrap automatically — an unbreakable
+run char-breaks. Selection/search/copy are unchanged: they operate on logical lines,
+so a wrapped line still copies without soft-break newlines.
 
 ### 4.5 Parser interface and Builder
 

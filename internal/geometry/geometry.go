@@ -25,7 +25,11 @@
 // col<->pixel mapping loses 1px resolution and character-exact selection on that
 // one line may drift by a glyph. This bounds only selection precision on
 // pathologically long single lines; the row axis and all normal content are
-// unaffected.
+// unaffected. Soft-wrap actually helps the X axis (a sub-row's local column is at
+// most one viewport-width), but shifts the same ceiling onto Y: a doc wrapped into
+// more than ~16.7M/RowH visual rows can lose 1px of vertical scroll resolution past
+// that depth. This is the same class of limit (only a pathological wrapped doc
+// reaches it), not a new regression — the unwrapped row count has the same ceiling.
 package geometry
 
 import (

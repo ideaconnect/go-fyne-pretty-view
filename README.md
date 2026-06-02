@@ -13,6 +13,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - **Copy a whole section** (subtree) to the clipboard.
 - **True character-level free-text selection** across rows, with exact-substring copy (`Ctrl/Cmd+C`) and select-all (`Ctrl/Cmd+A`).
 - **Search** with plain or regular-expression matching, match navigation, and **auto-reveal into folded nodes**.
+- **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally — selection, search, and copy still operate on whole logical lines.
 - **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
 
 ## Why it stays small
@@ -67,7 +68,7 @@ func main() {
 ```go
 pv := prettyview.New(
     prettyview.WithFormat(prettyview.FormatJSON),       // skip auto-detect
-    prettyview.WithWrap(prettyview.WrapNone),           // long lines scroll horizontally (default)
+    prettyview.WithWrap(prettyview.WrapWord),           // soft-wrap long lines (or WrapNone to scroll, default)
     prettyview.WithDefaultCollapseDepth(3),             // auto-collapse below depth 3 on load
     prettyview.WithIndentStep(16),                      // pixels per nesting level
     prettyview.WithTabWidth(4),
@@ -121,6 +122,7 @@ bar := prettyview.NewToolbar(pv, prettyview.ToolbarConfig{
     ShowOpen:           true,   // "Open…" file dialog (needs Window or OnOpen)
     ShowFormat:         true,   // format selector (re-parses current source)
     ShowExpandCollapse: true,   // Expand all / Collapse all
+    ShowWrap:           true,   // soft-wrap toggle ("Wrap" checkbox)
     ShowSearch:         true,   // find box + prev/next + match counter
     Window:             w,      // enables the Open dialog and Ctrl/Cmd+F focus
 })
@@ -135,7 +137,7 @@ myExpandButton.OnTapped = pv.ExpandAll
 
 À-la-carte constructors let you place individual built-ins anywhere:
 `prettyview.NewSearchBar(pv)`, `prettyview.NewFormatSelect(pv)`,
-`prettyview.NewFoldButtons(pv)`. To keep host controls in sync, register
+`prettyview.NewFoldButtons(pv)`, `prettyview.NewWrapToggle(pv)`. To keep host controls in sync, register
 `pv.SetOnSearchChanged(fn)` (match counter) and `pv.SetOnDataChanged(fn)` (format).
 
 ### Key methods
@@ -149,6 +151,7 @@ myExpandButton.OnTapped = pv.ExpandAll
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
 | `CopySelection()` / `CopySubtree(byteOffset)` | clipboard |
 | `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `SearchStatus()` | search |
+| `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
 | `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
 

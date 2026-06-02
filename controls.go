@@ -32,6 +32,7 @@ type ToolbarConfig struct {
 	ShowOpen           bool        // an "Open…" button (needs Window or OnOpen)
 	ShowFormat         bool        // a format selector (auto/json/xml/html/raw)
 	ShowExpandCollapse bool        // Expand all / Collapse all buttons
+	ShowWrap           bool        // a "Wrap" checkbox (soft-wrap toggle)
 	ShowSearch         bool        // a find box with prev/next and a match counter
 	Window             fyne.Window // enables the built-in Open dialog and Ctrl/Cmd+F focus
 	OnOpen             func()      // overrides the built-in Open behavior, if set
@@ -39,7 +40,7 @@ type ToolbarConfig struct {
 
 // DefaultToolbarConfig enables every control.
 func DefaultToolbarConfig() ToolbarConfig {
-	return ToolbarConfig{ShowOpen: true, ShowFormat: true, ShowExpandCollapse: true, ShowSearch: true}
+	return ToolbarConfig{ShowOpen: true, ShowFormat: true, ShowExpandCollapse: true, ShowWrap: true, ShowSearch: true}
 }
 
 // NewToolbar builds an optional control bar bound to pv from cfg. Disabled
@@ -63,6 +64,9 @@ func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 	if cfg.ShowExpandCollapse {
 		left.Add(NewFoldButtons(pv))
 	}
+	if cfg.ShowWrap {
+		left.Add(NewWrapToggle(pv))
+	}
 
 	if cfg.ShowSearch {
 		bar := NewSearchBar(pv)
@@ -83,6 +87,21 @@ func NewFoldButtons(pv *PrettyView) fyne.CanvasObject {
 		widget.NewButton("Expand all", pv.ExpandAll),
 		widget.NewButton("Collapse all", pv.CollapseAll),
 	)
+}
+
+// NewWrapToggle returns a "Wrap" checkbox bound to pv: checked soft-wraps long
+// lines to the viewport width (WrapWord), unchecked lets them scroll horizontally
+// (WrapNone). It reflects the viewer's current mode on creation.
+func NewWrapToggle(pv *PrettyView) fyne.CanvasObject {
+	chk := widget.NewCheck("Wrap", func(on bool) {
+		if on {
+			pv.SetWrap(WrapWord)
+		} else {
+			pv.SetWrap(WrapNone)
+		}
+	})
+	chk.SetChecked(pv.Wrap() == WrapWord)
+	return chk
 }
 
 // NewFormatSelect returns a format selector bound to pv. Choosing a format

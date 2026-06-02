@@ -42,6 +42,7 @@ func main() {
 		ShowOpen:           true,
 		ShowFormat:         true,
 		ShowExpandCollapse: true,
+		ShowWrap:           true,
 		ShowSearch:         true,
 		Window:             w, // enables the Open dialog and Ctrl/Cmd+F focus
 	})

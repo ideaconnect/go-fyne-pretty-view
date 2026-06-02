@@ -43,8 +43,9 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 | File | Responsibility |
 |---|---|
 | `model.go` | Struct-of-arrays `Document`: `Node` (32 B), `Line` (24 B), `Segment` (12 B), `Kind`, `ColorRole`; display-text helpers. |
-| `foldindex.go` | The visible-line projection: `bitset`, `fenwick`, `foldIndex` (fold/unfold, reveal, expand/collapse-all, row↔line lookup). Unexported. |
-| `api.go` | The public `Document` surface the view uses: projection/fold delegators (`TotalVisibleRows`, `Fold`, `RevealLine`, …), `VisibleLine`, `AssembleLine`. |
+| `foldindex.go` | The visible-line projection: `bitset`, `fenwick`, `foldIndex` (fold/unfold, reveal, expand/collapse-all, row↔line lookup). The Fenwick weight per visible line is its visual-row count, so the same tree projects soft-wrapped lines (`lineAndSubRow`). Unexported. |
+| `wrap.go` | Soft-wrap projection: `SetWrapColumns` (per-depth column budget), `computeWrapRows`, the greedy `wrapWalk` (word-break with char-break fallback), `WrapBreaks`, `RowsOfLine`. The `rowsOf` side array (nil ⇒ WrapNone fast path). |
+| `api.go` | The public `Document` surface the view uses: projection/fold delegators (`TotalVisibleRows`, `Fold`, `RevealLine`, `LineAndSubRowAtRow`, …), `VisibleLine`, `AssembleLine`. |
 | `builder.go` | `Builder` — the arena-construction API parsers call (`Open`/`Leaf`/`Close`/`AppendComma`); `Finish` (collapsed renderings, extent, fold index). |
 | `format.go` | `Format` type + constants (lives here because `Document` records its format; re-exported by the view). |
 | `summary.go` | Collapsed-state summary text (`{ N items }`, `<tag> N children`). |
