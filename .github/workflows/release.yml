@@ -62,24 +62,32 @@ jobs:
 
       # Package the executable with the fixtures (and README/LICENSE) into one zip,
       # laid out as <artifact>/{binary, testdata/, …} so it extracts to a single folder
-      # and the demo's fixture dropdown works out of the box.
+      # and the demo's fixture dropdown works out of the box. The demo binary embeds
+      # the Font Awesome icons (CC BY 4.0) and the JetBrains Mono + Inter fonts (SIL
+      # OFL 1.1), so the vendored license texts ride along under licenses/.
       - name: Package release zip (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          mkdir -p "dist/${{ matrix.artifact }}"
+          mkdir -p "dist/${{ matrix.artifact }}/licenses"
           cp "${{ matrix.binary }}" "dist/${{ matrix.artifact }}/"
           cp -r testdata "dist/${{ matrix.artifact }}/"
           cp README.md LICENSE "dist/${{ matrix.artifact }}/"
+          cp icons/fontawesome/LICENSE.txt "dist/${{ matrix.artifact }}/licenses/FontAwesome-LICENSE.txt"
+          cp fonttheme/fonts/JetBrainsMono/OFL.txt "dist/${{ matrix.artifact }}/licenses/JetBrainsMono-OFL.txt"
+          cp fonttheme/fonts/Inter/LICENSE.txt "dist/${{ matrix.artifact }}/licenses/Inter-LICENSE.txt"
           (cd dist && zip -r "${{ matrix.artifact }}.zip" "${{ matrix.artifact }}")
 
       - name: Package release zip (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "dist/${{ matrix.artifact }}" | Out-Null
+          New-Item -ItemType Directory -Force -Path "dist/${{ matrix.artifact }}/licenses" | Out-Null
           Copy-Item "${{ matrix.binary }}" "dist/${{ matrix.artifact }}/"
           Copy-Item -Recurse testdata "dist/${{ matrix.artifact }}/"
           Copy-Item README.md, LICENSE "dist/${{ matrix.artifact }}/"
+          Copy-Item icons/fontawesome/LICENSE.txt "dist/${{ matrix.artifact }}/licenses/FontAwesome-LICENSE.txt"
+          Copy-Item fonttheme/fonts/JetBrainsMono/OFL.txt "dist/${{ matrix.artifact }}/licenses/JetBrainsMono-OFL.txt"
+          Copy-Item fonttheme/fonts/Inter/LICENSE.txt "dist/${{ matrix.artifact }}/licenses/Inter-LICENSE.txt"
           Compress-Archive -Path "dist/${{ matrix.artifact }}" -DestinationPath "dist/${{ matrix.artifact }}.zip"
 
       - name: Upload build artifact

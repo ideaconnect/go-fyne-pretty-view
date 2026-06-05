@@ -271,11 +271,14 @@ base theme's colors, sizes, and icons are preserved. The fonts are embedded in t
 `fonttheme` package alone — importing the core `prettyview` widget pulls in **no**
 font data, so you only pay for the typefaces if you opt in.
 
-Override individual faces (a nil field keeps the bundled default) via `WithFonts`:
+Override individual faces (a nil field keeps the bundled default) via `WithFonts`.
+Each weight is its own field, so to swap the monospace face set both `Mono` and
+`MonoBold` — otherwise bold monospace would still render in JetBrains Mono:
 
 ```go
 a.Settings().SetTheme(fonttheme.New(theme.DefaultTheme(), fonttheme.WithFonts(fonttheme.Fonts{
-    Mono: myMonoResource, // keep Inter for the UI, swap only the monospace face
+    Mono:     myMonoRegular, // swap the monospace face (UI text stays Inter)
+    MonoBold: myMonoBold,    // set both weights so bold monospace matches
 })))
 ```
 
@@ -410,7 +413,9 @@ You inherit obligations only for the assets you actually ship:
 
 If you do not use `fonttheme` and you reproduce Font Awesome's attribution
 elsewhere, you can ship without bundling any of these license files — but vendoring
-them is the easiest path to compliance.
+them is the easiest path to compliance. For a concrete example, the prebuilt demo
+zips (which embed both the icons and the fonts) carry these three license texts
+under a `licenses/` folder alongside the binary.
 
 ## License
 

@@ -16,8 +16,9 @@ import (
 // SVG). They are solid (fill-drawn) icons; the vendored copies carry
 // fill="currentColor" on every path. Fyne's themed-resource colorizer would also
 // work for fill icons, but we keep the same explicit bake the project has always
-// used: substitute the active theme's foreground color for currentColor when the
-// resource is built, so the icon tracks the theme without a ThemedResource wrapper.
+// used: substitute the installed theme's foreground color (for the active
+// light/dark variant) for currentColor when the resource is built, so the icon
+// tracks the theme without a ThemedResource wrapper.
 
 //go:embed icons/fontawesome/search.svg
 var svgSearch []byte
@@ -40,13 +41,16 @@ var svgArrowUp []byte
 //go:embed icons/fontawesome/arrow-down.svg
 var svgArrowDown []byte
 
-// foregroundHex returns the active theme's foreground color as an SVG hex string.
+// foregroundHex returns the installed theme's foreground color, for the active
+// light/dark variant, as an SVG hex string. It resolves through themeColor (the
+// same helper the viewer's structural colors use), so the toolbar icons track a
+// custom app theme's foreground rather than only the bundled default's.
 func foregroundHex() string {
 	variant := fyne.ThemeVariant(theme.VariantDark)
 	if a := fyne.CurrentApp(); a != nil && a.Settings() != nil {
 		variant = a.Settings().ThemeVariant()
 	}
-	return colorToHex(theme.DefaultTheme().Color(theme.ColorNameForeground, variant))
+	return colorToHex(themeColor(theme.ColorNameForeground, variant))
 }
 
 func colorToHex(c color.Color) string {

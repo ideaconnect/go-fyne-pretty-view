@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/theme"
 )
 
@@ -62,5 +63,66 @@ func TestWithFontsOverride(t *testing.T) {
 	}
 	if got := th.Font(fyne.TextStyle{}); got != SansRegular {
 		t.Errorf("UI font should stay Inter default: got %s", got.Name())
+	}
+}
+
+// TestWithFontsComposes verifies that multiple options apply left to right (a
+// later override wins per field) and that fields an option leaves nil survive
+// from earlier options rather than reverting to the bundled default.
+func TestWithFontsComposes(t *testing.T) {
+	a := fyne.NewStaticResource("mono-a.ttf", []byte("\x00\x01\x00\x00a"))
+	b := fyne.NewStaticResource("mono-b.ttf", []byte("\x00\x01\x00\x00b"))
+	c := fyne.NewStaticResource("italic-c.ttf", []byte("\x00\x01\x00\x00c"))
+
+	th := New(theme.DefaultTheme(), WithFonts(Fonts{Mono: a}), WithFonts(Fonts{Mono: b, Italic: c}))
+
+	if got := th.Font(fyne.TextStyle{Monospace: true}); got != b {
+		t.Errorf("later Mono override should win: got %s, want mono-b", got.Name())
+	}
+	if got := th.Font(fyne.TextStyle{Italic: true}); got != c {
+		t.Errorf("Italic from the second option not applied: got %s", got.Name())
+	}
+	if got := th.Font(fyne.TextStyle{Bold: true}); got != SansBold {
+		t.Errorf("untouched Bold should stay Inter default: got %s", got.Name())
+	}
+}
+
+// TestDelegatesNonFontToBase pins the "overrides only the fonts" contract: every
+// other theme method (Color, Size, Icon) must pass through to the base theme. The
+// pass-through is via struct embedding today, so this guards against a future
+// stray override or a switch away from embedding.
+func TestDelegatesNonFontToBase(t *testing.T) {
+	test.NewApp() // builtinTheme.Color/Size read the current app
+	base := theme.DefaultTheme()
+	th := New(base)
+
+	for _, v := range []fyne.ThemeVariant{theme.VariantDark, theme.VariantLight} {
+		for _, name := range []fyne.ThemeColorName{theme.ColorNameForeground, theme.ColorNameBackground, theme.ColorNamePrimary} {
+			if th.Color(name, v) != base.Color(name, v) {
+				t.Errorf("Color(%s, %d) not delegated to base", name, v)
+			}
+		}
+	}
+	for _, name := range []fyne.ThemeSizeName{theme.SizeNameText, theme.SizeNamePadding} {
+		if th.Size(name) != base.Size(name) {
+			t.Errorf("Size(%s) not delegated to base", name)
+		}
+	}
+	if th.Icon(theme.IconNameSearch) != base.Icon(theme.IconNameSearch) {
+		t.Error("Icon() not delegated to base")
+	}
+}
+
+// TestNewNilBaseDoesNotPanic verifies a nil base is defaulted (rather than left to
+// panic on the first inherited Color/Size/Icon or symbol-font call).
+func TestNewNilBaseDoesNotPanic(t *testing.T) {
+	test.NewApp() // so the only thing that could panic is a nil base, not a nil app
+	th := New(nil)
+	// These all delegate to the embedded base; with no guard they would panic.
+	_ = th.Color(theme.ColorNameForeground, theme.VariantDark)
+	_ = th.Size(theme.SizeNameText)
+	_ = th.Font(fyne.TextStyle{Symbol: true})
+	if got := th.Font(fyne.TextStyle{Monospace: true}); got != MonoRegular {
+		t.Errorf("nil base should still install bundled fonts: got %s", got.Name())
 	}
 }

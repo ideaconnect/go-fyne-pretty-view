@@ -33,6 +33,7 @@ import (
 	_ "embed"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/theme"
 )
 
 //go:embed fonts/JetBrainsMono/JetBrainsMono-Regular.ttf
@@ -67,7 +68,7 @@ var (
 // Fonts overrides the faces New installs. A nil field keeps the bundled default
 // (JetBrains Mono for monospace, Inter for UI text).
 type Fonts struct {
-	Mono       fyne.Resource // monospace, all weights (default JetBrains Mono Regular)
+	Mono       fyne.Resource // monospace regular (default JetBrains Mono Regular)
 	MonoBold   fyne.Resource // bold monospace (default JetBrains Mono Bold)
 	Regular    fyne.Resource // UI regular (default Inter Regular)
 	Bold       fyne.Resource // UI bold (default Inter Bold)
@@ -118,7 +119,12 @@ type fontTheme struct {
 // New returns a fyne.Theme that draws base's colors, sizes and icons but renders
 // text with JetBrains Mono (monospace) and Inter (UI), as overridden by opts.
 // Install it with app.Settings().SetTheme(...). The symbol font is left to base.
+// A nil base defaults to theme.DefaultTheme() so the wrapper never panics on the
+// inherited Color/Size/Icon (and symbol-font) calls.
 func New(base fyne.Theme, opts ...Option) fyne.Theme {
+	if base == nil {
+		base = theme.DefaultTheme()
+	}
 	f := defaultFonts()
 	for _, o := range opts {
 		o(&f)
