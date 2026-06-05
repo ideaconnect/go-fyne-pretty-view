@@ -56,7 +56,7 @@ github.com/ideaconnect/go-fyne-pretty-view/
 ├── options.go                   // functional Options: WithFormat, WithWrap, WithSearchConfig, WithTheme, ...
 ├── format.go                    // public Format / WrapMode aliases of the model types
 ├── controls.go                  // OPTIONAL ready-made controls: NewToolbar (+ToolbarConfig), NewSearchBar, NewFormatSelect, NewFoldButtons, NewWrapToggle, ShowOpenDialog
-├── icons.go                     // embedded Iconoir toolbar glyphs (icons/iconoir/*.svg, MIT), recolored to the theme foreground
+├── icons.go                     // embedded Font Awesome Free toolbar glyphs (icons/fontawesome/*.svg, CC BY 4.0), recolored to the theme foreground
 │
 ├── internal/geometry/
 │   └── geometry.go              // Metrics: exact charWidth + rounded rowHeight, col<->x, pixel<->(row,col) hit-test, ColsForDepth (wrap), ONE origin convention
