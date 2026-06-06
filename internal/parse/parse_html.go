@@ -28,19 +28,36 @@ func (htmlParser) Detect(src []byte) int {
 	if hasPrefixFold(t, []byte("<html")) {
 		return 90
 	}
-	// Only the head needs sniffing for structural tags; bound the lower-case + scan
-	// so a large file is not fully copied just to detect the format.
-	head := t
-	if len(head) > sniffLimit {
-		head = head[:sniffLimit]
-	}
-	lower := bytes.ToLower(head)
-	for _, tag := range [][]byte{[]byte("<body"), []byte("<head"), []byte("<div"), []byte("<span"), []byte("<p>"), []byte("<a ")} {
-		if bytes.Contains(lower, tag) {
+	// An HTML fragment without a doctype/<html> wrapper: treat it as HTML only when it
+	// OPENS with a structural tag (the tag name followed by a boundary). Matching the
+	// document start — rather than a substring anywhere — keeps an XML document that
+	// merely *contains* an HTML-ish tag name (in text, an attribute, or a longer
+	// element like <divider>) from being misclassified as HTML and having its tag-name
+	// case folded. A real fragment leads with its structural tag; a full page is caught
+	// by the doctype/<html> checks above.
+	for _, name := range []string{"body", "head", "div", "span", "p", "a"} {
+		if htmlTagAtStart(t, name) {
 			return 60
 		}
 	}
 	return 0
+}
+
+// htmlTagAtStart reports whether t opens with the element "<name" (case-insensitive)
+// immediately followed by a tag-name boundary — whitespace, '>', '/', or end of input
+// — so "<div" matches "<div>" / "<div " but not "<divider>".
+func htmlTagAtStart(t []byte, name string) bool {
+	if len(t) < 1+len(name) || t[0] != '<' || !bytes.EqualFold(t[1:1+len(name)], []byte(name)) {
+		return false
+	}
+	if len(t) == 1+len(name) {
+		return true
+	}
+	switch t[1+len(name)] {
+	case ' ', '\t', '\n', '\r', '>', '/':
+		return true
+	}
+	return false
 }
 
 func (htmlParser) Parse(src []byte, b *model.Builder) error {

@@ -295,6 +295,20 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			s.b.AppendComma(s.b.LastLine(childID))
 			continue
 		}
+		// A complete value followed by neither ',' nor the close byte (nor EOF) is
+		// trailing junk, e.g. the "X" in "[trueX]" or "abc" in "[123abc]" — a bare
+		// literal/number scan stops at the first foreign byte without a delimiter
+		// check. Surface it as an error marker rather than silently dropping the rest
+		// of the container, mirroring the truncated-key recovery above.
+		if s.pos < len(s.src) && s.peek() != close {
+			junkStart := s.pos
+			for s.pos < len(s.src) && s.src[s.pos] != ',' && s.src[s.pos] != close {
+				s.pos++
+			}
+			s.b.Leaf(model.KindError, junkStart, s.pos, []model.Seg{model.SrcSeg(model.RolePlain, junkStart, s.pos)})
+			s.fail("unexpected content after value")
+			break
+		}
 		// Otherwise expect the closing brace on the next iteration.
 	}
 	return id, s.err == nil

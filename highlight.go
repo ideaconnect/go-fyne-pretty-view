@@ -70,8 +70,7 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 	wrapOn := pv.doc.WrapActive()
 
 	n := 0
-	breaks := []int32(nil)
-	breaksLine := int32(-1)
+	breaksLine := int32(-1) // reuses r.selBreaks across reflows (no per-reflow alloc)
 	for row := first; row <= last; row++ {
 		if row < 0 {
 			continue
@@ -98,7 +97,7 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 			selE = clampInt(b.col, 0, runeLen)
 		}
 
-		w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &breaks, &breaksLine)
+		w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &r.selBreaks, &breaksLine)
 		lo, hi := max(selS, w0), min(selE, w1)
 		// Trailing-newline bleed: shown when the line is selected through its end,
 		// another selected line follows, and this is the line's last visual row.
@@ -126,8 +125,7 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 		m := pv.met
 		wrapOn := pv.doc.WrapActive()
 		total := pv.doc.TotalVisibleRows()
-		breaks := []int32(nil)
-		breaksLine := int32(-1)
+		breaksLine := int32(-1) // reuses r.matchBreaks across reflows (no per-reflow alloc)
 		for row := first; row <= last; row++ {
 			if row < 0 || int32(row) >= total {
 				continue
@@ -145,7 +143,7 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 			}
 			depth := pv.doc.Lines[li].Depth
 			runeLen := pv.doc.LineRuneLen(li)
-			w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &breaks, &breaksLine)
+			w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &r.matchBreaks, &breaksLine)
 			for _, mi := range idxs {
 				mt := pv.search.matches[mi]
 				lo := max(clampInt(mt.ColStart, 0, runeLen), w0)

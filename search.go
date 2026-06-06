@@ -168,7 +168,7 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 
 	pv.search.query = q
 	pv.search.matches = pv.search.matches[:0]
-	pv.search.byLine = nil
+	clear(pv.search.byLine) // reuse the map across scans (nil-safe); indexMatches refills it
 	pv.search.active = -1
 	pv.search.capped = false
 	pv.search.err = nil
@@ -212,12 +212,23 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		scratch = pv.doc.AssembleLine(li, scratch[:0])
 		switch {
 		case re != nil:
+			// From-offset FindIndex loop (mirrors scanPlain) rather than
+			// FindAllIndex(-1): it never materializes a per-line [][]int and honors
+			// the match cap incrementally instead of after the whole line.
 			cur := colCursor{hay: scratch}
-			for _, loc := range re.FindAllIndex(scratch, -1) {
-				if loc[1] == loc[0] {
-					continue // skip zero-width matches
+			from := 0
+			for from <= len(scratch) {
+				loc := re.FindIndex(scratch[from:])
+				if loc == nil {
+					break
 				}
-				pv.addMatchB(li, &cur, loc[0], loc[1])
+				bs, be := from+loc[0], from+loc[1]
+				if be == bs {
+					from = be + 1 // zero-width match: step a byte to make progress
+					continue
+				}
+				pv.addMatchB(li, &cur, bs, be)
+				from = be
 				if len(pv.search.matches) >= limit {
 					pv.search.capped = true
 					break
@@ -331,7 +342,10 @@ func asciiLowerInPlace(b []byte) {
 }
 
 func (pv *PrettyView) indexMatches() {
-	pv.search.byLine = make(map[int32][]int, len(pv.search.matches))
+	// runSearch already cleared byLine for reuse; only allocate on the first scan.
+	if pv.search.byLine == nil {
+		pv.search.byLine = make(map[int32][]int, len(pv.search.matches))
+	}
 	for i, m := range pv.search.matches {
 		pv.search.byLine[m.Line] = append(pv.search.byLine[m.Line], i)
 	}

@@ -85,6 +85,18 @@ func BenchmarkSearch(b *testing.B) {
 	}
 }
 
+// BenchmarkSearchRegex measures a full-document regex scan — the path the plain
+// benchmarks don't exercise (SearchQuery without a Mode defaults to SearchPlain).
+func BenchmarkSearchRegex(b *testing.B) {
+	pv := New()
+	pv.doc = parse.Parse(benchSrc(b, "openapi.json"), FormatJSON, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.runSearch(SearchQuery{Text: "type|name", Mode: SearchRegex})
+	}
+}
+
 // BenchmarkHorizontalScrollHugeLine measures one reflow (rebuild of the visible
 // rows) of a document whose single value is a ~2 MB line, scrolled horizontally to
 // column 1000. This is the case build()'s cull must bound: the old code paid a full
