@@ -167,6 +167,34 @@ func TestJSONCCommentsSkipped(t *testing.T) {
 	}
 }
 
+// TestJSONNonASCIIWhitespace is the regression for the detector/scanner whitespace
+// mismatch: auto-detection trims unicode.IsSpace, so the scanner must skip the same
+// set or an input it labels JSON stalls mid-scan — a leading form-feed would fall
+// back to raw, and a form-feed/NBSP between members would silently drop the rest of
+// the container. Each case must stay JSON with every member rendered.
+func TestJSONNonASCIIWhitespace(t *testing.T) {
+	cases := []struct {
+		name, src string
+	}{
+		{"leading form-feed", "\f{\"a\":1,\"b\":2}"},
+		{"leading NBSP", " {\"a\":1,\"b\":2}"},
+		{"form-feed between members", "{\"a\":1,\f\"b\":2}"},
+		{"NBSP between members", "{\"a\":1, \"b\":2}"},
+		{"vertical-tab between members", "{\"a\":1,\v\"b\":2}"},
+	}
+	for _, c := range cases {
+		d := Parse([]byte(c.src), FormatAuto, 0)
+		if d.Format != FormatJSON {
+			t.Errorf("%s: format = %v, want json (whitespace defeated detection/scan)", c.name, d.Format)
+			continue
+		}
+		text := renderDoc(d)
+		if !strings.Contains(text, `"a"`) || !strings.Contains(text, `"b"`) {
+			t.Errorf("%s: a member was dropped:\n%s", c.name, text)
+		}
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {

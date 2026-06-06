@@ -54,8 +54,13 @@ func foregroundHex() string {
 }
 
 func colorToHex(c color.Color) string {
-	r, g, b, _ := c.RGBA()
-	return fmt.Sprintf("#%02x%02x%02x", uint8(r>>8), uint8(g>>8), uint8(b>>8))
+	// Convert through the straight (non-premultiplied) NRGBA model first, like
+	// withAlpha in theme.go: reading c.RGBA() directly yields alpha-PREMULTIPLIED
+	// channels, so a non-opaque themed foreground would bake a darkened/desaturated
+	// hex. (A 6-digit SVG hex can't carry alpha, so a translucent foreground still
+	// renders opaque — but at its true, undistorted color.)
+	nc := color.NRGBAModel.Convert(c).(color.NRGBA)
+	return fmt.Sprintf("#%02x%02x%02x", nc.R, nc.G, nc.B)
 }
 
 // iconResource returns a Font Awesome SVG as a Fyne resource, recolored to the

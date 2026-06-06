@@ -207,6 +207,13 @@ func (fi *foldIndex) lineAndSubRow(visualRow int32) (line, sub int32) {
 	if n == 0 {
 		return 0, 0
 	}
+	if fi.bit.total() == 0 {
+		// Lines exist but all are hidden: clamp to the last line / sub-row 0 to match
+		// lineAtRow, rather than letting the (total-1 == -1) clamp below yield a
+		// negative sub. Unreachable through the public fold projection today (the root
+		// and fold-head lines always stay visible), so this is hardening.
+		return n - 1, 0
+	}
 	if visualRow < 0 {
 		visualRow = 0
 	}

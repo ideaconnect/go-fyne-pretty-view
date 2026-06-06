@@ -82,6 +82,10 @@ const (
 
 // Segment is one contiguous, single-color run of text on a display line.
 // 12 bytes, no pointers.
+//
+// The uint32 offsets cap a single document's source at 4 GiB; parse.Parse
+// truncates beyond that so the casts never wrap (multi-gigabyte documents are out
+// of scope — see DESIGN §7.3).
 type Segment struct {
 	Start uint32    // byte offset into the buffer named by Buf
 	End   uint32    // exclusive

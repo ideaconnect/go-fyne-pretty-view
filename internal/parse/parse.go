@@ -5,6 +5,7 @@ package parse
 
 import (
 	"bytes"
+	"math"
 	"unicode"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
@@ -105,6 +106,16 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 		tw = tabWidth[0]
 	}
 	src = stripBOM(src) // before AutoDetect and NewBuilder, so SrcSeg offsets stay aligned
+	// The model stores every byte offset as uint32 (Segment.Start/End, Node.SrcStart
+	// /SrcEnd). A source past 4 GiB would wrap those casts into corrupt ranges that
+	// mis-slice the buffer, so cap it before the Builder sees any offset. A single
+	// multi-gigabyte document is explicitly out of scope (DESIGN §7.3); graceful
+	// truncation beats silent corruption. (On a 32-bit platform len(src) can never
+	// exceed this, so the branch is dead there — the runtime bound keeps it compiling.)
+	if uint64(len(src)) > math.MaxUint32 {
+		maxOffset := uint64(math.MaxUint32)
+		src = src[:int(maxOffset)]
+	}
 	if format == FormatAuto {
 		format = AutoDetect(src)
 	}

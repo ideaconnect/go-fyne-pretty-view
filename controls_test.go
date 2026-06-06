@@ -3,9 +3,50 @@ package prettyview
 import (
 	"testing"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 )
+
+// findEntry returns the first *widget.Entry in o's object tree (the search bar
+// has exactly one), so a test can drive its OnSubmitted directly.
+func findEntry(o fyne.CanvasObject) *widget.Entry {
+	switch w := o.(type) {
+	case *widget.Entry:
+		return w
+	case *fyne.Container:
+		for _, c := range w.Objects {
+			if e := findEntry(c); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
+}
+
+// TestSearchBarEnterStopsOnFirstMatch guards the fresh-query Enter behavior: when
+// Enter beats the debounce on a brand-new query, Search reveals match #1 and the
+// bar must NOT immediately advance past it to #2. Pressing Enter again on the same
+// (now-applied) query is find-next and does advance.
+func TestSearchBarEnterStopsOnFirstMatch(t *testing.T) {
+	test.NewApp()
+	pv := docPV(`{"a":"x","b":"x","c":"x"}`, FormatJSON)
+	entry := findEntry(NewSearchBar(pv))
+	if entry == nil {
+		t.Fatal("no entry found in search bar")
+	}
+
+	entry.Text = "x" // fresh query; OnSubmitted fires before the debounce ran
+	entry.OnSubmitted(entry.Text)
+	if a, total, _ := pv.SearchStatus(); total != 3 || a != 1 {
+		t.Fatalf("fresh-query Enter: active=%d total=%d, want active 1 of 3 (must not skip #1)", a, total)
+	}
+
+	entry.OnSubmitted(entry.Text) // same query -> find-next
+	if a, _, _ := pv.SearchStatus(); a != 2 {
+		t.Errorf("repeat Enter: active=%d, want 2 (find-next)", a)
+	}
+}
 
 func TestReparse(t *testing.T) {
 	pv := docPV(`{"a":1}`, FormatJSON)

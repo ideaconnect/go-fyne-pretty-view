@@ -128,6 +128,28 @@ func TestSelectedTextRawTabsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSelectedTextPartialRawTabRoundTrip guards the partial-endpoint copy path
+// (not just SelectAll): a mid-line selection that fully covers a raw tab must
+// round-trip '\t', while one that cuts through a tab keeps the covered spaces.
+// The whole-line path is covered by TestSelectedTextRawTabsRoundTrip.
+func TestSelectedTextPartialRawTabRoundTrip(t *testing.T) {
+	// "a\tb" renders as 'a' + a 3-space tab pad + 'b' (tabWidth 4): cols a=0,
+	// pad=1..3, b=4, runeLen 5.
+	pv := docPV("a\tb", FormatRaw)
+
+	// [0,4): 'a' + the whole tab pad but not 'b' -> partial branch, tab restored.
+	pv.sel = selection{anchor: modelPos{line: 0, col: 0}, focus: modelPos{line: 0, col: 4}, active: true}
+	if got := pv.SelectedText(); got != "a\t" {
+		t.Errorf("partial copy covering the tab = %q, want %q (tab must round-trip)", got, "a\t")
+	}
+
+	// [0,3): 'a' + only 2 of the 3 pad columns -> tab partially cut, keep spaces.
+	pv.sel = selection{anchor: modelPos{line: 0, col: 0}, focus: modelPos{line: 0, col: 3}, active: true}
+	if got := pv.SelectedText(); got != "a  " {
+		t.Errorf("partial copy cutting the tab = %q, want %q (covered spaces)", got, "a  ")
+	}
+}
+
 // TestCopySubtreeIncludesFoldedChildren guards CopySubtree/subtreeText (P7):
 // serializing a node's subtree must include its children regardless of fold state.
 func TestCopySubtreeIncludesFoldedChildren(t *testing.T) {

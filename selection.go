@@ -409,10 +409,46 @@ func (pv *PrettyView) selectedText() string {
 			sb.Write(buf)
 			continue
 		}
-		runes := []rune(pv.doc.DisplayString(li))
-		sb.WriteString(string(runes[clampInt(start, 0, len(runes)):clampInt(end, 0, len(runes))]))
+		pv.appendDisplayRange(li, start, end, restoreTabs, &sb)
 	}
 	return sb.String()
+}
+
+// appendDisplayRange writes line li's displayed text for the rune-column range
+// [start,end) to sb. It mirrors AppendDisplayLine's tab handling (R-9) for the
+// partial-endpoint case: with restoreTabs, a raw tab pad fully inside the range is
+// written as a single '\t' so a copy round-trips the source tab; a pad the range
+// only partly covers is written as its covered spaces. Columns are display runes,
+// matching LineRuneLen and the [start,end) clamp in selectedText, so the slice can
+// never desync from a tab that restores to one byte but spans several columns.
+func (pv *PrettyView) appendDisplayRange(li int32, start, end int, restoreTabs bool, sb *strings.Builder) {
+	if start >= end {
+		return
+	}
+	col := 0
+	for _, s := range pv.doc.DisplaySegs(li) {
+		r := []rune(string(pv.doc.SegBytes(s)))
+		segStart, segEnd := col, col+len(r)
+		col = segEnd
+		if segEnd <= start {
+			continue
+		}
+		if segStart >= end {
+			break
+		}
+		lo, hi := 0, len(r)
+		if start > segStart {
+			lo = start - segStart
+		}
+		if end < segEnd {
+			hi = end - segStart
+		}
+		if restoreTabs && s.Buf == model.BufAux && s.Role == model.RolePlain && lo == 0 && hi == len(r) {
+			sb.WriteByte('\t') // whole tab pad selected -> round-trip the source tab
+			continue
+		}
+		sb.WriteString(string(r[lo:hi]))
+	}
 }
 
 // subtreeText reconstructs the displayed text of a node's whole subtree (all
