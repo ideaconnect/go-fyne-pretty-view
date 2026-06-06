@@ -136,6 +136,7 @@ func (r *prettyViewRenderer) reflow() {
 	total := int(pv.doc.TotalVisibleRows())
 	if total == 0 {
 		r.clearRows()
+		r.rowObjs = r.rowObjs[:0] // don't retain pointers to the now-pooled rows
 		r.rowLayer.Objects = nil
 		r.rowLayer.Refresh()
 		// Drop any selection/match rectangles left over from a previous, non-empty

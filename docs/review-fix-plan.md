@@ -77,15 +77,15 @@ deleted once the plan is complete.
 
 ## Batch P3 — polish & docs
 
-- [ ] **P3.1 — Toolbar icons don't recolor on a runtime light/dark switch** (baked
+- [x] **P3.1 — Toolbar icons don't recolor on a runtime light/dark switch** (baked
   `StaticResource`). `icons.go`. Fix or reconcile the DESIGN/comment wording.
-- [ ] **P3.2 — Code-quality nits:** stale container head/close comment
+- [x] **P3.2 — Code-quality nits:** stale container head/close comment
   (`internal/model/model.go`); `collapseAll` mixed `NodeID(id)`/raw `id`
   (`internal/model/foldindex.go`); `HitTest` below-content comment over-promises
   under wrap (`internal/geometry/geometry.go`); `MouseDown` missing the `pv.r`
   nil-guard its siblings use (`selection.go`); `total==0` reflow doesn't truncate
   `rowObjs` (`renderer.go`).
-- [ ] **P3.3 — DESIGN.md reconciliations:** R-9 scope (whole-line vs partial copy,
+- [x] **P3.3 — DESIGN.md reconciliations:** R-9 scope (whole-line vs partial copy,
   resolved by P1.2), icon-recolor wording, format-detection spec vs implementation.
 - [ ] **P3.4 — (WONTFIX candidate) search counter colour stale on theme switch**
   (`controls.go`). Verifier: the proposed fix doesn't work and it's consistent with

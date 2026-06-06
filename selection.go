@@ -69,14 +69,18 @@ func (pv *PrettyView) MouseDown(ev *desktop.MouseEvent) {
 	cx, cy := pv.contentPos(ev.Position)
 	// A press on a fold triangle is a fold gesture, handled by Tapped.
 	if pv.foldNodeAt(cx, cy) != model.NoNode {
-		pv.r.dragArmed = false
+		if pv.r != nil {
+			pv.r.dragArmed = false
+		}
 		return
 	}
 	pos := pv.hitTest(cx, cy)
 	if pos.line < 0 {
 		return
 	}
-	pv.r.dragArmed = true
+	if pv.r != nil {
+		pv.r.dragArmed = true
+	}
 
 	now := time.Now()
 	if now.Sub(pv.lastClickAt) < multiClickWindow && near(pv.lastClickPos, ev.Position) {

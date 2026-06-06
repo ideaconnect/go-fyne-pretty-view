@@ -331,7 +331,7 @@ func foldable(d *Document, id NodeID) bool {
 func (fi *foldIndex) collapseAll(d *Document) {
 	for id := range d.Nodes {
 		nid := NodeID(id)
-		if foldable(d, nid) && d.Nodes[id].Depth >= 1 {
+		if foldable(d, nid) && d.Nodes[nid].Depth >= 1 {
 			fi.collapsed.set(nid)
 		}
 	}

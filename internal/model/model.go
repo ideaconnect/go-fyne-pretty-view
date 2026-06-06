@@ -18,8 +18,10 @@ import "unicode/utf8"
 // its close ( } ) — which are not adjacent in document order (the children sit
 // between them). Line-granularity makes hiding a folded subtree a simple
 // contiguous line range, and makes the close brace fall naturally after the
-// children. Every leaf node owns exactly one line; every container owns a head
-// line and a (possibly equal, for empty containers) close line.
+// children. Every leaf node owns exactly one line (its HeadLine == CloseLine); a
+// foldable container owns a distinct head line and close line. An empty container
+// ({}, [], <tag/>) is not foldable — the parsers emit it as a single-line Leaf, so
+// it falls under the leaf case (head == close), never as an Open/Close container.
 
 // NodeID indexes into Document.Nodes. The synthetic root is node 0.
 type NodeID = int32

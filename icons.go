@@ -17,8 +17,11 @@ import (
 // fill="currentColor" on every path. Fyne's themed-resource colorizer would also
 // work for fill icons, but we keep the same explicit bake the project has always
 // used: substitute the installed theme's foreground color (for the active
-// light/dark variant) for currentColor when the resource is built, so the icon
-// tracks the theme without a ThemedResource wrapper.
+// light/dark variant) for currentColor when the resource is built. The color is
+// therefore resolved at construction (when NewToolbar / the iconBtn helpers run),
+// matching whatever theme is installed then; it does not re-resolve on a later
+// runtime light/dark switch, so an app that toggles variant mid-session should
+// rebuild the toolbar to recolor its glyphs.
 
 //go:embed icons/fontawesome/search.svg
 var svgSearch []byte
