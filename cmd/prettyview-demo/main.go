@@ -16,9 +16,11 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
 	prettyview "github.com/ideaconnect/go-fyne-pretty-view"
+	"github.com/ideaconnect/go-fyne-pretty-view/fonttheme"
 )
 
 var fixtures = []string{
@@ -31,6 +33,9 @@ var fixtures = []string{
 
 func main() {
 	a := app.New()
+	// Install the bundled typefaces (JetBrains Mono for the viewer body, Inter for
+	// the UI). Pass fonttheme.WithFonts(...) to override individual faces.
+	a.Settings().SetTheme(fonttheme.New(theme.DefaultTheme()))
 	w := a.NewWindow("prettyview demo")
 	w.Resize(fyne.NewSize(1000, 720))
 	w.SetContent(buildUI(w, startPath()))

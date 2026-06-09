@@ -166,9 +166,11 @@ func HitTest(d *model.Document, m Metrics, contentX, contentY float32) (line int
 		row = 0
 	}
 	if int32(row) >= total {
-		// A click below all content resolves onto the last line, but the column
-		// still honors contentX (clamped) rather than always snapping to the line
-		// end — so a below-and-left click maps to a near-start column, not EOL.
+		// A click below all content resolves onto the last line's last visual row,
+		// but the column still honors contentX (clamped) rather than always snapping
+		// to the line end. The resulting column is relative to that last sub-row: for
+		// the usual short closing line (}, ], </tag>) that is column 0, but under wrap
+		// it is the sub-row's start column, not necessarily the line start.
 		row = int(total - 1)
 	}
 	li, sub := d.LineAndSubRowAtRow(int32(row))

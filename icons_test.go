@@ -2,20 +2,35 @@ package prettyview
 
 import (
 	"bytes"
+	"image/color"
 	"testing"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/theme"
+	"github.com/fyne-io/oksvg"
 )
 
-// TestIconResourcesRecolored verifies every embedded Iconoir glyph loads and has
-// its stroke recolored from currentColor to a concrete theme-foreground hex (Fyne
-// does not theme stroke icons, so this baking is what makes them visible).
+// iconGetters is every embedded toolbar glyph's accessor.
+var iconGetters = []func() fyne.Resource{
+	iconSearch, iconFolder, iconWrapText, iconExpand, iconCollapse, iconArrowUp, iconArrowDown,
+}
+
+// TestIconResourcesRecolored verifies every embedded Font Awesome glyph loads and
+// has its fill recolored from currentColor to the active theme-foreground hex, so
+// the icon tracks the installed theme regardless of how Fyne colorizes resources.
 func TestIconResourcesRecolored(t *testing.T) {
 	test.NewApp()
-	for _, get := range []func() fyne.Resource{
-		iconSearch, iconFolder, iconWrapText, iconExpand, iconCollapse, iconArrowUp, iconArrowDown,
-	} {
+
+	// The exact hex the recolor should bake in: the foreground the icons resolve
+	// through (themeColor → installed theme), for the active variant. Asserting
+	// against this independently-derived value catches a wrong-color-source
+	// regression (e.g. baking background or a constant) that a bare fill="#…"
+	// substring check would miss.
+	variant := fyne.CurrentApp().Settings().ThemeVariant()
+	wantFill := []byte(`fill="` + colorToHex(themeColor(theme.ColorNameForeground, variant)) + `"`)
+
+	for _, get := range iconGetters {
 		res := get()
 		if res == nil || len(res.Content()) == 0 {
 			t.Fatal("nil/empty icon resource")
@@ -23,8 +38,33 @@ func TestIconResourcesRecolored(t *testing.T) {
 		if bytes.Contains(res.Content(), []byte("currentColor")) {
 			t.Errorf("%s still contains currentColor (not recolored)", res.Name())
 		}
-		if !bytes.Contains(res.Content(), []byte(`stroke="#`)) {
-			t.Errorf("%s stroke was not set to a hex color", res.Name())
+		if !bytes.Contains(res.Content(), wantFill) {
+			t.Errorf("%s was not recolored to the foreground %q", res.Name(), wantFill)
+		}
+	}
+}
+
+// TestIconResourcesParse decodes every recolored glyph through the same SVG parser
+// Fyne renders with, guarding the one thing the icon swap must guarantee: that the
+// vendored (and recolored) Font Awesome SVGs are still well-formed and renderable.
+// The substring checks above assert intent; this asserts the bytes actually parse.
+// TestColorToHexStraightAlpha pins the premultiplied-alpha fix: colorToHex must
+// read straight (NRGBA) channels, so a non-opaque themed foreground bakes its true
+// color rather than a darkened/premultiplied one. Reading c.RGBA() directly would
+// scale each channel by alpha (here ×0.5) and yield #643219 instead of #c86432.
+func TestColorToHexStraightAlpha(t *testing.T) {
+	got := colorToHex(color.NRGBA{R: 200, G: 100, B: 50, A: 128})
+	if got != "#c86432" {
+		t.Errorf("colorToHex(half-transparent) = %s, want #c86432 (straight alpha)", got)
+	}
+}
+
+func TestIconResourcesParse(t *testing.T) {
+	test.NewApp()
+	for _, get := range iconGetters {
+		res := get()
+		if _, err := oksvg.ReadIconStream(bytes.NewReader(res.Content())); err != nil {
+			t.Errorf("%s no longer parses as SVG: %v", res.Name(), err)
 		}
 	}
 }

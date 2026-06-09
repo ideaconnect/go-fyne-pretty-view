@@ -29,7 +29,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - [Design and documentation](#design-and-documentation)
 - [Contributing](#contributing)
 - [Sponsorship](#sponsorship)
-- [Credits](#credits)
+- [Credits and third-party licenses](#credits-and-third-party-licenses)
 - [License](#license)
 
 ## Features
@@ -244,6 +244,47 @@ pv.SetTheme(theme.VariantLight, prettyview.Theme{Selection: myLightSelection})
 `Summary`, `IndentGuide`, `Selection`, `Match`, `ActiveMatch`). `SyntaxColors` is
 the token-only shorthand. Overrides merge, so repeated calls accumulate.
 
+### Fonts
+
+Fonts in Fyne are an **app-wide** setting (the theme's `Font()`), not a per-widget
+one. The widget itself only renders the viewer body as monospace and otherwise
+follows whatever theme your app installs — by default Fyne's bundled DejaVu Sans
+Mono / Noto Sans.
+
+The optional [`fonttheme`](fonttheme) subpackage bundles the project's preferred
+faces — **JetBrains Mono** for the monospace body and **Inter** for UI text — and
+wraps them as a `fyne.Theme` you install on your app:
+
+```go
+import (
+    "fyne.io/fyne/v2/app"
+    "fyne.io/fyne/v2/theme"
+    "github.com/ideaconnect/go-fyne-pretty-view/fonttheme"
+)
+
+a := app.New()
+a.Settings().SetTheme(fonttheme.New(theme.DefaultTheme()))
+```
+
+`fonttheme.New` wraps any base theme and overrides **only** its fonts, so your
+base theme's colors, sizes, and icons are preserved. The fonts are embedded in the
+`fonttheme` package alone — importing the core `prettyview` widget pulls in **no**
+font data, so you only pay for the typefaces if you opt in.
+
+Override individual faces (a nil field keeps the bundled default) via `WithFonts`.
+Each weight is its own field, so to swap the monospace face set both `Mono` and
+`MonoBold` — otherwise bold monospace would still render in JetBrains Mono:
+
+```go
+a.Settings().SetTheme(fonttheme.New(theme.DefaultTheme(), fonttheme.WithFonts(fonttheme.Fonts{
+    Mono:     myMonoRegular, // swap the monospace face (UI text stays Inter)
+    MonoBold: myMonoBold,    // set both weights so bold monospace matches
+})))
+```
+
+You are never required to use `fonttheme`: install your own `fyne.Theme` (or none)
+and the widget renders with whatever monospace face that theme provides.
+
 ## Threading
 
 `PrettyView` follows the usual Fyne widget rule: it is **not safe for concurrent
@@ -326,14 +367,58 @@ in ❤️ — every contribution helps keep this library alive:
 
 Thank you to everyone who already supports the project! 🙏
 
-## Credits
+## Credits and third-party licenses
 
-Toolbar glyphs (open, expand/collapse, wrap-text, search, up/down) are from
-[Iconoir](https://iconoir.com) by Luca Burgio, used under the **MIT License**
-(© 2021 Luca Burgio). The icon files and their license are vendored under
-[icons/iconoir/](icons/iconoir/) (see [icons/iconoir/LICENSE](icons/iconoir/LICENSE)).
-They are recolored to the active theme foreground at build time.
+This repository vendors third-party assets. Their license texts are kept next to
+the files, and the obligations below are summarized for convenience — the bundled
+license texts are authoritative.
+
+**Toolbar glyphs — [Font Awesome Free](https://fontawesome.com)** (open,
+expand/collapse, wrap-text, search, up/down). The icons are used under the
+**CC BY 4.0** license; © Fonticons, Inc. The SVGs are vendored under
+[icons/fontawesome/](icons/fontawesome/) with the full license at
+[icons/fontawesome/LICENSE.txt](icons/fontawesome/LICENSE.txt), and each SVG keeps
+Font Awesome's original attribution comment. They are recolored to the active
+theme foreground when the resource is built.
+
+**Bundled fonts (optional, [`fonttheme`](fonttheme) only)** — both under the
+**SIL Open Font License 1.1**:
+
+- **JetBrains Mono** (monospace) — © The JetBrains Mono Project Authors;
+  [fonttheme/fonts/JetBrainsMono/OFL.txt](fonttheme/fonts/JetBrainsMono/OFL.txt).
+- **Inter** (UI text) — © The Inter Project Authors;
+  [fonttheme/fonts/Inter/LICENSE.txt](fonttheme/fonts/Inter/LICENSE.txt).
+
+These fonts are embedded only in the `fonttheme` subpackage; the core widget
+bundles no fonts.
+
+### If your software uses this library
+
+You inherit obligations only for the assets you actually ship:
+
+- **Font Awesome icons (CC BY 4.0).** The icons are compiled into every binary
+  that links the widget (they are tiny embedded SVGs). CC BY 4.0 requires
+  **attribution** — credit "Font Awesome Free" with a link to
+  <https://fontawesome.com> and to the license. The simplest way to comply is to
+  keep [icons/fontawesome/LICENSE.txt](icons/fontawesome/LICENSE.txt) in your
+  distribution (or reproduce its attribution notice in your app's about/credits).
+
+- **JetBrains Mono / Inter (SIL OFL 1.1).** You incur these obligations **only if
+  you import the `fonttheme` subpackage**, which embeds the font files into your
+  binary. The OFL permits bundling and redistribution; it asks that you **include
+  the OFL license text** with the fonts and **not sell the fonts on their own**.
+  Keeping the two `OFL.txt` / `LICENSE.txt` files (or their text in your credits)
+  satisfies this. If you do **not** import `fonttheme`, you ship no fonts and have
+  nothing to attribute here.
+
+If you do not use `fonttheme` and you reproduce Font Awesome's attribution
+elsewhere, you can ship without bundling any of these license files — but vendoring
+them is the easiest path to compliance. For a concrete example, the prebuilt demo
+zips (which embed both the icons and the fonts) carry these three license texts
+under a `licenses/` folder alongside the binary.
 
 ## License
 
-Licensed under the [BSD 3-Clause License](LICENSE) (© 2026 IDCT, Bartosz Pachołek).
+This library's own code is licensed under the
+[BSD 3-Clause License](LICENSE) (© 2026 IDCT, Bartosz Pachołek). The third-party
+assets above keep their respective licenses.

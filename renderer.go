@@ -39,6 +39,12 @@ type prettyViewRenderer struct {
 	rowObjs   []fyne.CanvasObject
 	selObjs   []fyne.CanvasObject
 	matchObjs []fyne.CanvasObject
+
+	// reusable WrapBreaks scratch for the highlight passes, so rebuildSelection /
+	// rebuildMatches don't allocate a fresh []int32 per reflow under soft-wrap
+	// (the row build pass has its own reused scratch in reflow).
+	selBreaks   []int32
+	matchBreaks []int32
 }
 
 // CreateRenderer implements fyne.Widget. It builds the scroll + layered content
@@ -130,6 +136,7 @@ func (r *prettyViewRenderer) reflow() {
 	total := int(pv.doc.TotalVisibleRows())
 	if total == 0 {
 		r.clearRows()
+		r.rowObjs = r.rowObjs[:0] // don't retain pointers to the now-pooled rows
 		r.rowLayer.Objects = nil
 		r.rowLayer.Refresh()
 		// Drop any selection/match rectangles left over from a previous, non-empty

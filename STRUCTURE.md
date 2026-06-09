@@ -72,7 +72,7 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 | `options.go` | `config`, functional `Option`s (`WithFormat`, `WithWrap`, …), `SearchConfig`. |
 | `theme.go` | `SyntaxColors`, the default dark/light palettes, the `palette()` builder, theme-color helpers. |
 | `controls.go` | **Optional** ready-made controls: `NewToolbar` (+ `ToolbarConfig`), `NewSearchBar`, `NewFormatSelect`, `NewFoldButtons`, `NewWrapToggle`, `ShowOpenDialog`. |
-| `icons.go` | Embedded Iconoir toolbar glyphs (`icons/iconoir/*.svg`, MIT) recolored to the theme foreground (`iconResource`). |
+| `icons.go` | Embedded Font Awesome Free toolbar glyphs (`icons/fontawesome/*.svg`, CC BY 4.0) recolored to the theme foreground (`iconResource`). |
 | `renderer.go` | `prettyViewRenderer`: manual `container.Scroll` virtualization, `reflow`, `contentLayout`, `contentSize`, metric/palette recompute. |
 | `row.go` | `rowWidget` + `rowRenderer`: per-row colored text (horizontally culled), indent guides, fold triangle. |
 | `widget_input.go` | Input-interface assertions, `Tapped` (fold toggle), `TappedSecondary` (right-click Copy / Select-all menu), `Cursor`, coordinate conversion. |
@@ -84,7 +84,8 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 ## Demo & assets
 | Path | Responsibility |
 |---|---|
-| `cmd/prettyview-demo/main.go` | Standalone viewer: file/format pickers, expand/collapse, search box. |
+| `cmd/prettyview-demo/main.go` | Standalone viewer: file/format pickers, expand/collapse, search box; installs the `fonttheme` typefaces. |
+| `fonttheme/` | **Optional** subpackage bundling JetBrains Mono + Inter (SIL OFL 1.1) as an installable `fyne.Theme` (`New`, `WithFonts`). Fonts are embedded here only, so the core widget bundles none. |
 | `testdata/` | Fixtures: `small.json`, `openapi.json` (~478 KB), `big.json` (~7.5 MB stress), `catalog.xml`, `page.html`. |
 | `docs/DESIGN.md`, `docs/PERFORMANCE.md` | Authoritative architecture + adversarial risk analysis; the performance review. |
 

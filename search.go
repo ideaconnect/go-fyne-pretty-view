@@ -168,7 +168,7 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 
 	pv.search.query = q
 	pv.search.matches = pv.search.matches[:0]
-	pv.search.byLine = nil
+	clear(pv.search.byLine) // reuse the map across scans (nil-safe); indexMatches refills it
 	pv.search.active = -1
 	pv.search.capped = false
 	pv.search.err = nil
@@ -212,10 +212,18 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		scratch = pv.doc.AssembleLine(li, scratch[:0])
 		switch {
 		case re != nil:
+			// FindAllIndex evaluates the pattern against the whole line, so anchors
+			// (^ $) and word boundaries (\b \B) see full context. A from-offset
+			// FindIndex(scratch[from:]) loop is wrong here: re-slicing the suffix
+			// gives the engine a fresh start-of-text, which re-anchors ^ at every
+			// resume point and hides the byte to the left of \b/\B. The n argument
+			// bounds the per-line slice to the remaining match budget (so a single
+			// pathological line can't allocate past the cap); zero-width matches
+			// (e.g. \b, or o* at a non-o) carry nothing to highlight and are skipped.
 			cur := colCursor{hay: scratch}
-			for _, loc := range re.FindAllIndex(scratch, -1) {
-				if loc[1] == loc[0] {
-					continue // skip zero-width matches
+			for _, loc := range re.FindAllIndex(scratch, limit-len(pv.search.matches)) {
+				if loc[0] == loc[1] {
+					continue
 				}
 				pv.addMatchB(li, &cur, loc[0], loc[1])
 				if len(pv.search.matches) >= limit {
@@ -331,7 +339,10 @@ func asciiLowerInPlace(b []byte) {
 }
 
 func (pv *PrettyView) indexMatches() {
-	pv.search.byLine = make(map[int32][]int, len(pv.search.matches))
+	// runSearch already cleared byLine for reuse; only allocate on the first scan.
+	if pv.search.byLine == nil {
+		pv.search.byLine = make(map[int32][]int, len(pv.search.matches))
+	}
 	for i, m := range pv.search.matches {
 		pv.search.byLine[m.Line] = append(pv.search.byLine[m.Line], i)
 	}

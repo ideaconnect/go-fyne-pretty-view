@@ -56,7 +56,7 @@ github.com/ideaconnect/go-fyne-pretty-view/
 ├── options.go                   // functional Options: WithFormat, WithWrap, WithSearchConfig, WithTheme, ...
 ├── format.go                    // public Format / WrapMode aliases of the model types
 ├── controls.go                  // OPTIONAL ready-made controls: NewToolbar (+ToolbarConfig), NewSearchBar, NewFormatSelect, NewFoldButtons, NewWrapToggle, ShowOpenDialog
-├── icons.go                     // embedded Iconoir toolbar glyphs (icons/iconoir/*.svg, MIT), recolored to the theme foreground
+├── icons.go                     // embedded Font Awesome Free toolbar glyphs (icons/fontawesome/*.svg, CC BY 4.0), recolored to the theme foreground
 │
 ├── internal/geometry/
 │   └── geometry.go              // Metrics: exact charWidth + rounded rowHeight, col<->x, pixel<->(row,col) hit-test, ColsForDepth (wrap), ONE origin convention
@@ -361,8 +361,11 @@ stays in `Src`.
 span and appends each whole line's displayed bytes directly (no per-line `[]rune`);
 for raw documents it rewrites each pad segment back to a single `\t` via
 `Document.AppendDisplayLine(restoreTabs)`, so a copy reproduces the source tabs rather
-than the expanded spaces. Only a partial endpoint line is rune-sliced for the column
-cut. (Structured JSON/XML/HTML lines have no pad segments; in-string `\t` escapes are
+than the expanded spaces. A partial endpoint line is rune-sliced for the column cut by
+`appendDisplayRange`, which walks the same `DisplaySegs` tracking the display-column
+cursor, so it restores a tab the cut fully covers and keeps the covered spaces for a tab
+the cut bisects — the whole-line and partial-endpoint copies share the same tab fidelity.
+(Structured JSON/XML/HTML lines have no pad segments; in-string `\t` escapes are
 preserved as source bytes.)
 
 ### 4.4 Visible-row projection — Fenwick over per-line visibility
@@ -828,7 +831,7 @@ Each segment stores a 1-byte `model.ColorRole`. `recomputeMetrics` (renderer.go)
 | R-6 | **Wrong drag anchor** from `d.Position.Subtract(d.Dragged)` (delta is vs previous sample, window.go:417) — A2 Issue #1 | Med | Anchor set authoritatively in `MouseDown`; never recomputed in `Dragged`. §6.4. |
 | R-7 | **Hit-test off-by-one** (missing origin term) — A2 Issue #2 | Med | One origin convention (top-pad 0, integer `rowH`, `floor(contentY/rowH)`) across reflow/hitTest/rects. §5.3. Golden round-trip test. |
 | R-8 | **Wrong columns copied under horizontal scroll** (Offset.X dropped) — A2 Issue #3 | Blocker (data corruption) | `contentX = local.X + Offset.X` in hit-test. §5.3/§6.3. |
-| R-9 | **Tabs → clipboard ≠ source** — A2 Issue #4 | Med | **Resolved (no colMap):** raw lines expand tabs to interned space pads; copy rewrites each pad back to a real `\t` via `AppendDisplayLine(restoreTabs)`. §4.3. Test: `TestSelectedTextRawTabsRoundTrip`. |
+| R-9 | **Tabs → clipboard ≠ source** — A2 Issue #4 | Med | **Resolved (no colMap):** raw lines expand tabs to interned space pads; copy rewrites each pad back to a real `\t` — whole lines via `AppendDisplayLine(restoreTabs)`, partial endpoints via `appendDisplayRange` (same pad logic). §4.3. Tests: `TestSelectedTextRawTabsRoundTrip`, `TestSelectedTextPartialRawTabRoundTrip`. |
 | R-10 | **O(K·L) byte→rune in search** — A2 Issue #5 | High (freeze) | **Resolved:** single forward pass per line (`colCursor`, §7.2); ~5 ms full scan of the 7.5 MB fixture, so the synchronous scan needs no chunking (§7.3). |
 | R-11 | **Reveal frame-drops + mid-scan viewport yank** — A2 Issue #6 | High | Fixed-height fast path; batched ancestor expand; debounced reveal scroll; auto-reveal only on user intent. §7.4. |
 | R-12 | **`lineID→row` map → O(n) rebuild per fold; "O(log n) fold" overclaim** — A2 Issue #7, D1 open risk | High | the stable `line` index *is* the id; `rowOfLine` is an O(log n) Fenwick prefix (no map). Fold honestly O(k visible descendants) with O(log n) row delta; `hiddenBy` array keeps lookups O(log n). §4.4/§6.2. |

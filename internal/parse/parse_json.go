@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
@@ -77,12 +78,29 @@ func (s *jsonScanner) peek() byte {
 
 // skipSpace consumes whitespace and, in JSONC mode, // line and /* */ block
 // comments (treated as whitespace in M1; rendered as nodes is a later refinement).
+//
+// Its whitespace set must match what auto-detection trims (unicode.IsSpace, in
+// jsonParser.Detect / AutoDetect): if the scanner stopped on a byte the detector
+// treats as whitespace, an input confidently labelled JSON would stall mid-scan —
+// a leading form-feed would fall back to raw, and a form-feed/NBSP *between*
+// members would silently drop the rest of the container. So the ASCII fast path
+// includes \f and \v, and any non-ASCII byte is decoded and tested with
+// unicode.IsSpace (covering NBSP, the line/paragraph separators, etc.).
 func (s *jsonScanner) skipSpace() {
 	for s.pos < len(s.src) {
 		c := s.src[s.pos]
 		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v':
 			s.pos++
+		case c >= utf8.RuneSelf:
+			// Possible multi-byte Unicode space. On invalid UTF-8, DecodeRune
+			// returns RuneError (not a space), so we stop and let parseValue report
+			// the byte rather than skipping past it.
+			r, size := utf8.DecodeRune(s.src[s.pos:])
+			if !unicode.IsSpace(r) {
+				return
+			}
+			s.pos += size
 		case c == '/' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '/':
 			s.pos += 2
 			for s.pos < len(s.src) && s.src[s.pos] != '\n' {
@@ -276,6 +294,20 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			s.pos++
 			s.b.AppendComma(s.b.LastLine(childID))
 			continue
+		}
+		// A complete value followed by neither ',' nor the close byte (nor EOF) is
+		// trailing junk, e.g. the "X" in "[trueX]" or "abc" in "[123abc]" — a bare
+		// literal/number scan stops at the first foreign byte without a delimiter
+		// check. Surface it as an error marker rather than silently dropping the rest
+		// of the container, mirroring the truncated-key recovery above.
+		if s.pos < len(s.src) && s.peek() != close {
+			junkStart := s.pos
+			for s.pos < len(s.src) && s.src[s.pos] != ',' && s.src[s.pos] != close {
+				s.pos++
+			}
+			s.b.Leaf(model.KindError, junkStart, s.pos, []model.Seg{model.SrcSeg(model.RolePlain, junkStart, s.pos)})
+			s.fail("unexpected content after value")
+			break
 		}
 		// Otherwise expect the closing brace on the next iteration.
 	}

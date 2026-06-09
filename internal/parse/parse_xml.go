@@ -28,8 +28,15 @@ func (xmlParser) Detect(src []byte) int {
 	if bytes.HasPrefix(t, []byte("<?xml")) {
 		return 90
 	}
-	// A bare element that also has a closing tag looks like XML.
-	if len(t) > 1 && (isNameStart(t[1])) && bytes.Contains(t, []byte("</")) {
+	// A bare element that also has a closing tag looks like XML. Bound the scan to a
+	// head window (like the HTML detector) so a multi-MB non-XML or close-tag-far-in
+	// file isn't scanned end-to-end on every auto-detect: a "</" within the first few
+	// KB is a sufficient signal.
+	head := t
+	if len(head) > sniffLimit {
+		head = head[:sniffLimit]
+	}
+	if len(t) > 1 && isNameStart(t[1]) && bytes.Contains(head, []byte("</")) {
 		return 55
 	}
 	return 0

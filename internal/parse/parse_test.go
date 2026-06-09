@@ -167,6 +167,76 @@ func TestJSONCCommentsSkipped(t *testing.T) {
 	}
 }
 
+// TestJSONNonASCIIWhitespace is the regression for the detector/scanner whitespace
+// mismatch: auto-detection trims unicode.IsSpace, so the scanner must skip the same
+// set or an input it labels JSON stalls mid-scan — a leading form-feed would fall
+// back to raw, and a form-feed/NBSP between members would silently drop the rest of
+// the container. Each case must stay JSON with every member rendered.
+func TestJSONNonASCIIWhitespace(t *testing.T) {
+	cases := []struct {
+		name, src string
+	}{
+		{"leading form-feed", "\f{\"a\":1,\"b\":2}"},
+		{"leading NBSP", " {\"a\":1,\"b\":2}"},
+		{"form-feed between members", "{\"a\":1,\f\"b\":2}"},
+		{"NBSP between members", "{\"a\":1, \"b\":2}"},
+		{"vertical-tab between members", "{\"a\":1,\v\"b\":2}"},
+	}
+	for _, c := range cases {
+		d := Parse([]byte(c.src), FormatAuto, 0)
+		if d.Format != FormatJSON {
+			t.Errorf("%s: format = %v, want json (whitespace defeated detection/scan)", c.name, d.Format)
+			continue
+		}
+		text := renderDoc(d)
+		if !strings.Contains(text, `"a"`) || !strings.Contains(text, `"b"`) {
+			t.Errorf("%s: a member was dropped:\n%s", c.name, text)
+		}
+	}
+}
+
+// TestDetectXMLvsHTML guards the structural-tag sniff: an XML document that merely
+// contains an HTML-ish tag name (substring, attribute, or longer element) must not
+// be misclassified as HTML (which would fold its tag-name case), while a genuine
+// HTML fragment that opens with a structural tag still detects as HTML.
+func TestDetectXMLvsHTML(t *testing.T) {
+	cases := []struct {
+		name, src string
+		want      Format
+	}{
+		{"longer element <divider>", "<divider>x</divider>", FormatXML},
+		{"longer element <header>", "<header>x</header>", FormatXML},
+		{"mixed-case root with embedded <p>", "<Root><Child><p>x</p></Child></Root>", FormatXML},
+		{"html tag as attribute/child not at start", `<config><a href="x"></a></config>`, FormatXML},
+		{"html-ish name in prose", "<root>mentions <div in text</root>", FormatXML},
+		{"real html fragment <div>", `<div class="x">hi</div>`, FormatHTML},
+		{"real html fragment <p>", "<p>hi</p>", FormatHTML},
+	}
+	for _, c := range cases {
+		if d := Parse([]byte(c.src), FormatAuto, 0); d.Format != c.want {
+			t.Errorf("%s: detected %v, want %v", c.name, d.Format, c.want)
+		}
+	}
+}
+
+// TestJSONTrailingJunkSurfaced is the regression for the delimiter check: a bare
+// literal/number scan stops at the first foreign byte, so trailing junk after a
+// value (no comma/close) was silently dropped. It must now surface as an error
+// marker so the dropped bytes stay visible.
+func TestJSONTrailingJunkSurfaced(t *testing.T) {
+	cases := []struct{ name, src, junk string }{
+		{"literal", "[trueX]", "X"},
+		{"number", "[123abc]", "abc"},
+		{"object value", `{"a":1bogus}`, "bogus"},
+	}
+	for _, c := range cases {
+		d := Parse([]byte(c.src), FormatJSON, 0)
+		if text := renderDoc(d); !strings.Contains(text, c.junk) {
+			t.Errorf("%s: trailing junk %q was dropped, not surfaced:\n%s", c.name, c.junk, text)
+		}
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {
