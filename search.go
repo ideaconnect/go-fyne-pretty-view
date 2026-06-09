@@ -212,23 +212,20 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		scratch = pv.doc.AssembleLine(li, scratch[:0])
 		switch {
 		case re != nil:
-			// From-offset FindIndex loop (mirrors scanPlain) rather than
-			// FindAllIndex(-1): it never materializes a per-line [][]int and honors
-			// the match cap incrementally instead of after the whole line.
+			// FindAllIndex evaluates the pattern against the whole line, so anchors
+			// (^ $) and word boundaries (\b \B) see full context. A from-offset
+			// FindIndex(scratch[from:]) loop is wrong here: re-slicing the suffix
+			// gives the engine a fresh start-of-text, which re-anchors ^ at every
+			// resume point and hides the byte to the left of \b/\B. The n argument
+			// bounds the per-line slice to the remaining match budget (so a single
+			// pathological line can't allocate past the cap); zero-width matches
+			// (e.g. \b, or o* at a non-o) carry nothing to highlight and are skipped.
 			cur := colCursor{hay: scratch}
-			from := 0
-			for from <= len(scratch) {
-				loc := re.FindIndex(scratch[from:])
-				if loc == nil {
-					break
-				}
-				bs, be := from+loc[0], from+loc[1]
-				if be == bs {
-					from = be + 1 // zero-width match: step a byte to make progress
+			for _, loc := range re.FindAllIndex(scratch, limit-len(pv.search.matches)) {
+				if loc[0] == loc[1] {
 					continue
 				}
-				pv.addMatchB(li, &cur, bs, be)
-				from = be
+				pv.addMatchB(li, &cur, loc[0], loc[1])
 				if len(pv.search.matches) >= limit {
 					pv.search.capped = true
 					break

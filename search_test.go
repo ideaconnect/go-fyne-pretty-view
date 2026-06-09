@@ -57,6 +57,65 @@ func TestSearchRegex(t *testing.T) {
 	}
 }
 
+// TestSearchRegexAnchors pins that the regex scan evaluates each pattern against
+// the whole line, not against a re-sliced suffix. A from-offset
+// FindIndex(scratch[from:]) loop re-anchors ^ at every resume point and invents a
+// start-of-text word boundary, producing spurious matches.
+func TestSearchRegexAnchors(t *testing.T) {
+	// ^. anchors to the line start: exactly one match on a single line, not one
+	// per byte. (The old suffix-reslicing loop reported one per byte.)
+	pv := docPV("abcabc", FormatRaw)
+	pv.Search(SearchQuery{Text: `^.`, Mode: SearchRegex})
+	if _, total, _ := pv.SearchStatus(); total != 1 {
+		t.Errorf(`^. total = %d, want 1`, total)
+	}
+
+	// \ba matches an "a" at a word boundary. In "aab" only the leading a qualifies;
+	// the second a is preceded by a word char. Re-slicing after the first match made
+	// the resumed suffix "ab" start-anchored, inventing a boundary before its 'a'.
+	pv = docPV("aab", FormatRaw)
+	pv.Search(SearchQuery{Text: `\ba`, Mode: SearchRegex})
+	if _, total, _ := pv.SearchStatus(); total != 1 {
+		t.Errorf(`\ba total = %d, want 1 (not a spurious boundary match)`, total)
+	}
+}
+
+// TestSearchRegexZeroWidth pins that a zero-width-capable pattern terminates and
+// records only the non-empty runs, never an empty highlight at every position.
+func TestSearchRegexZeroWidth(t *testing.T) {
+	pv := docPV("foo bar boo", FormatRaw)
+	pv.Search(SearchQuery{Text: `o*`, Mode: SearchRegex})
+	if _, total, _ := pv.SearchStatus(); total != 2 {
+		t.Errorf(`o* total = %d, want 2 (the two "oo" runs; empty matches skipped)`, total)
+	}
+}
+
+// TestSearchRegexMaxMatchesCap mirrors TestSearchMaxMatchesCap for the regex path:
+// many matches on one line must honor the cap (and report capped) rather than the
+// per-line FindAllIndex over-running the global budget.
+func TestSearchRegexMaxMatchesCap(t *testing.T) {
+	const cap = 50
+	const occ = cap + 25
+	src := strings.Repeat("x ", occ)
+
+	capped := NewWithData([]byte(src), FormatRaw,
+		WithSearchConfig(SearchConfig{MaxMatches: cap, MinQueryLen: 1}))
+	capped.Search(SearchQuery{Text: `x`, Mode: SearchRegex})
+	if _, total, isCapped := capped.SearchStatus(); total != cap || !isCapped {
+		t.Errorf("regex capped: total=%d capped=%v, want total=%d capped=true", total, isCapped, cap)
+	}
+	if got := len(capped.search.matches); got != cap {
+		t.Errorf("regex stored %d matches, want exactly the cap %d", got, cap)
+	}
+
+	uncapped := NewWithData([]byte(src), FormatRaw,
+		WithSearchConfig(SearchConfig{MaxMatches: 1000, MinQueryLen: 1}))
+	uncapped.Search(SearchQuery{Text: `x`, Mode: SearchRegex})
+	if _, total, isCapped := uncapped.SearchStatus(); isCapped || total != occ {
+		t.Errorf("regex uncapped: total=%d capped=%v, want total=%d capped=false", total, isCapped, occ)
+	}
+}
+
 func TestSearchBadRegex(t *testing.T) {
 	pv := docPV(`{"a":1}`, FormatJSON)
 	pv.Search(SearchQuery{Text: "[", Mode: SearchRegex})

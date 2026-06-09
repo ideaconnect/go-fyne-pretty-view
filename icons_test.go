@@ -2,6 +2,7 @@ package prettyview
 
 import (
 	"bytes"
+	"image/color"
 	"testing"
 
 	"fyne.io/fyne/v2"
@@ -47,6 +48,17 @@ func TestIconResourcesRecolored(t *testing.T) {
 // Fyne renders with, guarding the one thing the icon swap must guarantee: that the
 // vendored (and recolored) Font Awesome SVGs are still well-formed and renderable.
 // The substring checks above assert intent; this asserts the bytes actually parse.
+// TestColorToHexStraightAlpha pins the premultiplied-alpha fix: colorToHex must
+// read straight (NRGBA) channels, so a non-opaque themed foreground bakes its true
+// color rather than a darkened/premultiplied one. Reading c.RGBA() directly would
+// scale each channel by alpha (here ×0.5) and yield #643219 instead of #c86432.
+func TestColorToHexStraightAlpha(t *testing.T) {
+	got := colorToHex(color.NRGBA{R: 200, G: 100, B: 50, A: 128})
+	if got != "#c86432" {
+		t.Errorf("colorToHex(half-transparent) = %s, want #c86432 (straight alpha)", got)
+	}
+}
+
 func TestIconResourcesParse(t *testing.T) {
 	test.NewApp()
 	for _, get := range iconGetters {
