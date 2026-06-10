@@ -166,8 +166,8 @@ func (rr *rowRenderer) build() {
 		if useGrid {
 			segEnd := segStart + len(sb)
 			col = segEnd // next segment begins here; the outer break culls past-window
-			if segEnd <= firstCol {
-				continue // entirely left of the window
+			if segEnd <= firstCol || len(sb) == 0 {
+				continue // entirely left of the window (or empty — emits nothing, like the decode path)
 			}
 			if firstCol > segStart {
 				loByte = firstCol - segStart

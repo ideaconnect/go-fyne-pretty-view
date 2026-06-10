@@ -58,10 +58,11 @@ Measured on the included fixtures:
 |---|---|---|---|
 | `big.json` (7.5 MB) | 440,005 | **31** | **~80–90 MB** |
 
-The parsed model is roughly **5–7× the source size** — about 4.5× for typical
-pretty-printed JSON (the ~478 KB `openapi.json` → ~2.1 MB of arenas), rising toward
-6–7× for documents dominated by short structural lines (the 7.5 MB `big.json` → ~48 MB),
-since each line and segment carries a fixed-size record. A single multi-megabyte line
+The parsed model is roughly **5× to over 7× the source size** — about 4.85× for
+typical pretty-printed JSON (the ~478 KB `openapi.json` → ~2.2 MB, guarded by
+`TestModelSizeRatio`), rising to ~7.1× for documents dominated by short structural
+lines (the 7.5 MB `big.json` → ~51 MB), since each line and segment carries a
+fixed-size record. A single multi-megabyte line
 is horizontally culled so no individual text
 texture is ever wider than the viewport (without that, Fyne would try to
 rasterize a ~1 GB bitmap for the line).

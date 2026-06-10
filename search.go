@@ -197,13 +197,15 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		}
 		re = r
 	}
-	// Literal-prefix prefilter: every match of re must begin with this exact byte
-	// sequence, so a line not containing it cannot match and the (far costlier) RE2
-	// engine is skipped for that line — turning an O(lines) engine sweep into a cheap
-	// bytes.Index scan for the common "regex with a literal head" case (e.g. `item\d+`
-	// or a pattern that is effectively a literal). LiteralPrefix returns "" for a
-	// case-insensitive pattern (the (?i) compile has no exact literal head), so the
-	// prefilter never drops a real match — it just doesn't fire there.
+	// Literal-prefix prefilter: LiteralPrefix returns a byte sequence that EVERY match
+	// of re must begin with (Go's documented contract), so a line not containing it
+	// cannot match and the (far costlier) RE2 engine is skipped for it via bytes.Index
+	// — turning an O(lines) engine sweep into a cheap scan for the common "regex with a
+	// literal head" case (e.g. `item\d+`, or a pattern that is effectively a literal).
+	// This is correct regardless of case sensitivity: for a case-insensitive (?i)
+	// pattern the prefix is the run of caseless leading characters (empty for a cased
+	// head like `foo`, but e.g. "0x" for `(?i)0xFF`), and that run is still a literal
+	// every match must contain. An empty prefix simply disables the filter.
 	var rePrefix []byte
 	if re != nil {
 		if lp, _ := re.LiteralPrefix(); lp != "" {

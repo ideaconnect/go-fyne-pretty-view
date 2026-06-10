@@ -133,12 +133,23 @@ func TestSearchRegexLiteralPrefixPrefilter(t *testing.T) {
 		t.Errorf(`item\d+ total = %d, want 2 (item1, item22)`, total)
 	}
 
-	// Case-insensitive has no literal prefix (the (?i) compile reports none), so the
-	// prefilter must not fire and must not drop the upper-case-only hit.
+	// Case-insensitive with a CASED head ("item") has no literal prefix (the (?i)
+	// compile reports none), so the prefilter does not fire and must not drop the
+	// upper-case-only hit.
 	ci := docPV(`{"a":"ITEM5","b":"plain"}`, FormatJSON)
 	ci.Search(SearchQuery{Text: `item\d`, Mode: SearchRegex, CaseSensitive: false})
 	if _, total, _ := ci.SearchStatus(); total != 1 {
 		t.Errorf(`(?i)item\d total = %d, want 1 (ITEM5)`, total)
+	}
+
+	// Case-insensitive with a CASELESS head ("0x") DOES have a non-empty literal
+	// prefix, so the prefilter fires on "0x" — it must still match every casing of the
+	// cased tail and must not drop them, while a line lacking the caseless head is
+	// correctly excluded.
+	cl := docPV(`{"a":"0xff","b":"0XFF","c":"0xFf","d":"1xff"}`, FormatJSON)
+	cl.Search(SearchQuery{Text: `0x[0-9a-f]{2}`, Mode: SearchRegex, CaseSensitive: false})
+	if _, total, _ := cl.SearchStatus(); total != 3 {
+		t.Errorf(`(?i)0x[0-9a-f]{2} total = %d, want 3 (0xff, 0XFF, 0xFf; not 1xff)`, total)
 	}
 }
 
