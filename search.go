@@ -13,7 +13,13 @@ import (
 type SearchMode uint8
 
 const (
+	// SearchPlain matches the query as a literal substring (the default).
 	SearchPlain SearchMode = iota
+	// SearchRegex matches the query as a Go regular expression (regexp/RE2). RE2
+	// matches in time linear in the input, so a host-supplied pattern cannot cause
+	// catastrophic backtracking (no ReDoS); an invalid pattern is reported via
+	// SearchError. A pathological pattern can still be expensive to compile, so treat
+	// the pattern as you would any host input.
 	SearchRegex
 )
 

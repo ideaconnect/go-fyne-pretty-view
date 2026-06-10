@@ -30,6 +30,7 @@ type config struct {
 	collapseDepth int // auto-collapse containers deeper than this on load (0 = never)
 	tabWidth      int
 	indentStep    float32
+	maxInputBytes int // cap on SetData/SetText input; 0 = no cap (the 4 GiB model ceiling)
 	themeOverride map[fyne.ThemeVariant]Theme
 }
 
@@ -90,6 +91,20 @@ func WithTabWidth(n int) Option {
 	return func(c *config) {
 		if n > 0 {
 			c.tabWidth = n
+		}
+	}
+}
+
+// WithMaxInputBytes caps the source size SetData/SetText will load. Input longer than
+// n bytes is truncated to n before parsing (the parsers are tolerant, so a truncated
+// document still renders). It bounds the synchronous parse work and the resulting
+// model size (≈5–7× the source, built on the calling/Fyne goroutine) for untrusted or
+// unbounded input. n <= 0 (the default) imposes no cap beyond the model's 4 GiB
+// source ceiling.
+func WithMaxInputBytes(n int) Option {
+	return func(c *config) {
+		if n > 0 {
+			c.maxInputBytes = n
 		}
 	}
 }
