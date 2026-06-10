@@ -182,9 +182,9 @@ func (s *xmlScanner) skipElement() {
 
 // startSegs builds the segments for an opening (or self-closing) element line.
 func startSegs(start xml.StartElement, selfClose bool) []model.Seg {
-	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, start.Name.Local)}
+	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, escapeGridBreakers(start.Name.Local))}
 	for _, a := range start.Attr {
-		name := a.Name.Local
+		name := escapeGridBreakers(a.Name.Local)
 		segs = append(segs,
 			model.LitSeg(model.RolePlain, " "),
 			model.LitSeg(model.RoleAttr, name),
@@ -201,10 +201,15 @@ func startSegs(start xml.StartElement, selfClose bool) []model.Seg {
 }
 
 func endSegs(name string) []model.Seg {
-	return []model.Seg{model.LitSeg(model.RolePunct, "</"), model.LitSeg(model.RoleTag, name), model.LitSeg(model.RolePunct, ">")}
+	return []model.Seg{model.LitSeg(model.RolePunct, "</"), model.LitSeg(model.RoleTag, escapeGridBreakers(name)), model.LitSeg(model.RolePunct, ">")}
 }
 
-// collapseSpace trims and collapses internal whitespace runs to single spaces.
+// collapseSpace trims and collapses internal whitespace runs to single spaces, then
+// C-escapes any remaining control bytes. Every caller turns the result into display
+// text (XML/HTML char data, comments, processing instructions), so it must hold the
+// one-row / uniform-grid invariant: FieldsFunc(unicode.IsSpace) removes \n/\t/\r, and
+// escapeGridBreakers handles the non-whitespace C0/DEL bytes those leave behind
+// (e.g. NUL, ESC) which would otherwise render as a stray glyph and desync the grid.
 func collapseSpace(s string) string {
-	return strings.Join(strings.FieldsFunc(s, unicode.IsSpace), " ")
+	return escapeGridBreakers(strings.Join(strings.FieldsFunc(s, unicode.IsSpace), " "))
 }

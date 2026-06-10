@@ -141,9 +141,9 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 }
 
 func htmlStartSegs(tok html.Token, selfClose bool) []model.Seg {
-	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, tok.Data)}
+	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, escapeGridBreakers(tok.Data))}
 	for _, a := range tok.Attr {
-		segs = append(segs, model.LitSeg(model.RolePlain, " "), model.LitSeg(model.RoleAttr, a.Key))
+		segs = append(segs, model.LitSeg(model.RolePlain, " "), model.LitSeg(model.RoleAttr, escapeGridBreakers(a.Key)))
 		if a.Val != "" {
 			segs = append(segs, model.LitSeg(model.RolePunct, "="), model.LitSeg(model.RoleString, `"`+escapeGridBreakers(a.Val)+`"`))
 		}
