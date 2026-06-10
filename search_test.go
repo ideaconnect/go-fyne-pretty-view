@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
@@ -228,6 +229,63 @@ func TestSearchHighlightBounded(t *testing.T) {
 	t.Logf("matches=%d capped=%v, match rects on screen=%d, visible rows=%d", total, capped, rects, visRows)
 	if rects > visRows*8 {
 		t.Errorf("match rect count %d exceeds visible bound (%d rows)", rects, visRows)
+	}
+}
+
+// TestSearchHighlightBoundedHorizontal pins invariant M-1 on the horizontal axis:
+// thousands of matches on ONE visible line must not each emit a highlight rect when
+// most are scrolled off-screen. (TestSearchHighlightBounded covers only the
+// vertical / many-lines axis.) Before the horizontal cull this drew ~K rects.
+func TestSearchHighlightBoundedHorizontal(t *testing.T) {
+	const k = 5000
+	line := strings.Repeat("needle ", k) // one raw line, k matches
+	pv, win := renderInWindow(t, []byte(line), FormatRaw, 400, 300)
+	defer win.Close()
+
+	pv.Search(SearchQuery{Text: "needle"})
+	if _, total, _ := pv.SearchStatus(); total != k {
+		t.Fatalf("total matches = %d, want %d", total, k)
+	}
+	// Scroll horizontally into the middle of the line, onto a matched region.
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(0, 1000), 0))
+
+	rects := len(pv.r.matchLayer.Objects)
+	visCols := int(pv.r.scroll.Size().Width/pv.met.CharWidth) + 2 // 1 rect/visible col is the ceiling
+	if rects == 0 {
+		t.Error("no match rects drawn after scrolling onto a matched region (over-culled)")
+	}
+	if rects > visCols {
+		t.Errorf("match rects = %d exceeds the visible-column bound %d (total matches %d) — O(matches), not O(visible columns)", rects, visCols, k)
+	}
+}
+
+// TestMatchRectCullsOffscreenColumns proves the horizontal cull is correct in both
+// directions, not merely a count cap: a single match draws a rect only while it lies
+// inside the horizontal visible window.
+func TestMatchRectCullsOffscreenColumns(t *testing.T) {
+	const pad = 2000
+	line := strings.Repeat("x", pad) + "needle" + strings.Repeat("x", pad) // one match at col pad
+	pv, win := renderInWindow(t, []byte(line), FormatRaw, 400, 300)
+	defer win.Close()
+	pv.Search(SearchQuery{Text: "needle"})
+	if _, total, _ := pv.SearchStatus(); total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+
+	// Left edge: the match (col pad) is off-screen to the right -> no rect.
+	pv.r.scrollToOffset(fyne.NewPos(0, 0))
+	if got := len(pv.r.matchLayer.Objects); got != 0 {
+		t.Errorf("match far to the right drew %d rect(s) at scroll 0; want 0", got)
+	}
+	// Scroll the match into view -> exactly one rect.
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(0, pad-5), 0))
+	if got := len(pv.r.matchLayer.Objects); got != 1 {
+		t.Errorf("match in view drew %d rect(s); want 1", got)
+	}
+	// Scroll past it so it is off-screen to the left -> no rect.
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(0, pad+50), 0))
+	if got := len(pv.r.matchLayer.Objects); got != 0 {
+		t.Errorf("match to the left drew %d rect(s); want 0", got)
 	}
 }
 

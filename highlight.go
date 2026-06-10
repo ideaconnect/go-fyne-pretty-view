@@ -146,6 +146,19 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 			depth := pv.doc.Lines[li].Depth
 			runeLen := pv.doc.LineRuneLen(li)
 			w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &r.matchBreaks, &breaksLine)
+			if !wrapOn {
+				// Under WrapNone subSpan returns the whole line, so K matches on one
+				// visible line would each emit a rect even when most are horizontally
+				// scrolled off-screen — O(matches), violating invariant M-1. Intersect
+				// with the horizontal visible column window (the same bound row.go's
+				// build() uses) so only on-screen matches draw: O(visible columns).
+				if fv := m.FirstVisibleCol(depth, pv.viewOffX); fv > w0 {
+					w0 = fv
+				}
+				if lv := m.LastVisibleCol(depth, pv.viewOffX+pv.viewW); lv < w1 {
+					w1 = lv
+				}
+			}
 			for _, mi := range idxs {
 				mt := pv.search.matches[mi]
 				lo := max(clampInt(mt.ColStart, 0, runeLen), w0)
