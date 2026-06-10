@@ -149,10 +149,13 @@ func (pv *PrettyView) step(dir int) {
 //
 // It runs on the Fyne goroutine, not a worker: the cost is O(total bytes) with a
 // single forward byte->rune pass per line (see colCursor) and a hard MaxMatches
-// cap, so it stays well under a frame even on large input — a full scan of the
-// 7.5 MB / 440k-line fixture is ~5 ms. Combined with keystroke debouncing
-// (searchDebounced), a cooperative chunked/off-thread scan is unnecessary (and
-// would reintroduce the Search-vs-reflow data race that staying on the Fyne thread
+// cap, so it stays well under a frame even on large input — a full PLAIN scan of
+// the 7.5 MB / 440k-line fixture is single-digit milliseconds (~5 ms, hardware
+// dependent). Regex (SearchRegex) is heavier per line; a literal-prefix prefilter
+// (re.LiteralPrefix) skips the RE2 engine on non-candidate lines, but a pattern with
+// no literal head still runs the engine on every line. Combined with keystroke
+// debouncing (searchDebounced), a cooperative chunked/off-thread scan is unnecessary
+// (and would reintroduce the Search-vs-reflow data race that staying on the Fyne thread
 // avoids). The ceiling is a single pathological multi-gigabyte document; such input
 // is out of scope for an in-memory viewer.
 func (pv *PrettyView) runSearch(q SearchQuery) {

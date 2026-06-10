@@ -11,7 +11,10 @@ import "unicode/utf8"
 //
 // The column budget per depth is supplied by the view (the model cannot import
 // geometry), recomputed only when the integer column count changes, so a resize
-// reprojects at most once per crossed column boundary.
+// reprojects at most once per crossed column boundary — not once per pixel. Each
+// reprojection is one O(total displayed bytes) pass on the Fyne goroutine (single-
+// digit milliseconds on a multi-MB document, hardware-dependent), so dragging a
+// resize across many column boundaries can briefly cost one such pass per boundary.
 
 // SetWrapColumns enables soft-wrap with the given per-depth text-column budget
 // (colsByDepth[d] = columns available to a line at depth d, as the view derives it
