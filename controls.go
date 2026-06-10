@@ -39,7 +39,11 @@ type ToolbarConfig struct {
 	OnOpen             func()      // overrides the built-in Open behavior, if set
 }
 
-// DefaultToolbarConfig enables every control.
+// DefaultToolbarConfig enables every control. Note that two of them still need more
+// than the flag: the Open button requires a Window (for the built-in dialog) or an
+// OnOpen handler, and Ctrl/Cmd+F search-focus requires a Window — set Window on the
+// returned config (e.g. cfg := DefaultToolbarConfig(); cfg.Window = w) or those two
+// are silently omitted. (Taking the Window as a parameter is a deferred v1.0 change.)
 func DefaultToolbarConfig() ToolbarConfig {
 	return ToolbarConfig{ShowOpen: true, ShowFormat: true, ShowExpandCollapse: true, ShowWrap: true, ShowSearch: true}
 }
@@ -298,17 +302,28 @@ func ShowOpenDialog(pv *PrettyView, win fyne.Window) {
 		return
 	}
 	dialog.ShowFileOpen(func(rc fyne.URIReadCloser, err error) {
-		if err != nil || rc == nil {
-			return
-		}
-		defer rc.Close()
-		data, err := io.ReadAll(rc)
-		if err != nil {
-			dialog.ShowError(err, win)
-			return
-		}
-		pv.SetData(data, FormatAuto)
+		loadFromReader(pv, win, rc, err)
 	}, win)
+}
+
+// loadFromReader handles a file-open dialog result: a picker error is surfaced (not
+// swallowed), a cancel (nil reader, no error) is silent, otherwise the file is read
+// (surfacing any read error) and loaded with auto-detection.
+func loadFromReader(pv *PrettyView, win fyne.Window, rc fyne.URIReadCloser, err error) {
+	if err != nil {
+		dialog.ShowError(err, win)
+		return
+	}
+	if rc == nil {
+		return // user cancelled
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		dialog.ShowError(err, win)
+		return
+	}
+	pv.SetData(data, FormatAuto)
 }
 
 func registerFindShortcut(win fyne.Window, pv *PrettyView) {
