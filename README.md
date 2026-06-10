@@ -336,6 +336,7 @@ and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 | File | For whom / what |
 |---|---|
 | [README.md](README.md) | This overview: features, install, usage, API. |
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes per release (Keep a Changelog). |
 | [STRUCTURE.md](STRUCTURE.md) | The codebase map — every file, the layering, the mental model. |
 | [WORKFLOWS.md](WORKFLOWS.md) | How to build, run, test, benchmark, and extend (parsers, colors). |
 | [docs/DESIGN.md](docs/DESIGN.md) | The authoritative architecture + adversarial risk analysis. |
