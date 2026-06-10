@@ -208,6 +208,11 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 	}
 
 	update := func() {
+		if pv.SearchError() != nil {
+			count.Text = "bad regex" // an invalid SearchRegex pattern (see SearchError)
+			count.Refresh()
+			return
+		}
 		active, total, capped := pv.SearchStatus()
 		switch {
 		case total == 0 && entry.Text == "":

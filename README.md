@@ -186,8 +186,10 @@ w.SetContent(container.NewBorder(bar, nil, nil, nil, pv))
 ```
 
 ```go
-// (b) Or omit the toolbar and wire your own controls to the public API:
-myFind.OnChanged       = func(s string) { pv.Search(prettyview.SearchQuery{Text: s}) }
+// (b) Or omit the toolbar and wire your own controls to the public API. Use
+// SearchDebounced (not Search) for per-keystroke input so a burst coalesces into one
+// scan — it honors SearchConfig.DebounceFor (set it via WithSearchConfig).
+myFind.OnChanged        = func(s string) { pv.SearchDebounced(prettyview.SearchQuery{Text: s}) }
 myExpandButton.OnTapped = pv.ExpandAll
 ```
 

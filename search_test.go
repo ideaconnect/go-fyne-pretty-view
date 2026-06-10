@@ -153,6 +153,37 @@ func TestSearchRegexLiteralPrefixPrefilter(t *testing.T) {
 	}
 }
 
+// TestSearchDebouncedExported guards the public SearchDebounced wrapper: with
+// DebounceFor <= 0 it is immediate (equivalent to Search), so the matches are present
+// synchronously.
+func TestSearchDebouncedExported(t *testing.T) {
+	// With DebounceFor 0 the debounced path is immediate (equivalent to Search), so the
+	// matches are present synchronously without pumping the event loop.
+	pv := NewWithData([]byte(`{"a":"x","b":"x"}`), FormatJSON,
+		WithSearchConfig(SearchConfig{DebounceFor: 0, MinQueryLen: 1}))
+	pv.SearchDebounced(SearchQuery{Text: "x"})
+	if _, total, _ := pv.SearchStatus(); total != 2 {
+		t.Errorf("SearchDebounced (DebounceFor 0) total = %d, want 2 (immediate)", total)
+	}
+}
+
+// TestSearchError exposes a bad regex distinctly from "no matches".
+func TestSearchError(t *testing.T) {
+	pv := docPV(`{"a":1}`, FormatJSON)
+	pv.Search(SearchQuery{Text: "(", Mode: SearchRegex})
+	if pv.SearchError() == nil {
+		t.Error("SearchError() = nil for an invalid regex, want an error")
+	}
+	// A valid pattern with no matches must clear the error.
+	pv.Search(SearchQuery{Text: "zzz", Mode: SearchRegex})
+	if err := pv.SearchError(); err != nil {
+		t.Errorf("SearchError() = %v after a valid pattern, want nil", err)
+	}
+	if _, total, _ := pv.SearchStatus(); total != 0 {
+		t.Errorf("valid no-match total = %d, want 0", total)
+	}
+}
+
 func TestSearchBadRegex(t *testing.T) {
 	pv := docPV(`{"a":1}`, FormatJSON)
 	pv.Search(SearchQuery{Text: "[", Mode: SearchRegex})

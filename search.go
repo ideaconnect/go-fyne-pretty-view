@@ -56,6 +56,13 @@ func (pv *PrettyView) Search(q SearchQuery) {
 // before running the (synchronous) scan on the Fyne goroutine, so typing a word
 // triggers one scan instead of one per character. A non-positive DebounceFor runs
 // immediately.
+// SearchDebounced runs Search(q) after the configured SearchConfig.DebounceFor delay,
+// coalescing a burst of rapid calls (e.g. one per keystroke from a host's own search
+// field) so only the last query in the burst scans. With DebounceFor <= 0 it is
+// equivalent to Search (immediate). Last call wins: a newer SearchDebounced / Search /
+// ClearSearch / SetData supersedes a still-pending scan. Call it on the Fyne goroutine.
+func (pv *PrettyView) SearchDebounced(q SearchQuery) { pv.searchDebounced(q) }
+
 func (pv *PrettyView) searchDebounced(q SearchQuery) {
 	pv.stopSearchTimer()
 	// Bump the generation so that any earlier debounced scan that has ALREADY fired
@@ -132,6 +139,12 @@ func (pv *PrettyView) SearchStatus() (active, total int, capped bool) {
 	}
 	return pv.search.active + 1, len(pv.search.matches), pv.search.capped
 }
+
+// SearchError reports the error from the most recent Search / SearchDebounced, or nil.
+// The only error is an invalid regular expression (a SearchRegex query whose pattern
+// does not compile); it lets a caller distinguish "the pattern is bad" from "the
+// pattern is valid but matched nothing". It is cleared by the next Search/ClearSearch.
+func (pv *PrettyView) SearchError() error { return pv.search.err }
 
 func (pv *PrettyView) step(dir int) {
 	n := len(pv.search.matches)

@@ -4,9 +4,26 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 )
+
+// findText returns the first *canvas.Text in o's tree (the search bar's match
+// counter), for tests that assert what it displays.
+func findText(o fyne.CanvasObject) *canvas.Text {
+	switch w := o.(type) {
+	case *canvas.Text:
+		return w
+	case *fyne.Container:
+		for _, c := range w.Objects {
+			if t := findText(c); t != nil {
+				return t
+			}
+		}
+	}
+	return nil
+}
 
 // findEntry returns the first entry in o's object tree (the search bar has exactly
 // one), so a test can drive its OnSubmitted directly.
@@ -97,6 +114,27 @@ func TestSearchBarRegexToggle(t *testing.T) {
 	regexBtn.OnTapped() // regex on; re-runs the query
 	if _, total, _ := pv.SearchStatus(); total != 2 {
 		t.Errorf("regex `x.` total = %d, want 2 (x1, x2)", total)
+	}
+}
+
+// TestSearchBarSurfacesBadRegex: with the regex toggle on, an invalid pattern shows
+// a "bad regex" indicator in the match counter (distinct from a 0/0 no-match).
+func TestSearchBarSurfacesBadRegex(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":"x"}`), FormatJSON)
+	bar := NewSearchBar(pv)
+	entry, regexBtn, count := findEntry(bar), findButtonByText(bar, ".*"), findText(bar)
+	if entry == nil || regexBtn == nil || count == nil {
+		t.Fatal("search bar missing entry, regex toggle, or counter")
+	}
+	regexBtn.OnTapped() // regex mode
+	entry.Text = "("    // invalid pattern
+	entry.OnSubmitted(entry.Text)
+	if pv.SearchError() == nil {
+		t.Fatal("expected a SearchError for the invalid pattern")
+	}
+	if count.Text != "bad regex" {
+		t.Errorf("counter = %q for an invalid regex, want \"bad regex\"", count.Text)
 	}
 }
 
