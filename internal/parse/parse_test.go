@@ -151,21 +151,46 @@ func TestRawParserFormatDetect(t *testing.T) {
 	}
 }
 
-// TestJSONCCommentsSkipped covers the JSONC comment branches of skipSpace: a //
-// line comment, a /* */ block comment, and a block comment left unclosed at EOF.
-func TestJSONCCommentsSkipped(t *testing.T) {
+// TestJSONCCommentsRendered: in JSONC mode // line and /* */ block comments are
+// emitted as nodes (visible, searchable, copyable) rather than silently stripped,
+// while plain JSON still skips them. Covers a line comment, a block comment, and a
+// block comment left unclosed at EOF.
+func TestJSONCCommentsRendered(t *testing.T) {
 	src := []byte("{ // a line comment\n  \"a\": 1, /* block */ \"b\": 2 /* unclosed")
 	d := Parse(src, FormatJSONC, 0)
 	if d.Format != FormatJSONC {
 		t.Fatalf("format = %v, want jsonc", d.Format)
 	}
-	var sb strings.Builder
-	for li := 0; li < d.TotalLines(); li++ {
-		sb.WriteString(d.LineString(int32(li)))
-		sb.WriteByte('\n')
+	text := renderDoc(d)
+	if !strings.Contains(text, `"a"`) || !strings.Contains(text, `"b"`) {
+		t.Errorf("JSONC dropped keys:\n%s", text)
 	}
-	if text := sb.String(); !strings.Contains(text, `"a"`) || !strings.Contains(text, `"b"`) {
-		t.Errorf("JSONC comment handling dropped keys:\n%s", text)
+	for _, c := range []string{"// a line comment", "/* block */"} {
+		if !strings.Contains(text, c) {
+			t.Errorf("JSONC comment %q not rendered as a node:\n%s", c, text)
+		}
+	}
+	// Plain JSON of the same bytes still skips comments (no comment nodes).
+	if pj := renderDoc(Parse(src, FormatJSON, 0)); strings.Contains(pj, "line comment") {
+		t.Errorf("plain JSON should not render comments as nodes:\n%s", pj)
+	}
+	// A comment inside otherwise-empty braces makes a real container, not a {} leaf.
+	withComment := renderDoc(Parse([]byte("{ /* c */ }"), FormatJSONC, 0))
+	if !strings.Contains(withComment, "/* c */") {
+		t.Errorf("comment in empty braces not rendered:\n%s", withComment)
+	}
+	// Truly empty braces stay a single {} leaf.
+	if got := int(Parse([]byte("{}"), FormatJSONC, 0).TotalVisibleRows()); got != 1 {
+		t.Errorf("empty {} = %d rows, want 1 (leaf)", got)
+	}
+	// A trailing comment after the root value renders too (symmetric with leading) and
+	// must not trigger the trailing-content raw fallback.
+	tr := Parse([]byte(`{"a":1} // trailing note`), FormatJSONC, 0)
+	if tr.Format != FormatJSONC {
+		t.Fatalf("trailing-comment format = %v, want jsonc (not raw fallback)", tr.Format)
+	}
+	if text := renderDoc(tr); !strings.Contains(text, "// trailing note") {
+		t.Errorf("trailing JSONC comment not rendered:\n%s", text)
 	}
 }
 
@@ -382,6 +407,70 @@ func TestLineIsByteGrid(t *testing.T) {
 	// Out-of-range is the safe slow-path default.
 	if ascii.LineIsByteGrid(int32(ascii.TotalLines()) + 5) {
 		t.Error("out-of-range line should report false (slow path)")
+	}
+}
+
+// panicParser is a stub that panics during Parse, to exercise the safeParse boundary.
+type panicParser struct{}
+
+func (panicParser) Format() Format                     { return FormatRaw }
+func (panicParser) Detect([]byte) int                  { return 0 }
+func (panicParser) Parse([]byte, *model.Builder) error { panic("synthetic parser panic") }
+
+// TestSafeParseRecoversPanic is the regression for the panic boundary (#10): a parser
+// consuming untrusted input that trips an unforeseen panic must be recovered into an
+// error so Parse degrades to the raw fallback, never crashing the host.
+func TestSafeParseRecoversPanic(t *testing.T) {
+	b := model.NewBuilder([]byte("x"), FormatHTML, 0)
+	err := safeParse(panicParser{}, []byte("x"), b)
+	if err == nil {
+		t.Fatal("safeParse must return an error when the parser panics, not propagate the panic")
+	}
+	if !strings.Contains(err.Error(), "panic") {
+		t.Errorf("recovered error = %q, want it to mention the panic", err)
+	}
+}
+
+// TestHTMLDeeplyNestedDoesNotCrash mirrors the JSON/XML deep-nesting guards: HTML far
+// beyond the nesting cap must parse to a valid bounded document (the cap emits past-cap
+// elements as leaves so the builder stack stays bounded) rather than crash or hang.
+func TestHTMLDeeplyNestedDoesNotCrash(t *testing.T) {
+	var sb strings.Builder
+	const depth = maxNestDepth + 50
+	for i := 0; i < depth; i++ {
+		sb.WriteString("<div>")
+	}
+	sb.WriteString("x")
+	for i := 0; i < depth; i++ {
+		sb.WriteString("</div>")
+	}
+	d := Parse([]byte(sb.String()), FormatHTML, 0)
+	if d.Format != FormatHTML {
+		t.Fatalf("deeply-nested HTML format = %v, want html", d.Format)
+	}
+	if d.TotalLines() == 0 {
+		t.Error("deeply-nested HTML produced no display lines")
+	}
+}
+
+// TestJSONStringEscapes covers scanString's escape branch (no fixture has a
+// backslash): an escaped quote/backslash must not terminate the string early, and a
+// trailing backslash at EOF (unterminated) must recover tolerantly, not crash.
+func TestJSONStringEscapes(t *testing.T) {
+	d := Parse([]byte(`{"k":"a \"quote\" and a \\ slash"}`), FormatJSON, 0)
+	if d.Format != FormatJSON {
+		t.Fatalf("escaped-string format = %v, want json", d.Format)
+	}
+	if text := renderDoc(d); !strings.Contains(text, "quote") || !strings.Contains(text, "slash") {
+		t.Errorf("escaped string was truncated:\n%s", text)
+	}
+	// Unterminated (trailing backslash before EOF): tolerant recovery, key kept visible.
+	d2 := Parse([]byte(`{"k":"x\`), FormatJSON, 0)
+	if d2 == nil || d2.TotalLines() == 0 {
+		t.Fatal("unterminated string produced no document")
+	}
+	if !strings.Contains(renderDoc(d2), `"k"`) {
+		t.Error("unterminated-string recovery dropped the key")
 	}
 }
 

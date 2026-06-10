@@ -39,7 +39,11 @@ type ToolbarConfig struct {
 	OnOpen             func()      // overrides the built-in Open behavior, if set
 }
 
-// DefaultToolbarConfig enables every control.
+// DefaultToolbarConfig enables every control. Note that two of them still need more
+// than the flag: the Open button requires a Window (for the built-in dialog) or an
+// OnOpen handler, and Ctrl/Cmd+F search-focus requires a Window — set Window on the
+// returned config (e.g. cfg := DefaultToolbarConfig(); cfg.Window = w) or those two
+// are silently omitted. (Taking the Window as a parameter is a deferred v1.0 change.)
 func DefaultToolbarConfig() ToolbarConfig {
 	return ToolbarConfig{ShowOpen: true, ShowFormat: true, ShowExpandCollapse: true, ShowWrap: true, ShowSearch: true}
 }
@@ -140,18 +144,87 @@ func NewFormatSelect(pv *PrettyView) fyne.CanvasObject {
 	return sel
 }
 
-// NewSearchBar returns a find box (with prev/next and a self-updating match
-// counter) bound to pv. It registers PrettyView's search-changed and
-// search-requested hooks so the counter stays in sync and Ctrl/Cmd+F focuses it.
+// searchEntry is the find box: a single-line Entry that adds Esc-to-clear and
+// Shift+Enter to find the previous match (plain Enter finds next via OnSubmitted).
+// Shift state is tracked from KeyDown/KeyUp since TypedKey carries no modifier.
+type searchEntry struct {
+	widget.Entry
+	shiftHeld bool
+	onPrev    func() // Shift+Enter
+	onEscape  func() // Esc
+}
+
+func newSearchEntry() *searchEntry {
+	e := &searchEntry{}
+	e.ExtendBaseWidget(e)
+	e.SetPlaceHolder("search…")
+	return e
+}
+
+func (e *searchEntry) KeyDown(key *fyne.KeyEvent) {
+	if key.Name == desktop.KeyShiftLeft || key.Name == desktop.KeyShiftRight {
+		e.shiftHeld = true
+	}
+	e.Entry.KeyDown(key)
+}
+
+func (e *searchEntry) KeyUp(key *fyne.KeyEvent) {
+	if key.Name == desktop.KeyShiftLeft || key.Name == desktop.KeyShiftRight {
+		e.shiftHeld = false
+	}
+	e.Entry.KeyUp(key)
+}
+
+// FocusLost clears the held-Shift flag: glfw delivers KeyUp only to the focused
+// object, so a Shift released while the entry is unfocused would otherwise stick and
+// mis-route the next Enter to find-previous.
+func (e *searchEntry) FocusLost() {
+	e.shiftHeld = false
+	e.Entry.FocusLost()
+}
+
+func (e *searchEntry) TypedKey(key *fyne.KeyEvent) {
+	switch key.Name {
+	case fyne.KeyEscape:
+		if e.onEscape != nil {
+			e.onEscape()
+			return
+		}
+	case fyne.KeyReturn, fyne.KeyEnter:
+		if e.shiftHeld && e.onPrev != nil {
+			e.onPrev()
+			return
+		}
+	}
+	e.Entry.TypedKey(key)
+}
+
+// NewSearchBar returns a find box (with case-sensitive and regex toggles, prev/next,
+// and a self-updating match counter) bound to pv. It registers PrettyView's
+// search-changed and search-requested hooks so the counter stays in sync and
+// Ctrl/Cmd+F focuses it. Enter finds next, Shift+Enter finds previous, Esc clears.
 func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
-	entry := widget.NewEntry()
-	entry.SetPlaceHolder("search…")
+	entry := newSearchEntry()
 	// A canvas.Text (not a widget.Label) for the match counter: a Label's inner
 	// padding would make the entry→counter gap wider than the gap between the nav
 	// buttons. Centered so it lines up vertically with the buttons.
 	count := canvas.NewText("", theme.Color(theme.ColorNameForeground))
 
+	caseSensitive, useRegex := false, false
+	query := func() SearchQuery {
+		mode := SearchPlain
+		if useRegex {
+			mode = SearchRegex
+		}
+		return SearchQuery{Text: entry.Text, CaseSensitive: caseSensitive, Mode: mode}
+	}
+
 	update := func() {
+		if pv.SearchError() != nil {
+			count.Text = "bad regex" // an invalid SearchRegex pattern (see SearchError)
+			count.Refresh()
+			return
+		}
 		active, total, capped := pv.SearchStatus()
 		switch {
 		case total == 0 && entry.Text == "":
@@ -165,28 +238,66 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 		}
 		count.Refresh()
 	}
-	entry.OnChanged = func(s string) { pv.searchDebounced(SearchQuery{Text: s}) }
+	entry.OnChanged = func(string) { pv.searchDebounced(query()) }
 	entry.OnSubmitted = func(string) {
 		// Enter applies immediately, bypassing the debounce. If the query is already
 		// applied (the debounced scan ran), Enter means find-next, so advance. But on
 		// a fresh query that beat the debounce, Search reveals match #1 — don't jump
 		// straight past it to #2; only advance when the text is unchanged.
 		advance := pv.search.query.Text == entry.Text
-		pv.Search(SearchQuery{Text: entry.Text})
+		pv.Search(query())
 		if advance {
 			pv.SearchNext()
 		}
 	}
+	entry.onPrev = func() {
+		if pv.search.query.Text != entry.Text {
+			pv.Search(query())
+		}
+		pv.SearchPrev()
+	}
+	entry.onEscape = func() {
+		entry.SetText("")
+		pv.ClearSearch()
+	}
 	pv.SetOnSearchChanged(update)
 	pv.SetOnSearchRequested(func() { focusObject(entry) })
+
+	// Case-sensitive and regex toggles: HighImportance highlights the active state,
+	// and toggling re-runs the current query so the result set updates immediately.
+	toggleImportance := func(on bool) widget.Importance {
+		if on {
+			return widget.HighImportance
+		}
+		return widget.LowImportance
+	}
+	var caseBtn, regexBtn *widget.Button
+	caseBtn = widget.NewButton("Aa", func() {
+		caseSensitive = !caseSensitive
+		caseBtn.Importance = toggleImportance(caseSensitive)
+		caseBtn.Refresh()
+		if entry.Text != "" {
+			pv.Search(query())
+		}
+	})
+	caseBtn.Importance = widget.LowImportance
+	regexBtn = widget.NewButton(".*", func() {
+		useRegex = !useRegex
+		regexBtn.Importance = toggleImportance(useRegex)
+		regexBtn.Refresh()
+		if entry.Text != "" {
+			pv.Search(query())
+		}
+	})
+	regexBtn.Importance = widget.LowImportance
 
 	prev := iconBtn(iconArrowUp(), pv.SearchPrev)
 	next := iconBtn(iconArrowDown(), pv.SearchNext)
 
-	// The entry expands (Border center); the counter and nav buttons sit in one
-	// HBox so entry→counter, counter→prev and prev→next are all one padding wide.
+	// The entry expands (Border center); the counter, toggles and nav buttons sit in
+	// one HBox so the inter-control gaps are all one padding wide.
 	return container.NewBorder(nil, nil, widget.NewIcon(iconSearch()),
-		container.NewHBox(container.NewCenter(count), prev, next), entry)
+		container.NewHBox(container.NewCenter(count), caseBtn, regexBtn, prev, next), entry)
 }
 
 // ShowOpenDialog opens Fyne's built-in file-open dialog (an in-canvas widget, not
@@ -199,17 +310,28 @@ func ShowOpenDialog(pv *PrettyView, win fyne.Window) {
 		return
 	}
 	dialog.ShowFileOpen(func(rc fyne.URIReadCloser, err error) {
-		if err != nil || rc == nil {
-			return
-		}
-		defer rc.Close()
-		data, err := io.ReadAll(rc)
-		if err != nil {
-			dialog.ShowError(err, win)
-			return
-		}
-		pv.SetData(data, FormatAuto)
+		loadFromReader(pv, win, rc, err)
 	}, win)
+}
+
+// loadFromReader handles a file-open dialog result: a picker error is surfaced (not
+// swallowed), a cancel (nil reader, no error) is silent, otherwise the file is read
+// (surfacing any read error) and loaded with auto-detection.
+func loadFromReader(pv *PrettyView, win fyne.Window, rc fyne.URIReadCloser, err error) {
+	if err != nil {
+		dialog.ShowError(err, win)
+		return
+	}
+	if rc == nil {
+		return // user cancelled
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(rc)
+	if err != nil {
+		dialog.ShowError(err, win)
+		return
+	}
+	pv.SetData(data, FormatAuto)
 }
 
 func registerFindShortcut(win fyne.Window, pv *PrettyView) {

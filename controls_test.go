@@ -4,14 +4,33 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 )
 
-// findEntry returns the first *widget.Entry in o's object tree (the search bar
-// has exactly one), so a test can drive its OnSubmitted directly.
+// findText returns the first *canvas.Text in o's tree (the search bar's match
+// counter), for tests that assert what it displays.
+func findText(o fyne.CanvasObject) *canvas.Text {
+	switch w := o.(type) {
+	case *canvas.Text:
+		return w
+	case *fyne.Container:
+		for _, c := range w.Objects {
+			if t := findText(c); t != nil {
+				return t
+			}
+		}
+	}
+	return nil
+}
+
+// findEntry returns the first entry in o's object tree (the search bar has exactly
+// one), so a test can drive its OnSubmitted directly.
 func findEntry(o fyne.CanvasObject) *widget.Entry {
 	switch w := o.(type) {
+	case *searchEntry:
+		return &w.Entry
 	case *widget.Entry:
 		return w
 	case *fyne.Container:
@@ -22,6 +41,131 @@ func findEntry(o fyne.CanvasObject) *widget.Entry {
 		}
 	}
 	return nil
+}
+
+// findSearchEntry returns the *searchEntry in o's tree, for tests that drive its
+// Esc / Shift+Enter key handling directly.
+func findSearchEntry(o fyne.CanvasObject) *searchEntry {
+	switch w := o.(type) {
+	case *searchEntry:
+		return w
+	case *fyne.Container:
+		for _, c := range w.Objects {
+			if e := findSearchEntry(c); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
+}
+
+// findButtonByText returns the first *widget.Button in o's tree with the given label.
+func findButtonByText(o fyne.CanvasObject, text string) *widget.Button {
+	switch w := o.(type) {
+	case *widget.Button:
+		if w.Text == text {
+			return w
+		}
+	case *fyne.Container:
+		for _, c := range w.Objects {
+			if b := findButtonByText(c, text); b != nil {
+				return b
+			}
+		}
+	}
+	return nil
+}
+
+// TestSearchBarCaseToggle: the "Aa" toggle makes the bar issue case-sensitive
+// queries, changing the result set.
+func TestSearchBarCaseToggle(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":"Alpha","b":"alpha"}`), FormatJSON)
+	bar := NewSearchBar(pv)
+	entry, caseBtn := findEntry(bar), findButtonByText(bar, "Aa")
+	if entry == nil || caseBtn == nil {
+		t.Fatal("search bar missing entry or case toggle")
+	}
+	entry.Text = "alpha"
+	entry.OnSubmitted(entry.Text)
+	if _, total, _ := pv.SearchStatus(); total != 2 {
+		t.Errorf("case-insensitive total = %d, want 2 (Alpha, alpha)", total)
+	}
+	caseBtn.OnTapped() // case-sensitive on; re-runs the query
+	if _, total, _ := pv.SearchStatus(); total != 1 {
+		t.Errorf("case-sensitive total = %d, want 1 (alpha only)", total)
+	}
+}
+
+// TestSearchBarRegexToggle: the ".*" toggle makes the bar issue regex queries.
+func TestSearchBarRegexToggle(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":"x1","b":"x2","c":"yy"}`), FormatJSON)
+	bar := NewSearchBar(pv)
+	entry, regexBtn := findEntry(bar), findButtonByText(bar, ".*")
+	if entry == nil || regexBtn == nil {
+		t.Fatal("search bar missing entry or regex toggle")
+	}
+	entry.Text = `x.`
+	entry.OnSubmitted(entry.Text)
+	if _, total, _ := pv.SearchStatus(); total != 0 {
+		t.Errorf("plain `x.` total = %d, want 0 (no literal 'x.' substring)", total)
+	}
+	regexBtn.OnTapped() // regex on; re-runs the query
+	if _, total, _ := pv.SearchStatus(); total != 2 {
+		t.Errorf("regex `x.` total = %d, want 2 (x1, x2)", total)
+	}
+}
+
+// TestSearchBarSurfacesBadRegex: with the regex toggle on, an invalid pattern shows
+// a "bad regex" indicator in the match counter (distinct from a 0/0 no-match).
+func TestSearchBarSurfacesBadRegex(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":"x"}`), FormatJSON)
+	bar := NewSearchBar(pv)
+	entry, regexBtn, count := findEntry(bar), findButtonByText(bar, ".*"), findText(bar)
+	if entry == nil || regexBtn == nil || count == nil {
+		t.Fatal("search bar missing entry, regex toggle, or counter")
+	}
+	regexBtn.OnTapped() // regex mode
+	entry.Text = "("    // invalid pattern
+	entry.OnSubmitted(entry.Text)
+	if pv.SearchError() == nil {
+		t.Fatal("expected a SearchError for the invalid pattern")
+	}
+	if count.Text != "bad regex" {
+		t.Errorf("counter = %q for an invalid regex, want \"bad regex\"", count.Text)
+	}
+}
+
+// TestSearchBarShiftEnterAndEsc: Shift+Enter finds previous; Esc clears.
+func TestSearchBarShiftEnterAndEsc(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":"x","b":"x","c":"x"}`), FormatJSON)
+	bar := NewSearchBar(pv)
+	se := findSearchEntry(bar)
+	if se == nil {
+		t.Fatal("search bar missing searchEntry")
+	}
+	se.Text = "x"
+	se.OnSubmitted("x")
+	if a, total, _ := pv.SearchStatus(); a != 1 || total != 3 {
+		t.Fatalf("after Enter active=%d total=%d, want 1/3", a, total)
+	}
+	// Shift+Enter -> previous (wraps from #1 to #3).
+	se.shiftHeld = true
+	se.TypedKey(&fyne.KeyEvent{Name: fyne.KeyReturn})
+	if a, _, _ := pv.SearchStatus(); a != 3 {
+		t.Errorf("after Shift+Enter active=%d, want 3 (prev wrap)", a)
+	}
+	// Esc clears the query and the entry text.
+	se.TypedKey(&fyne.KeyEvent{Name: fyne.KeyEscape})
+	if _, total, _ := pv.SearchStatus(); total != 0 {
+		t.Errorf("after Esc total=%d, want 0", total)
+	}
+	if se.Text != "" {
+		t.Errorf("after Esc entry text = %q, want empty", se.Text)
+	}
 }
 
 // TestSearchBarEnterStopsOnFirstMatch guards the fresh-query Enter behavior: when

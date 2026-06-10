@@ -104,6 +104,12 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 			switch {
 			case isVoidElement(tok.Data):
 				b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, false))
+			case b.Depth() >= maxNestDepth:
+				// Past the nesting cap: emit as a non-foldable leaf so adversarial
+				// deeply-nested HTML stays bounded (its end tag finds no open match in
+				// names and is ignored). HTML's tokenizer is iterative, so unlike the
+				// recursive JSON/XML parsers this guards model shape, not a stack overflow.
+				b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, false))
 			default:
 				// Peek one token: a start tag immediately followed by its matching end
 				// tag is an empty element, emitted inline (non-foldable) like the XML
@@ -135,9 +141,9 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 }
 
 func htmlStartSegs(tok html.Token, selfClose bool) []model.Seg {
-	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, tok.Data)}
+	segs := []model.Seg{model.LitSeg(model.RolePunct, "<"), model.LitSeg(model.RoleTag, escapeGridBreakers(tok.Data))}
 	for _, a := range tok.Attr {
-		segs = append(segs, model.LitSeg(model.RolePlain, " "), model.LitSeg(model.RoleAttr, a.Key))
+		segs = append(segs, model.LitSeg(model.RolePlain, " "), model.LitSeg(model.RoleAttr, escapeGridBreakers(a.Key)))
 		if a.Val != "" {
 			segs = append(segs, model.LitSeg(model.RolePunct, "="), model.LitSeg(model.RoleString, `"`+escapeGridBreakers(a.Val)+`"`))
 		}

@@ -48,6 +48,14 @@ jobs:
       - name: Smoke-run benchmarks (one iteration, renderer-backed)
         run: xvfb-run -a go test -run '^$' -bench . -benchtime=1x ./...
 
+      # Fail on any reachable known vulnerability (stdlib or dependency). govulncheck
+      # is call-graph aware, so it flags only code paths actually reachable from this
+      # module — a signal-rich gate, not a noisy dependency-version alarm.
+      - name: govulncheck (fail on reachable vulnerabilities)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
+
       - name: Enforce coverage threshold (> 90%)
         run: |
           total=$(go tool cover -func=coverage.out | awk 'END { gsub("%","",$3); print $3 }')

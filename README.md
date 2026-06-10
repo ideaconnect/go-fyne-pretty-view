@@ -34,7 +34,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 
 ## Features
 
-- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override. (JSONC is parsed leniently, but `//` and `/* */` comments are currently skipped, not rendered.)
+- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override. (JSONC `//` and `/* */` comments render as their own nodes — visible, searchable, copyable.)
 - **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
 - **Expand / fold** every container, with a collapse summary on folded nodes (`{ 38 items }`, `[ 3 items ]`, `<tag> 5 children`).
 - **True character-level free-text selection** across rows, with exact-substring copy (`Ctrl/Cmd+C`) and select-all (`Ctrl/Cmd+A`).
@@ -186,8 +186,10 @@ w.SetContent(container.NewBorder(bar, nil, nil, nil, pv))
 ```
 
 ```go
-// (b) Or omit the toolbar and wire your own controls to the public API:
-myFind.OnChanged       = func(s string) { pv.Search(prettyview.SearchQuery{Text: s}) }
+// (b) Or omit the toolbar and wire your own controls to the public API. Use
+// SearchDebounced (not Search) for per-keystroke input so a burst coalesces into one
+// scan — it honors SearchConfig.DebounceFor (set it via WithSearchConfig).
+myFind.OnChanged        = func(s string) { pv.SearchDebounced(prettyview.SearchQuery{Text: s}) }
 myExpandButton.OnTapped = pv.ExpandAll
 ```
 

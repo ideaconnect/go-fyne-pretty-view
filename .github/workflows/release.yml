@@ -51,6 +51,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev
 
+      # Gate the published artifacts on a clean vulnerability scan (run once, on Linux).
+      - name: govulncheck (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
+
       - name: Show C compiler (Windows)
         if: runner.os == 'Windows'
         run: gcc --version

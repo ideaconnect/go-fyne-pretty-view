@@ -117,14 +117,22 @@ func New(opts ...Option) *PrettyView {
 }
 
 // SetData parses src under format (FormatAuto detects) and refreshes the view.
-// Parsing is synchronous; the model it builds is compact (~5x the source) so this
-// is fast even for multi-megabyte input.
+//
+// Parsing is SYNCHRONOUS on the calling goroutine (the Fyne goroutine), and builds a
+// compact model ≈5–7× the source size. That is fast for multi-megabyte input but is
+// still O(source) work done before this call returns; to load a large document
+// without a UI hitch, parse off-thread is not supported, so either keep inputs
+// bounded (see WithMaxInputBytes) or accept a brief synchronous cost. Input longer
+// than WithMaxInputBytes (if set) is truncated before parsing.
 //
 // The src slice is retained: the model holds zero-copy byte ranges into it, so
 // callers must not mutate src after this call (copy it first if it may change).
 func (pv *PrettyView) SetData(src []byte, format Format) {
 	if format == FormatAuto {
 		format = pv.cfg.format
+	}
+	if max := pv.cfg.maxInputBytes; max > 0 && len(src) > max {
+		src = src[:max] // tolerant parsers render a truncated document
 	}
 	pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
 	pv.ClearSearch()

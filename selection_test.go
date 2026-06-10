@@ -206,6 +206,51 @@ func TestWordBounds(t *testing.T) {
 	}
 }
 
+// TestVisibleLineSnapsToFoldHead covers Document.VisibleLine's hidden-line mapping: a
+// line hidden inside a collapsed container resolves to its nearest visible ancestor
+// (the fold head), while a visible line maps to itself.
+func TestVisibleLineSnapsToFoldHead(t *testing.T) {
+	pv := docPV(`{"outer":{"deep":"x"}}`, FormatJSON)
+	o := findFoldHead(pv.doc, `"outer"`)
+	headLine := pv.doc.Nodes[o].HeadLine
+	pv.doc.Fold(o)
+
+	deep := lineContaining(pv.doc, "deep")
+	if deep < 0 || pv.doc.Visible(deep) {
+		t.Fatal("precondition: the deep line should be hidden")
+	}
+	if got := pv.doc.VisibleLine(deep); got != headLine {
+		t.Errorf("VisibleLine(hidden) = %d, want the fold head %d", got, headLine)
+	}
+	if got := pv.doc.VisibleLine(headLine); got != headLine {
+		t.Errorf("VisibleLine(visible) = %d, want itself", got)
+	}
+}
+
+// TestDoubleTripleClickSelectsWordThenLine covers the multi-click dispatch in
+// MouseDown: two quick clicks select the word under the pointer, a third selects the
+// whole line.
+func TestDoubleTripleClickSelectsWordThenLine(t *testing.T) {
+	pv, win := renderInWindow(t, []byte(`{"key":"hello world"}`), FormatJSON, 600, 200)
+	defer win.Close()
+
+	li := pv.doc.LineAtRow(1) // `"key": "hello world"`
+	col := strings.Index(pv.doc.DisplayString(li), "hello") + 1
+	x, y := geometry.CellOrigin(pv.doc, pv.met, li, col)
+	at := desktopMouse(x, y+1)
+
+	pv.MouseDown(at)
+	pv.MouseUp(&desktop.MouseEvent{})
+	pv.MouseDown(at) // 2nd click within the window, same spot -> word
+	if got := pv.SelectedText(); got != "hello" {
+		t.Errorf("double-click selected %q, want \"hello\"", got)
+	}
+	pv.MouseDown(at) // 3rd click -> whole line
+	if got := pv.SelectedText(); !strings.Contains(got, "hello world") || !strings.Contains(got, `"key"`) {
+		t.Errorf("triple-click selected %q, want the whole line", got)
+	}
+}
+
 func TestLineBounds(t *testing.T) {
 	pv := docPV(`{"k":"v"}`, FormatJSON)
 	li := pv.doc.LineAtRow(1)
