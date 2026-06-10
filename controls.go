@@ -31,7 +31,7 @@ import (
 // optional; leave a field false to omit that control and provide your own.
 type ToolbarConfig struct {
 	ShowOpen           bool        // an "Open…" button (needs Window or OnOpen)
-	ShowFormat         bool        // a format selector (auto/json/xml/html/raw)
+	ShowFormat         bool        // a format selector (auto/json/jsonc/xml/html/raw)
 	ShowExpandCollapse bool        // Expand all / Collapse all buttons
 	ShowWrap           bool        // a wrap-text icon toggle (soft-wrap on/off)
 	ShowSearch         bool        // a find box with prev/next and a match counter

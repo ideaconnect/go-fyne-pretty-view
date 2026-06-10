@@ -33,7 +33,35 @@ func (p jsonParser) Detect(src []byte) int {
 		// comment-tolerant regardless, and FormatJSONC remains explicitly selectable.
 		return 0
 	}
-	return 80
+	// A leading '{'/'[' alone is too weak a signal: log lines and markdown
+	// ("[ERROR] disk full", "[label](url)") begin with a bracket but are not JSON,
+	// and labelling them JSON makes the tolerant scanner recover a sliver and drop
+	// the rest (the README's raw fallback should win instead). Require the first
+	// significant byte *inside* the bracket to be plausible JSON: an object must be
+	// followed by '}' or a '"' key; an array by ']' or a value-start byte. This is a
+	// cheap structural sniff, not a full validation — the parser stays tolerant, and
+	// a clean parse that leaves trailing junk still falls back to raw (see Parse).
+	head := t[1:]
+	if len(head) > sniffLimit {
+		head = head[:sniffLimit]
+	}
+	rest := bytes.TrimLeftFunc(head, unicode.IsSpace)
+	if len(rest) == 0 {
+		return 80 // a lone opening bracket (e.g. a document mid-edit): plausibly JSON
+	}
+	c := rest[0]
+	if t[0] == '{' {
+		if c == '}' || c == '"' {
+			return 80
+		}
+		return 0
+	}
+	// t[0] == '[': the first element must start with a JSON value (or close the array).
+	if c == ']' || c == '"' || c == '{' || c == '[' || c == '-' ||
+		c == 't' || c == 'f' || c == 'n' || (c >= '0' && c <= '9') {
+		return 80
+	}
+	return 0
 }
 
 func (p jsonParser) Parse(src []byte, b *model.Builder) error {
@@ -45,11 +73,28 @@ func (p jsonParser) Parse(src []byte, b *model.Builder) error {
 	// Tolerant by contract (see Parser): on a truncated/malformed value we keep
 	// whatever structure was recovered rather than failing outright. parseValue
 	// emits nodes as it goes and returns the root node even when it stops early,
-	// and Builder.Finish force-closes any dangling container. We only fall back to
-	// raw when nothing structural was recovered at all (id == NoNode), e.g. a bare
-	// unterminated string or non-JSON junk under a forced JSON format.
-	if id, ok := s.parseValue(nil, false, s.pos); !ok && id == model.NoNode {
-		return s.err
+	// and Builder.Finish force-closes any dangling container.
+	id, ok := s.parseValue(nil, false, s.pos)
+	if !ok {
+		// Nothing structural was recovered at all (e.g. a bare unterminated string
+		// or non-JSON junk under a forced JSON format): fall back to raw. A partial
+		// structure (id != NoNode, an inner value truncated) is kept and displayed
+		// tolerantly, with its recovered error markers — that path matches the
+		// in-container junk recovery and is covered by the `[trueX]` tests.
+		if id == model.NoNode {
+			return s.err
+		}
+		return nil
+	}
+	// The root value parsed cleanly. A single JSON document has nothing after its
+	// root but whitespace (and, in our comment-tolerant scanner, comments). Real
+	// trailing content means this is not one JSON document — NDJSON, concatenated
+	// values, or a log/markdown line that merely begins with a bracket — so fall
+	// back to raw, where every byte stays visible on its own line, instead of
+	// silently dropping everything past the first value.
+	s.skipSpace()
+	if s.pos < len(s.src) {
+		return errors.New("prettyview: trailing content after top-level JSON value")
 	}
 	return nil
 }
@@ -183,7 +228,7 @@ func (s *jsonScanner) parseValue(prefix []model.Seg, isMember bool, srcStart int
 		if !ok {
 			return model.NoNode, false
 		}
-		return s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleString, start, s.pos)), true
+		return s.emitScalar(prefix, isMember, srcStart, s.pos, cleanSrcSeg(s.src, model.RoleString, start, s.pos)), true
 	case c == '-' || (c >= '0' && c <= '9'):
 		start := s.scanNumber()
 		return s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleNumber, start, s.pos)), true
@@ -274,7 +319,7 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 				break
 			}
 			s.pos++
-			childPrefix = []model.Seg{model.SrcSeg(model.RoleKey, keyStart, keyEnd), model.LitSeg(model.RolePunct, ": ")}
+			childPrefix = []model.Seg{cleanSrcSeg(s.src, model.RoleKey, keyStart, keyEnd), model.LitSeg(model.RolePunct, ": ")}
 		}
 
 		childID, ok := s.parseValue(childPrefix, kind == model.KindObject, childStart)
@@ -305,7 +350,7 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			for s.pos < len(s.src) && s.src[s.pos] != ',' && s.src[s.pos] != close {
 				s.pos++
 			}
-			s.b.Leaf(model.KindError, junkStart, s.pos, []model.Seg{model.SrcSeg(model.RolePlain, junkStart, s.pos)})
+			s.b.Leaf(model.KindError, junkStart, s.pos, []model.Seg{cleanSrcSeg(s.src, model.RolePlain, junkStart, s.pos)})
 			s.fail("unexpected content after value")
 			break
 		}

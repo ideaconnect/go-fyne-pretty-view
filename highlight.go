@@ -115,8 +115,10 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 }
 
 // rebuildMatches draws search-match highlights for the rows in [first, last].
-// Matches whose line is currently a collapsed fold-head are skipped (their text
-// is not shown until expanded); matches on hidden lines are simply never in the
+// A collapsed fold-head still shows its head text (its collapsed rendering is
+// head ++ summary ++ close), and match columns are computed against that same
+// expanded head text, so a match on the head line is drawn at its real columns
+// even while collapsed. Matches on the hidden child lines are simply never in the
 // visible range. Under soft-wrap a match is clipped to each visual row it crosses.
 func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 	pv := r.pv
@@ -138,7 +140,7 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 				li = pv.doc.LineAtRow(int32(row))
 			}
 			idxs := pv.search.byLine[li]
-			if len(idxs) == 0 || pv.doc.IsCollapsed(li) {
+			if len(idxs) == 0 {
 				continue
 			}
 			depth := pv.doc.Lines[li].Depth

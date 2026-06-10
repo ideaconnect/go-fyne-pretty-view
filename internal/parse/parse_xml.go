@@ -189,7 +189,7 @@ func startSegs(start xml.StartElement, selfClose bool) []model.Seg {
 			model.LitSeg(model.RolePlain, " "),
 			model.LitSeg(model.RoleAttr, name),
 			model.LitSeg(model.RolePunct, "="),
-			model.LitSeg(model.RoleString, `"`+a.Value+`"`),
+			model.LitSeg(model.RoleString, `"`+escapeGridBreakers(a.Value)+`"`),
 		)
 	}
 	if selfClose {

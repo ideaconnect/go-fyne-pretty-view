@@ -319,16 +319,22 @@ func (pv *PrettyView) CopySelection() {
 	}
 }
 
-// CopySubtree copies the serialized text of the node owning byteOffset (the
-// whole {…}/[…]/<tag>…</tag> span), regardless of fold state.
-func (pv *PrettyView) CopySubtree(byteOffset int) {
+// CopySubtree copies the displayed text of the node owning byteOffset (its whole
+// {…}/[…] span, regardless of fold state) to the clipboard, reporting whether a
+// node was found and copied. Source byte offsets are populated for JSON/JSONC only;
+// XML and HTML nodes carry no source span, so CopySubtree returns false for them
+// (copying an XML/HTML subtree by offset is not yet supported). The copied text is
+// the viewer's pretty-printed rendering of the subtree, not the original bytes.
+func (pv *PrettyView) CopySubtree(byteOffset int) bool {
 	node := pv.nodeAtByteOffset(byteOffset)
 	if node == model.NoNode {
-		return
+		return false
 	}
 	if app := fyne.CurrentApp(); app != nil {
 		app.Clipboard().SetContent(pv.subtreeText(node))
+		return true
 	}
+	return false
 }
 
 // --- selection geometry / text helpers ---

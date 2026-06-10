@@ -34,7 +34,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 
 ## Features
 
-- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override.
+- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override. (JSONC is parsed leniently, but `//` and `/* */` comments are currently skipped, not rendered.)
 - **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
 - **Expand / fold** every container, with a collapse summary on folded nodes (`{ 38 items }`, `[ 3 items ]`, `<tag> 5 children`).
 - **True character-level free-text selection** across rows, with exact-substring copy (`Ctrl/Cmd+C`) and select-all (`Ctrl/Cmd+A`).
@@ -69,7 +69,7 @@ rasterize a ~1 GB bitmap for the line).
 go get github.com/ideaconnect/go-fyne-pretty-view
 ```
 
-Requires Go 1.26+ and the usual Fyne build dependencies (a C compiler and the
+Requires Go 1.26.4+ and the usual Fyne build dependencies (a C compiler and the
 OpenGL/X11 headers on Linux).
 
 ## Quick start
@@ -112,7 +112,7 @@ matching runtime setters; the on-screen chrome is **entirely opt-in**.
 | Initial collapse depth | Fully expanded (`0`) | `WithDefaultCollapseDepth(d)` at build, or `SetDefaultCollapseDepth(d)` at runtime. |
 | Free-text selection & copy | On | Always on; `SelectAll()`, `SelectedText()`, `CopySelection()`, `ClearSelection()`, `Ctrl/Cmd+A`, `Ctrl/Cmd+C`. |
 | Right-click context menu | On | Always on (Copy / Select all). |
-| Copy a subtree | On demand | `CopySubtree(byteOffset)`. |
+| Copy a subtree | On demand | `CopySubtree(byteOffset) bool` (JSON/JSONC only; copies the pretty-printed subtree). |
 | Search | On demand | `Search(SearchQuery{Text, Mode, CaseSensitive})`, `SearchNext()`, `SearchPrev()`, `ClearSearch()`, `SearchStatus()`. Tune with `WithSearchConfig(...)`. |
 | Soft word-wrap | Off (`WrapNone`) | `WithWrap(WrapWord)` at build, or `SetWrap(WrapWord)` / `SetWrap(WrapNone)` at runtime; `Wrap()` reads it. |
 | Tab display width | `4` | `WithTabWidth(n)`. |
@@ -148,10 +148,12 @@ can stay in sync via `SetOnSearchChanged` and `SetOnDataChanged`.
 pv := prettyview.New(
     prettyview.WithFormat(prettyview.FormatJSON),       // skip auto-detect
     prettyview.WithWrap(prettyview.WrapWord),           // soft-wrap long lines (or WrapNone to scroll, default)
-    prettyview.WithDefaultCollapseDepth(3),             // auto-collapse below depth 3 on load
+    prettyview.WithDefaultCollapseDepth(3),             // collapse containers at depth 3 and deeper on load
     prettyview.WithIndentStep(16),                      // pixels per nesting level
     prettyview.WithTabWidth(4),
-    prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000}),
+    // WithSearchConfig replaces the search config wholesale — set DebounceFor
+    // explicitly, or keystroke search is not coalesced (it scans on every keystroke).
+    prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000, DebounceFor: 150 * time.Millisecond}),
 )
 ```
 
@@ -205,9 +207,9 @@ search box, e.g. on `Ctrl/Cmd+F`).
 | `SetData(src, format)` / `SetText(s)` | load content |
 | `Reparse(format)` / `Source()` / `Format()` | re-parse the current bytes / read them back / current format |
 | `ExpandAll()` / `CollapseAll()` / `SetDefaultCollapseDepth(d)` | fold control |
-| `ExpandTo(byteOffset)` | reveal & scroll to a node |
+| `ExpandTo(byteOffset) bool` | reveal & scroll to a node (JSON/JSONC only; returns false on XML/HTML, which lack source offsets) |
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
-| `CopySelection()` / `CopySubtree(byteOffset)` | clipboard |
+| `CopySelection()` / `CopySubtree(byteOffset) bool` | clipboard (CopySubtree is JSON/JSONC only and copies the pretty-printed subtree; returns false on XML/HTML) |
 | `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` | search |
 | `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |

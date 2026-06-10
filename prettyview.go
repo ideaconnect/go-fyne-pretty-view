@@ -206,20 +206,24 @@ func (pv *PrettyView) SetDefaultCollapseDepth(depth int) {
 	pv.cfg.collapseDepth = depth
 }
 
-// ExpandTo expands every collapsed ancestor of the node owning byte offset off
-// (JSON only; XML/HTML lack source offsets) and scrolls it into view.
-func (pv *PrettyView) ExpandTo(off int) {
+// ExpandTo expands every collapsed ancestor of the node owning byte offset off and
+// scrolls it into view, reporting whether such a node was found. Source byte
+// offsets are populated for JSON/JSONC only; XML and HTML carry no per-node source
+// span (their tokenizers don't expose one), so on those formats no node matches an
+// arbitrary offset and ExpandTo returns false without scrolling.
+func (pv *PrettyView) ExpandTo(off int) bool {
 	if pv.doc == nil {
-		return
+		return false
 	}
 	node := pv.nodeAtByteOffset(off)
 	if node == model.NoNode {
-		return
+		return false
 	}
 	line := pv.doc.Nodes[node].HeadLine
 	pv.doc.RevealLine(line)
 	pv.refreshContent()
 	pv.centerOnLine(line, 0)
+	return true
 }
 
 // SetWrap switches long-line handling between WrapNone (horizontal scroll) and

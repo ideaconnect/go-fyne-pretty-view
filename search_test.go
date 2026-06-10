@@ -143,6 +143,38 @@ func TestSearchRevealsFolded(t *testing.T) {
 	}
 }
 
+// TestSearchHighlightsCollapsedFoldHead is the regression for matches on a
+// collapsed fold-head being suppressed. A collapsed head still shows its head text
+// (its collapsed rendering is head ++ summary ++ close) and the match columns are
+// computed against that same head text, so the highlight must be drawn rather than
+// skipped until the node is expanded.
+func TestSearchHighlightsCollapsedFoldHead(t *testing.T) {
+	pv, win := renderInWindow(t, []byte(`{"needle":{"a":1,"b":2}}`), FormatJSON, 800, 600)
+	defer win.Close()
+
+	head := findFoldHead(pv.doc, `"needle"`)
+	if head == model.NoNode {
+		t.Fatal(`could not find the fold head whose line begins with "needle"`)
+	}
+	headLine := pv.doc.Nodes[head].HeadLine
+	pv.doc.Fold(head)
+	if !pv.doc.IsCollapsed(headLine) {
+		t.Fatal("precondition: the fold head should be collapsed")
+	}
+
+	pv.Search(SearchQuery{Text: "needle"})
+	if _, total, _ := pv.SearchStatus(); total == 0 {
+		t.Fatal("search found no match on the head line")
+	}
+	if !pv.doc.IsCollapsed(headLine) {
+		t.Fatal("the fold head should still be collapsed after searching its own head line")
+	}
+	pv.r.reflow()
+	if got := len(pv.r.matchLayer.Objects); got == 0 {
+		t.Error("no match highlight drawn on the collapsed fold-head (its head text is still on screen)")
+	}
+}
+
 func TestSearchNavWrap(t *testing.T) {
 	pv := docPV(`{"a":"x","b":"x","c":"x"}`, FormatJSON)
 	pv.Search(SearchQuery{Text: `"x"`})

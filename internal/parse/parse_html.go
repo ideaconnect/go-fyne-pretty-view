@@ -139,7 +139,7 @@ func htmlStartSegs(tok html.Token, selfClose bool) []model.Seg {
 	for _, a := range tok.Attr {
 		segs = append(segs, model.LitSeg(model.RolePlain, " "), model.LitSeg(model.RoleAttr, a.Key))
 		if a.Val != "" {
-			segs = append(segs, model.LitSeg(model.RolePunct, "="), model.LitSeg(model.RoleString, `"`+a.Val+`"`))
+			segs = append(segs, model.LitSeg(model.RolePunct, "="), model.LitSeg(model.RoleString, `"`+escapeGridBreakers(a.Val)+`"`))
 		}
 	}
 	if selfClose {
