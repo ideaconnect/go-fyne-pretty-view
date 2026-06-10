@@ -237,6 +237,119 @@ func TestJSONTrailingJunkSurfaced(t *testing.T) {
 	}
 }
 
+// TestJSONDetectRejectsBracketLedNonJSON is the regression for over-eager
+// auto-detection: a leading '{'/'[' alone is too weak a signal. Bracket-led log
+// and markdown lines must NOT be classified as JSON (which made the tolerant
+// scanner recover a sliver and silently drop the rest), while genuine JSON of
+// every shape still detects.
+func TestJSONDetectRejectsBracketLedNonJSON(t *testing.T) {
+	cases := []struct {
+		name, src string
+		want      Format
+	}{
+		{"log level prefix", "[ERROR] disk full at /var\nretrying in 5s", FormatRaw},
+		{"info tag line", "[INFO] starting up", FormatRaw},
+		{"markdown link", "[label](https://example.com) see the docs", FormatRaw},
+		{"prose in braces", "{this is prose, not json}", FormatRaw},
+		{"real object", `{"a":1}`, FormatJSON},
+		{"real array of numbers", `[1, 2, 3]`, FormatJSON},
+		{"real array of strings", `["x","y"]`, FormatJSON},
+		{"empty object", `{}`, FormatJSON},
+		{"empty array", `[]`, FormatJSON},
+		{"leading whitespace then object", "  \n  {\"a\":1}", FormatJSON},
+	}
+	for _, c := range cases {
+		if d := Parse([]byte(c.src), FormatAuto, 0); d.Format != c.want {
+			t.Errorf("%s (%q): detected %v, want %v", c.name, c.src, d.Format, c.want)
+		}
+	}
+}
+
+// TestJSONTrailingContentFallsBackToRaw is the regression for the silent
+// drop-everything-after-the-root bug: a cleanly-parsed root value followed by more
+// bytes (NDJSON, concatenated values, or trailing prose) is not a single JSON
+// document. It must fall back to raw with every byte still visible, rather than
+// rendering only the first value and discarding the rest. (An inner-truncated value
+// still recovers a tolerant partial tree — see TestJSONTrailingJunkSurfaced.)
+func TestJSONTrailingContentFallsBackToRaw(t *testing.T) {
+	cases := []struct{ name, src, tail string }{
+		{"ndjson", "{\"a\":1}\n{\"b\":2}\n{\"c\":3}", `"c"`},
+		{"concatenated arrays", "[1,2][3,4]", "[3,4]"},
+		{"value then prose", `{"ok":true} and then some notes`, "notes"},
+	}
+	for _, c := range cases {
+		d := Parse([]byte(c.src), FormatAuto, 0)
+		if d.Format != FormatRaw {
+			t.Errorf("%s: format = %v, want raw (trailing content was silently dropped)", c.name, d.Format)
+		}
+		if text := renderDoc(d); !strings.Contains(text, c.tail) {
+			t.Errorf("%s: trailing content %q missing from raw render:\n%s", c.name, c.tail, text)
+		}
+	}
+
+	// The same fallback must hold for an explicitly forced FormatJSON bare-scalar
+	// root (which auto-detect never picks, so it exercises the Parse-side trailing
+	// check directly rather than Detect).
+	if d := Parse([]byte("42 43"), FormatJSON, 0); d.Format != FormatRaw {
+		t.Errorf("forced-JSON bare scalar with trailing content: format = %v, want raw", d.Format)
+	}
+}
+
+// TestNoControlCharsInDisplayLines pins the one-row-per-line / uniform-grid
+// invariant for the structured parsers: a display line must never contain a raw C0
+// control byte or DEL, which would spill onto another row or desync the monospace
+// column math (only the raw parser deliberately expands \t to stops). Data tokens
+// (string values, keys, attribute values) and recovered junk spans are byte ranges
+// the scanners take verbatim, so a malformed input could otherwise leak a control
+// byte straight onto the row. The `want` substrings also assert the bytes are
+// *escaped*, not silently dropped (a one-sided absence check would pass on a drop),
+// and that multi-byte runes adjacent to a control byte survive intact.
+func TestNoControlCharsInDisplayLines(t *testing.T) {
+	hasCtrl := func(s string) bool {
+		for i := 0; i < len(s); i++ {
+			if s[i] < 0x20 || s[i] == 0x7f {
+				return true
+			}
+		}
+		return false
+	}
+	cases := []struct {
+		name   string
+		format Format
+		src    string
+		want   []string // visible escapes / preserved runes that must appear (no silent drop)
+	}{
+		{"json string with raw newline", FormatJSON, "{\"a\":\"line1\nline2\"}", []string{`line1\nline2`}},
+		{"json string with raw tab", FormatJSON, "{\"a\":\"col1\tcol2\"}", []string{`col1\tcol2`}},
+		{"json string with raw escape byte", FormatJSON, "{\"a\":\"x\x1by\"}", []string{`x\x1by`}},
+		{"json multibyte beside control", FormatJSON, "{\"a\":\"é\tü\"}", []string{"é", "ü", `\t`}},
+		{"json key with raw newline", FormatJSON, "{\"k\ney\":1}", nil},
+		{"json in-container junk with newline", FormatJSON, "[true bogus\nmore]", nil},
+		{"jsonc value with raw newline", FormatJSONC, "{\"k\":\"x\ny\"}", nil},
+		{"xml attribute with newline", FormatXML, "<a t=\"x\ny\">z</a>", nil},
+		{"xml attribute with tab", FormatXML, "<a t=\"x\ty\">z</a>", nil},
+		{"html attribute with tab", FormatHTML, "<p data-x=\"a\tb\">hi</p>", nil},
+		{"html attribute with newline", FormatHTML, "<p data-x=\"a\nb\">hi</p>", nil},
+	}
+	for _, c := range cases {
+		d := Parse([]byte(c.src), c.format, 0)
+		var all strings.Builder
+		for li := 0; li < d.TotalLines(); li++ {
+			s := d.LineString(int32(li))
+			if hasCtrl(s) {
+				t.Errorf("%s: line %d contains a raw control char: %q", c.name, li, s)
+			}
+			all.WriteString(s)
+		}
+		text := all.String()
+		for _, w := range c.want {
+			if !strings.Contains(text, w) {
+				t.Errorf("%s: %q missing from render (byte silently dropped?):\n%s", c.name, w, text)
+			}
+		}
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {

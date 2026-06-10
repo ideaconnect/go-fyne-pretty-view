@@ -73,8 +73,9 @@ func WithWrap(m WrapMode) Option { return func(c *config) { c.wrap = m } }
 // keep keystroke coalescing.
 func WithSearchConfig(s SearchConfig) Option { return func(c *config) { c.search = s } }
 
-// WithDefaultCollapseDepth auto-collapses every container deeper than d on load
-// (d <= 0 disables auto-collapse).
+// WithDefaultCollapseDepth auto-collapses every container at nesting depth d or
+// deeper on load. Top-level containers are at depth 0, so d=1 collapses everything
+// below the root and d=0 (or any d <= 0) disables auto-collapse.
 func WithDefaultCollapseDepth(d int) Option {
 	return func(c *config) {
 		if d < 0 {

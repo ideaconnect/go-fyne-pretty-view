@@ -6,6 +6,7 @@ package parse
 import (
 	"bytes"
 	"math"
+	"strings"
 	"unicode"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
@@ -54,6 +55,69 @@ var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 // stripBOM removes a single leading UTF-8 BOM if present. It is idempotent and
 // returns a subslice (no copy).
 func stripBOM(src []byte) []byte { return bytes.TrimPrefix(src, utf8BOM) }
+
+// A grid-hostile byte is any C0 control (< 0x20) or DEL (0x7f): \n/\r spill the
+// segment onto another visual row, \t jumps to a tab stop, and the rest render as
+// zero-width or replacement glyphs — all of which break the one-row-per-line and
+// one-rune-per-cell invariants the renderer, hit-test, and selection math rely on.
+// Data tokens (JSON strings/keys, XML/HTML attribute values) take these bytes
+// verbatim — valid documents escape them — so a malformed input can carry them in.
+// Multi-byte UTF-8 is safe: its lead/continuation bytes are all >= 0x80.
+func isGridHostile(c byte) bool { return c < 0x20 || c == 0x7f }
+
+// hasGridBreaker reports whether b contains a grid-hostile control byte.
+func hasGridBreaker(b []byte) bool {
+	for _, c := range b {
+		if isGridHostile(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// escapeGridBreakers rewrites grid-hostile control bytes in s to a visible escape
+// so each stays on one row and one cell: \n, \r, and \t get their familiar
+// two-character C escapes; every other control byte becomes \xNN. All other bytes
+// pass through untouched (including multi-byte UTF-8). It is a cheap no-op when s is
+// already clean. (A valid escape sequence in the source is already two display
+// characters and never reaches here as a raw control byte.)
+func escapeGridBreakers(s string) string {
+	if !hasGridBreaker([]byte(s)) {
+		return s
+	}
+	const hexDigits = "0123456789abcdef"
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c == '\n':
+			b.WriteString(`\n`)
+		case c == '\r':
+			b.WriteString(`\r`)
+		case c == '\t':
+			b.WriteString(`\t`)
+		case isGridHostile(c):
+			b.WriteString(`\x`)
+			b.WriteByte(hexDigits[c>>4])
+			b.WriteByte(hexDigits[c&0xf])
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
+}
+
+// cleanSrcSeg builds a display segment for src[start:end]. It stays a zero-copy
+// SrcSeg in the common case; only when those bytes contain a raw grid-breaker
+// (\n/\r/\t — malformed input the scanners tolerate) does it fall back to a
+// synthesized, C-escaped literal so the row and column grid stay intact.
+func cleanSrcSeg(src []byte, role model.ColorRole, start, end int) model.Seg {
+	if !hasGridBreaker(src[start:end]) {
+		return model.SrcSeg(role, start, end)
+	}
+	return model.LitSeg(role, escapeGridBreakers(string(src[start:end])))
+}
 
 // Parser turns a byte buffer into a Document by driving a model.Builder. A parser
 // must be tolerant: on malformed input it emits whatever partial structure it has
