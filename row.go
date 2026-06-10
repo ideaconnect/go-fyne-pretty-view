@@ -18,6 +18,11 @@ const maxIndentGuides = 32
 // assert each visible row is built once per reflow.
 var debugRowBuilds int64
 
+// debugBytesWalked counts bytes advanced by the decode (non-grid) prefix/window walk
+// in build(); used only by tests to assert a reflow over a byte-grid line is
+// O(visible window), not O(scroll position) — the grid fast path walks zero.
+var debugBytesWalked int64
+
 // rowWidget renders exactly one display line. It is the only object that ever
 // holds document text, and only ~viewport-many of them exist at once (they are
 // recycled by the renderer). A row positions its children in content space: the
@@ -191,6 +196,7 @@ func (rr *rowRenderer) build() {
 					hiByte = i
 				}
 			}
+			atomic.AddInt64(&debugBytesWalked, int64(i)) // O(visible window) on the grid path (which adds 0)
 			if loByte < 0 {
 				continue // segment lies entirely left of the window
 			}
