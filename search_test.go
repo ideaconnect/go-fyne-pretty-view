@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
@@ -113,6 +114,42 @@ func TestSearchRegexMaxMatchesCap(t *testing.T) {
 	uncapped.Search(SearchQuery{Text: `x`, Mode: SearchRegex})
 	if _, total, isCapped := uncapped.SearchStatus(); isCapped || total != occ {
 		t.Errorf("regex uncapped: total=%d capped=%v, want total=%d capped=false", total, isCapped, occ)
+	}
+}
+
+// TestSearchRegexLiteralPrefixPrefilter guards the literal-prefix prefilter, which
+// skips the RE2 engine on lines lacking the pattern's required literal head: it must
+// never drop a real match nor invent one. A line WITH the prefix but no full match
+// (e.g. "item-ish") must still be scanned and yield nothing; a line WITHOUT the
+// prefix must be correctly absent; an anchored pattern must still anchor.
+func TestSearchRegexLiteralPrefixPrefilter(t *testing.T) {
+	src := `{"item1":"x","note":"item-ish","item22":"y","other":"z"}`
+	pv := docPV(src, FormatJSON)
+
+	// `item\d+` has literal prefix "item"; only the item1 and item22 keys match
+	// ("item-ish" has the prefix but no digit; "note"/"other" lack the prefix).
+	pv.Search(SearchQuery{Text: `item\d+`, Mode: SearchRegex, CaseSensitive: true})
+	if _, total, _ := pv.SearchStatus(); total != 2 {
+		t.Errorf(`item\d+ total = %d, want 2 (item1, item22)`, total)
+	}
+
+	// Case-insensitive with a CASED head ("item") has no literal prefix (the (?i)
+	// compile reports none), so the prefilter does not fire and must not drop the
+	// upper-case-only hit.
+	ci := docPV(`{"a":"ITEM5","b":"plain"}`, FormatJSON)
+	ci.Search(SearchQuery{Text: `item\d`, Mode: SearchRegex, CaseSensitive: false})
+	if _, total, _ := ci.SearchStatus(); total != 1 {
+		t.Errorf(`(?i)item\d total = %d, want 1 (ITEM5)`, total)
+	}
+
+	// Case-insensitive with a CASELESS head ("0x") DOES have a non-empty literal
+	// prefix, so the prefilter fires on "0x" — it must still match every casing of the
+	// cased tail and must not drop them, while a line lacking the caseless head is
+	// correctly excluded.
+	cl := docPV(`{"a":"0xff","b":"0XFF","c":"0xFf","d":"1xff"}`, FormatJSON)
+	cl.Search(SearchQuery{Text: `0x[0-9a-f]{2}`, Mode: SearchRegex, CaseSensitive: false})
+	if _, total, _ := cl.SearchStatus(); total != 3 {
+		t.Errorf(`(?i)0x[0-9a-f]{2} total = %d, want 3 (0xff, 0XFF, 0xFf; not 1xff)`, total)
 	}
 }
 
@@ -228,6 +265,63 @@ func TestSearchHighlightBounded(t *testing.T) {
 	t.Logf("matches=%d capped=%v, match rects on screen=%d, visible rows=%d", total, capped, rects, visRows)
 	if rects > visRows*8 {
 		t.Errorf("match rect count %d exceeds visible bound (%d rows)", rects, visRows)
+	}
+}
+
+// TestSearchHighlightBoundedHorizontal pins invariant M-1 on the horizontal axis:
+// thousands of matches on ONE visible line must not each emit a highlight rect when
+// most are scrolled off-screen. (TestSearchHighlightBounded covers only the
+// vertical / many-lines axis.) Before the horizontal cull this drew ~K rects.
+func TestSearchHighlightBoundedHorizontal(t *testing.T) {
+	const k = 5000
+	line := strings.Repeat("needle ", k) // one raw line, k matches
+	pv, win := renderInWindow(t, []byte(line), FormatRaw, 400, 300)
+	defer win.Close()
+
+	pv.Search(SearchQuery{Text: "needle"})
+	if _, total, _ := pv.SearchStatus(); total != k {
+		t.Fatalf("total matches = %d, want %d", total, k)
+	}
+	// Scroll horizontally into the middle of the line, onto a matched region.
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(0, 1000), 0))
+
+	rects := len(pv.r.matchLayer.Objects)
+	visCols := int(pv.r.scroll.Size().Width/pv.met.CharWidth) + 2 // 1 rect/visible col is the ceiling
+	if rects == 0 {
+		t.Error("no match rects drawn after scrolling onto a matched region (over-culled)")
+	}
+	if rects > visCols {
+		t.Errorf("match rects = %d exceeds the visible-column bound %d (total matches %d) — O(matches), not O(visible columns)", rects, visCols, k)
+	}
+}
+
+// TestMatchRectCullsOffscreenColumns proves the horizontal cull is correct in both
+// directions, not merely a count cap: a single match draws a rect only while it lies
+// inside the horizontal visible window.
+func TestMatchRectCullsOffscreenColumns(t *testing.T) {
+	const pad = 2000
+	line := strings.Repeat("x", pad) + "needle" + strings.Repeat("x", pad) // one match at col pad
+	pv, win := renderInWindow(t, []byte(line), FormatRaw, 400, 300)
+	defer win.Close()
+	pv.Search(SearchQuery{Text: "needle"})
+	if _, total, _ := pv.SearchStatus(); total != 1 {
+		t.Fatalf("total = %d, want 1", total)
+	}
+
+	// Left edge: the match (col pad) is off-screen to the right -> no rect.
+	pv.r.scrollToOffset(fyne.NewPos(0, 0))
+	if got := len(pv.r.matchLayer.Objects); got != 0 {
+		t.Errorf("match far to the right drew %d rect(s) at scroll 0; want 0", got)
+	}
+	// Scroll the match into view -> exactly one rect.
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(0, pad-5), 0))
+	if got := len(pv.r.matchLayer.Objects); got != 1 {
+		t.Errorf("match in view drew %d rect(s); want 1", got)
+	}
+	// Scroll past it so it is off-screen to the left -> no rect.
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(0, pad+50), 0))
+	if got := len(pv.r.matchLayer.Objects); got != 0 {
+		t.Errorf("match to the left drew %d rect(s); want 0", got)
 	}
 }
 

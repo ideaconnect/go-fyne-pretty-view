@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 func TestDumpXML(t *testing.T) {
@@ -347,6 +349,39 @@ func TestNoControlCharsInDisplayLines(t *testing.T) {
 				t.Errorf("%s: %q missing from render (byte silently dropped?):\n%s", c.name, w, text)
 			}
 		}
+	}
+}
+
+// TestLineIsByteGrid pins the per-line byte==column flag the renderer's fast path
+// relies on: true for a line with no multi-byte rune (so a column's byte offset can
+// be found by arithmetic), false when a multi-byte rune is present, and — crucially
+// — true for a lone invalid byte, which advances one column and one byte in both
+// RuneCount and the renderer's decode walk.
+func TestLineIsByteGrid(t *testing.T) {
+	lineWith := func(d *model.Document, sub string) int32 {
+		for li := 0; li < d.TotalLines(); li++ {
+			if strings.Contains(d.LineString(int32(li)), sub) {
+				return int32(li)
+			}
+		}
+		t.Fatalf("no line contains %q", sub)
+		return -1
+	}
+	ascii := Parse([]byte(`["abcdefghij"]`), FormatJSON, 0)
+	if !ascii.LineIsByteGrid(lineWith(ascii, "abcdefghij")) {
+		t.Error("ASCII value line should be a byte grid")
+	}
+	multi := Parse([]byte(`["héllo wörld"]`), FormatJSON, 0)
+	if multi.LineIsByteGrid(lineWith(multi, "wörld")) {
+		t.Error("multi-byte value line should NOT be a byte grid")
+	}
+	inv := Parse([]byte("[\"a\x80b\"]"), FormatJSON, 0)
+	if !inv.LineIsByteGrid(lineWith(inv, "a")) {
+		t.Error("a lone invalid byte still advances 1 col / 1 byte — should be a byte grid")
+	}
+	// Out-of-range is the safe slow-path default.
+	if ascii.LineIsByteGrid(int32(ascii.TotalLines()) + 5) {
+		t.Error("out-of-range line should report false (slow path)")
 	}
 }
 

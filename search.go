@@ -149,10 +149,13 @@ func (pv *PrettyView) step(dir int) {
 //
 // It runs on the Fyne goroutine, not a worker: the cost is O(total bytes) with a
 // single forward byte->rune pass per line (see colCursor) and a hard MaxMatches
-// cap, so it stays well under a frame even on large input — a full scan of the
-// 7.5 MB / 440k-line fixture is ~5 ms. Combined with keystroke debouncing
-// (searchDebounced), a cooperative chunked/off-thread scan is unnecessary (and
-// would reintroduce the Search-vs-reflow data race that staying on the Fyne thread
+// cap, so it stays well under a frame even on large input — a full PLAIN scan of
+// the 7.5 MB / 440k-line fixture is single-digit milliseconds (~5 ms, hardware
+// dependent). Regex (SearchRegex) is heavier per line; a literal-prefix prefilter
+// (re.LiteralPrefix) skips the RE2 engine on non-candidate lines, but a pattern with
+// no literal head still runs the engine on every line. Combined with keystroke
+// debouncing (searchDebounced), a cooperative chunked/off-thread scan is unnecessary
+// (and would reintroduce the Search-vs-reflow data race that staying on the Fyne thread
 // avoids). The ceiling is a single pathological multi-gigabyte document; such input
 // is out of scope for an in-memory viewer.
 func (pv *PrettyView) runSearch(q SearchQuery) {
@@ -194,6 +197,21 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		}
 		re = r
 	}
+	// Literal-prefix prefilter: LiteralPrefix returns a byte sequence that EVERY match
+	// of re must begin with (Go's documented contract), so a line not containing it
+	// cannot match and the (far costlier) RE2 engine is skipped for it via bytes.Index
+	// — turning an O(lines) engine sweep into a cheap scan for the common "regex with a
+	// literal head" case (e.g. `item\d+`, or a pattern that is effectively a literal).
+	// This is correct regardless of case sensitivity: for a case-insensitive (?i)
+	// pattern the prefix is the run of caseless leading characters (empty for a cased
+	// head like `foo`, but e.g. "0x" for `(?i)0xFF`), and that run is still a literal
+	// every match must contain. An empty prefix simply disables the filter.
+	var rePrefix []byte
+	if re != nil {
+		if lp, _ := re.LiteralPrefix(); lp != "" {
+			rePrefix = []byte(lp)
+		}
+	}
 	needleBytes := []byte(q.Text)
 	var needleLower []byte
 	if re == nil && !q.CaseSensitive {
@@ -212,6 +230,9 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		scratch = pv.doc.AssembleLine(li, scratch[:0])
 		switch {
 		case re != nil:
+			if rePrefix != nil && bytes.Index(scratch, rePrefix) < 0 {
+				continue // line cannot contain the required literal prefix — skip RE2
+			}
 			// FindAllIndex evaluates the pattern against the whole line, so anchors
 			// (^ $) and word boundaries (\b \B) see full context. A from-offset
 			// FindIndex(scratch[from:]) loop is wrong here: re-slicing the suffix

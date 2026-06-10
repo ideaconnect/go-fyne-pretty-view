@@ -267,16 +267,25 @@ func (b *Builder) Finish() *Document {
 func (b *Builder) computeExtent() {
 	d := b.doc
 	d.lineRunes = make([]int32, len(d.Lines))
+	d.lineASCII = make([]bool, len(d.Lines))
 	for li := range d.Lines {
 		l := &d.Lines[li]
 		if l.Depth > d.MaxDepth {
 			d.MaxDepth = l.Depth
 		}
-		runes := 0
+		runes, bytesN := 0, 0
 		for _, s := range d.Segs[l.SegFirst : l.SegFirst+uint32(l.SegCount)] {
-			runes += utf8.RuneCount(d.SegBytes(s))
+			sb := d.SegBytes(s)
+			runes += utf8.RuneCount(sb)
+			bytesN += len(sb)
 		}
 		d.lineRunes[li] = int32(runes) // expanded displayed length (cached for LineRuneLen)
+		// A line is a uniform byte==column grid exactly when it holds no multi-byte
+		// rune: rune count equals byte count. (A lone invalid byte advances one column
+		// and one byte in both RuneCount and the renderer's walk, so it stays "grid".)
+		// The renderer uses this to find a column's byte offset by arithmetic instead
+		// of walking the prefix — O(visible window) rather than O(scroll position).
+		d.lineASCII[li] = runes == bytesN
 		// A collapsed fold-head can be wider than its expanded head line.
 		if l.Fold != NoNode {
 			cr := 0

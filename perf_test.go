@@ -2,6 +2,7 @@ package prettyview
 
 import (
 	"os"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -9,6 +10,48 @@ import (
 
 	"fyne.io/fyne/v2"
 )
+
+// TestReflowGridSkipsPrefixWalk is the deterministic, renderer-attached guard for
+// issue #4: a reflow scrolled deep into a wrapped byte-grid (ASCII) line must walk
+// O(visible window) bytes, not O(scroll position). The grid fast path walks zero, so
+// debugBytesWalked stays tiny no matter how far down the line is scrolled; before the
+// fast path the deep build walked the full start column (hundreds of KB per row).
+func TestReflowGridSkipsPrefixWalk(t *testing.T) {
+	long := strings.Repeat("abcdefghij", 200_000) // 2 MB single ASCII (grid) line
+	pv, win := renderInWindow(t, []byte(`["`+long+`"]`), FormatJSON, 400, 300)
+	defer win.Close()
+	pv.SetWrap(WrapWord)
+
+	li := pv.doc.LineAtRow(1)
+	if !pv.doc.LineIsByteGrid(li) {
+		t.Fatal("precondition: the long ASCII line should be a byte grid")
+	}
+	deep := int(pv.doc.RowOfLine(li)) + int(pv.doc.TotalVisibleRows())/2
+
+	atomic.StoreInt64(&debugBytesWalked, 0)
+	pv.r.scrollToOffset(fyne.NewPos(0, pv.met.RowY(deep))) // exactly one reflow
+	walked := atomic.LoadInt64(&debugBytesWalked)
+
+	t.Logf("bytes walked one reflow deep into the wrapped grid line = %d", walked)
+	if walked > 100_000 {
+		t.Errorf("reflow walked %d bytes deep into a grid line — O(scroll position), not O(visible window)", walked)
+	}
+}
+
+// TestSearchNextZeroAlloc guards that SearchNext does no allocation on the model-only
+// navigation path (pv.r == nil, so reveal/reflow is skipped): wrapping the active
+// index over the existing match slice is pure arithmetic.
+func TestSearchNextZeroAlloc(t *testing.T) {
+	pv := New() // no renderer
+	pv.doc = parse.Parse([]byte(`{"a":"x","b":"x","c":"x","d":"x"}`), FormatJSON, 0)
+	pv.runSearch(SearchQuery{Text: `"x"`})
+	if _, total, _ := pv.SearchStatus(); total < 2 {
+		t.Fatalf("need multiple matches, got %d", total)
+	}
+	if n := testing.AllocsPerRun(100, func() { pv.SearchNext() }); n != 0 {
+		t.Errorf("SearchNext allocated %.1f times on the model-only path, want 0", n)
+	}
+}
 
 // TestRevealLineMatchesRebuild verifies the incremental reveal leaves the
 // projection identical to a full rebuild and does not disturb unrelated folds.

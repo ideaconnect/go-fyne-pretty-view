@@ -97,6 +97,33 @@ func BenchmarkSearchRegex(b *testing.B) {
 	}
 }
 
+// BenchmarkSearchRegexLiteralPrefix measures a regex whose pattern has a selective
+// literal head ("needle", present on ~0.1% of lines): the literal-prefix prefilter
+// skips RE2 on every line lacking it via a cheap bytes.Index, so the scan is bounded
+// by the number of candidate lines, not the document size.
+func BenchmarkSearchRegexLiteralPrefix(b *testing.B) {
+	var sb strings.Builder
+	sb.WriteByte('[')
+	for i := 0; i < 20000; i++ {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		if i%1000 == 0 {
+			sb.WriteString(`"needle42"`)
+		} else {
+			sb.WriteString(`"filler-text-goes-right-here"`)
+		}
+	}
+	sb.WriteByte(']')
+	pv := New()
+	pv.doc = parse.Parse([]byte(sb.String()), FormatJSON, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.runSearch(SearchQuery{Text: `needle\d+`, Mode: SearchRegex, CaseSensitive: true})
+	}
+}
+
 // BenchmarkHorizontalScrollHugeLine measures one reflow (rebuild of the visible
 // rows) of a document whose single value is a ~2 MB line, scrolled horizontally to
 // column 1000. This is the case build()'s cull must bound: the old code paid a full
@@ -120,6 +147,35 @@ func BenchmarkHorizontalScrollHugeLine(b *testing.B) {
 		pv.r.reflow()
 	}
 }
+
+// BenchmarkReflowTopOfWrappedLine / BenchmarkReflowDeepIntoWrappedLine measure one
+// reflow of a soft-wrapped 2 MB single line at sub-row 0 vs. scrolled deep into the
+// line. With the byte==column-grid fast path the per-row build is O(visible window),
+// so the DEEP/TOP ratio stays near 1x; before it, deep paid O(start column).
+func benchReflowWrappedAt(b *testing.B, deep bool) {
+	test.NewApp()
+	long := strings.Repeat("abcdefghij", 200_000) // 2 MB single ASCII line
+	pv := NewWithData([]byte(`["`+long+`"]`), FormatJSON, WithWrap(WrapWord))
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(400, 300))
+	pv.Refresh()
+	li := pv.doc.LineAtRow(1)
+	row := int(pv.doc.RowOfLine(li))
+	target := row
+	if deep {
+		target = row + int(pv.doc.TotalVisibleRows())/2 // halfway down the wrapped line
+	}
+	pv.r.scrollToOffset(fyne.NewPos(0, pv.met.RowY(target)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.r.reflow()
+	}
+}
+
+func BenchmarkReflowTopOfWrappedLine(b *testing.B)    { benchReflowWrappedAt(b, false) }
+func BenchmarkReflowDeepIntoWrappedLine(b *testing.B) { benchReflowWrappedAt(b, true) }
 
 // BenchmarkSearchManyMatchesOneLine measures a search where thousands of matches
 // land on a single (raw) line — the O(K*L) case the addMatchB rune cursor fixes.

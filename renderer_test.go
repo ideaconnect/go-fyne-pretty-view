@@ -221,6 +221,45 @@ func TestRowRendersVisibleWindowWhenScrolled(t *testing.T) {
 
 // TestRowRendersMultibyteUnscrolled checks the build() rune walk handles multibyte
 // text correctly at the left edge (no horizontal scroll).
+// TestRowRendersMultibyteWhenScrolled guards the decode (non-grid) branch of build()
+// after the byte==column-grid fast path was added: a horizontally-scrolled line with
+// multi-byte runes (LineIsByteGrid == false) must still render exactly the visible
+// column window via the rune-walk path, not the arithmetic shortcut.
+func TestRowRendersMultibyteWhenScrolled(t *testing.T) {
+	long := strings.Repeat("héllo wörld ", 80) // multi-byte runes force the decode path
+	pv, win := renderInWindow(t, []byte(`["`+long+`"]`), FormatJSON, 300, 200)
+	defer win.Close()
+
+	li := pv.doc.LineAtRow(1)
+	if pv.doc.LineIsByteGrid(li) {
+		t.Fatal("precondition: a multi-byte line must not be a byte grid")
+	}
+	depth := pv.doc.Lines[li].Depth
+	row := int(pv.doc.RowOfLine(li))
+	pv.r.scrollToOffset(fyne.NewPos(pv.met.ColX(depth, 137), pv.met.RowY(row)))
+	pv.r.reflow()
+
+	got, ok := rowText(pv.r, li)
+	if !ok {
+		t.Fatal("the long-line row is not live")
+	}
+	disp := []rune(pv.doc.DisplayString(li))
+	first := pv.met.FirstVisibleCol(depth, pv.viewOffX)
+	last := pv.met.LastVisibleCol(depth, pv.viewOffX+pv.viewW)
+	if last > len(disp) {
+		last = len(disp)
+	}
+	if first > len(disp) {
+		first = len(disp)
+	}
+	if want := string(disp[first:last]); got != want {
+		t.Errorf("multibyte scrolled row text mismatch (first=%d last=%d):\n got=%q\nwant=%q", first, last, got, want)
+	}
+	if len(got) >= len([]rune(long)) {
+		t.Errorf("row rendered %d runes — culling failed on the multibyte decode path", len(got))
+	}
+}
+
 func TestRowRendersMultibyteUnscrolled(t *testing.T) {
 	pv, win := renderInWindow(t, []byte(`{"k":"héllo wörld ☃"}`), FormatJSON, 600, 200)
 	defer win.Close()

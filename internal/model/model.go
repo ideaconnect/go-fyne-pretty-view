@@ -150,6 +150,7 @@ type Document struct {
 	MaxDepth     uint8 // deepest indentation level present
 
 	lineRunes []int32 // cached expanded displayed-rune-length per line (computeExtent)
+	lineASCII []bool  // true iff the line's expanded text is a byte==column grid (no multi-byte rune)
 
 	// Soft-wrap projection. rowsOf[line] is the number of visual rows a line's
 	// currently-displayed text occupies at the active wrap width; nil means WrapNone
@@ -215,6 +216,15 @@ func (d *Document) LineRuneLen(li int32) int {
 		return int(d.lineRunes[li])
 	}
 	return countRunes(d, d.LineSegs(li)) // fallback for docs not built via Builder
+}
+
+// LineIsByteGrid reports whether line li's expanded text is a uniform byte==column
+// grid (no multi-byte rune), so a column's byte offset within the line equals the
+// column index. The renderer uses this to slice a visible column window by
+// arithmetic instead of walking the prefix. Out-of-range or a document not built via
+// Builder reports false (the safe, slow decode path).
+func (d *Document) LineIsByteGrid(li int32) bool {
+	return int(li) < len(d.lineASCII) && d.lineASCII[li]
 }
 
 func countRunes(d *Document, segs []Segment) int {
