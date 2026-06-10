@@ -385,6 +385,49 @@ func TestLineIsByteGrid(t *testing.T) {
 	}
 }
 
+// panicParser is a stub that panics during Parse, to exercise the safeParse boundary.
+type panicParser struct{}
+
+func (panicParser) Format() Format                     { return FormatRaw }
+func (panicParser) Detect([]byte) int                  { return 0 }
+func (panicParser) Parse([]byte, *model.Builder) error { panic("synthetic parser panic") }
+
+// TestSafeParseRecoversPanic is the regression for the panic boundary (#10): a parser
+// consuming untrusted input that trips an unforeseen panic must be recovered into an
+// error so Parse degrades to the raw fallback, never crashing the host.
+func TestSafeParseRecoversPanic(t *testing.T) {
+	b := model.NewBuilder([]byte("x"), FormatHTML, 0)
+	err := safeParse(panicParser{}, []byte("x"), b)
+	if err == nil {
+		t.Fatal("safeParse must return an error when the parser panics, not propagate the panic")
+	}
+	if !strings.Contains(err.Error(), "panic") {
+		t.Errorf("recovered error = %q, want it to mention the panic", err)
+	}
+}
+
+// TestHTMLDeeplyNestedDoesNotCrash mirrors the JSON/XML deep-nesting guards: HTML far
+// beyond the nesting cap must parse to a valid bounded document (the cap emits past-cap
+// elements as leaves so the builder stack stays bounded) rather than crash or hang.
+func TestHTMLDeeplyNestedDoesNotCrash(t *testing.T) {
+	var sb strings.Builder
+	const depth = maxNestDepth + 50
+	for i := 0; i < depth; i++ {
+		sb.WriteString("<div>")
+	}
+	sb.WriteString("x")
+	for i := 0; i < depth; i++ {
+		sb.WriteString("</div>")
+	}
+	d := Parse([]byte(sb.String()), FormatHTML, 0)
+	if d.Format != FormatHTML {
+		t.Fatalf("deeply-nested HTML format = %v, want html", d.Format)
+	}
+	if d.TotalLines() == 0 {
+		t.Error("deeply-nested HTML produced no display lines")
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {

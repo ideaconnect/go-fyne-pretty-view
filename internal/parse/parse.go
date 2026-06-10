@@ -5,6 +5,7 @@ package parse
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"strings"
 	"unicode"
@@ -188,10 +189,23 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 		return parseRaw(src, collapseDepth, tw)
 	}
 	b := model.NewBuilder(src, format, collapseDepth)
-	if err := p.Parse(src, b); err != nil {
+	if err := safeParse(p, src, b); err != nil {
 		return parseRaw(src, collapseDepth, tw)
 	}
 	return b.Finish()
+}
+
+// safeParse runs a parser behind a panic boundary. The parsers are tolerance-first
+// and should never panic, but they consume untrusted input; if an unforeseen case
+// ever trips a panic, degrade to the raw fallback (content always displays) rather
+// than crashing the host application. The partially-built model is discarded.
+func safeParse(p Parser, src []byte, b *model.Builder) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("prettyview: recovered parser panic: %v", r)
+		}
+	}()
+	return p.Parse(src, b)
 }
 
 // AutoDetect picks the most likely format for src. It returns FormatRaw when no
