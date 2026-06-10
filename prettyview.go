@@ -234,6 +234,41 @@ func (pv *PrettyView) ExpandTo(off int) bool {
 	return true
 }
 
+// ScrollToLine reveals the given display line (expanding any collapsed ancestors) and
+// scrolls it to the center of the viewport, reporting whether the index is in range.
+// Unlike ExpandTo it takes a display-line index in [0, TotalLines), so it works for
+// every format. Call it on the Fyne goroutine.
+func (pv *PrettyView) ScrollToLine(line int) bool {
+	if pv.doc == nil || line < 0 || line >= pv.doc.TotalLines() {
+		return false
+	}
+	li := int32(line)
+	pv.doc.RevealLine(li)
+	pv.refreshContent()
+	pv.centerOnLine(li, 0)
+	return true
+}
+
+// ScrollOffset returns the current content-space scroll offset (the viewport's
+// top-left). Pair it with SetScrollOffset to save and restore scroll position across
+// a reload or a layout change. Reports the zero position before the widget is shown.
+func (pv *PrettyView) ScrollOffset() fyne.Position {
+	if pv.r == nil {
+		return fyne.Position{}
+	}
+	return pv.r.scroll.Offset
+}
+
+// SetScrollOffset scrolls so p (content space) is the viewport's top-left, clamped to
+// the valid range — e.g. to restore a previously saved ScrollOffset. No-op before the
+// widget is shown. Call it on the Fyne goroutine.
+func (pv *PrettyView) SetScrollOffset(p fyne.Position) {
+	if pv.r == nil {
+		return
+	}
+	pv.r.scrollToOffset(p)
+}
+
 // SetWrap switches long-line handling between WrapNone (horizontal scroll) and
 // WrapWord (soft-wrap to the viewport width) and refreshes. Wrapping is purely
 // presentational: the model, selection, search, and copy are unchanged — a wrapped
