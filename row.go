@@ -138,45 +138,68 @@ func (rr *rowRenderer) build() {
 	ti := 0
 	col := 0
 	emitted := 0
+	// A byte==column-grid line (no multi-byte rune — the common case, including
+	// minified ASCII) lets the inner loop find a column's byte offset by arithmetic,
+	// skipping the prefix walk: a reflow deep into a huge or wrapped line is then
+	// O(visible window), not O(scroll position). The flag is computed over the
+	// expanded line, so it only applies when the line is not a collapsed fold-head
+	// (which renders different, summary, bytes).
+	useGrid := pv.doc.LineIsByteGrid(r.line) && !pv.doc.IsCollapsed(r.line)
 	for _, seg := range pv.doc.DisplaySegs(r.line) {
 		if col >= lastCol {
 			break // remaining segments are entirely past the right edge — cull them
 		}
 		sb := pv.doc.SegBytes(seg)
 		segStart := col
-		// Walk the segment once, never past lastCol, finding the byte slice that
-		// intersects the visible column window [firstCol, lastCol). This is the
-		// horizontal cull: the old code paid a full utf8.RuneCount on EVERY segment
-		// every reflow (plus a from-zero rune->byte scan when straddling), so a
-		// multi-megabyte single-segment line cost O(line length) per visible row per
-		// scroll tick — the CPU the M-2 design must bound, not just the texture width.
-		// Here a huge straddling segment is decoded only up to lastCol, and trailing
-		// off-window segments are skipped by the break above.
-		loByte, hiByte := -1, 0
-		i := 0
-		for i < len(sb) && col < lastCol {
-			if col >= firstCol && loByte < 0 {
-				loByte = i
+		// Find the byte slice [loByte,hiByte) of this segment that intersects the
+		// visible column window [firstCol,lastCol), and the absolute start column a /
+		// visible width. The grid path computes them directly; the decode path walks
+		// the segment once (never past lastCol), so even off the grid a huge straddling
+		// segment is decoded only up to the right edge — but it still pays O(firstCol)
+		// to find loByte, which the grid path avoids.
+		var loByte, hiByte, a, width int
+		if useGrid {
+			segEnd := segStart + len(sb)
+			col = segEnd // next segment begins here; the outer break culls past-window
+			if segEnd <= firstCol {
+				continue // entirely left of the window
 			}
-			if sb[i] < utf8.RuneSelf {
-				i++
-			} else {
-				_, sz := utf8.DecodeRune(sb[i:])
-				i += sz
+			if firstCol > segStart {
+				loByte = firstCol - segStart
 			}
-			col++
-			if loByte >= 0 {
-				hiByte = i
+			hiByte = len(sb)
+			if vis := lastCol - segStart; vis < hiByte {
+				hiByte = vis
 			}
+			a = segStart + loByte
+			width = hiByte - loByte
+		} else {
+			loByte, hiByte = -1, 0
+			i := 0
+			for i < len(sb) && col < lastCol {
+				if col >= firstCol && loByte < 0 {
+					loByte = i
+				}
+				if sb[i] < utf8.RuneSelf {
+					i++
+				} else {
+					_, sz := utf8.DecodeRune(sb[i:])
+					i += sz
+				}
+				col++
+				if loByte >= 0 {
+					hiByte = i
+				}
+			}
+			if loByte < 0 {
+				continue // segment lies entirely left of the window
+			}
+			a = segStart
+			if a < firstCol {
+				a = firstCol
+			}
+			width = col - a // visible columns emitted from this segment
 		}
-		if loByte < 0 {
-			continue // segment lies entirely left of the window
-		}
-		a := segStart
-		if a < firstCol {
-			a = firstCol
-		}
-		width := col - a // visible columns emitted from this segment
 		t := rr.text(ti)
 		ti++
 		t.Text = string(sb[loByte:hiByte])
