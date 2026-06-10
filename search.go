@@ -194,6 +194,19 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		}
 		re = r
 	}
+	// Literal-prefix prefilter: every match of re must begin with this exact byte
+	// sequence, so a line not containing it cannot match and the (far costlier) RE2
+	// engine is skipped for that line — turning an O(lines) engine sweep into a cheap
+	// bytes.Index scan for the common "regex with a literal head" case (e.g. `item\d+`
+	// or a pattern that is effectively a literal). LiteralPrefix returns "" for a
+	// case-insensitive pattern (the (?i) compile has no exact literal head), so the
+	// prefilter never drops a real match — it just doesn't fire there.
+	var rePrefix []byte
+	if re != nil {
+		if lp, _ := re.LiteralPrefix(); lp != "" {
+			rePrefix = []byte(lp)
+		}
+	}
 	needleBytes := []byte(q.Text)
 	var needleLower []byte
 	if re == nil && !q.CaseSensitive {
@@ -212,6 +225,9 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		scratch = pv.doc.AssembleLine(li, scratch[:0])
 		switch {
 		case re != nil:
+			if rePrefix != nil && bytes.Index(scratch, rePrefix) < 0 {
+				continue // line cannot contain the required literal prefix — skip RE2
+			}
 			// FindAllIndex evaluates the pattern against the whole line, so anchors
 			// (^ $) and word boundaries (\b \B) see full context. A from-offset
 			// FindIndex(scratch[from:]) loop is wrong here: re-slicing the suffix

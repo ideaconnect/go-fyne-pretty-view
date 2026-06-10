@@ -117,6 +117,31 @@ func TestSearchRegexMaxMatchesCap(t *testing.T) {
 	}
 }
 
+// TestSearchRegexLiteralPrefixPrefilter guards the literal-prefix prefilter, which
+// skips the RE2 engine on lines lacking the pattern's required literal head: it must
+// never drop a real match nor invent one. A line WITH the prefix but no full match
+// (e.g. "item-ish") must still be scanned and yield nothing; a line WITHOUT the
+// prefix must be correctly absent; an anchored pattern must still anchor.
+func TestSearchRegexLiteralPrefixPrefilter(t *testing.T) {
+	src := `{"item1":"x","note":"item-ish","item22":"y","other":"z"}`
+	pv := docPV(src, FormatJSON)
+
+	// `item\d+` has literal prefix "item"; only the item1 and item22 keys match
+	// ("item-ish" has the prefix but no digit; "note"/"other" lack the prefix).
+	pv.Search(SearchQuery{Text: `item\d+`, Mode: SearchRegex, CaseSensitive: true})
+	if _, total, _ := pv.SearchStatus(); total != 2 {
+		t.Errorf(`item\d+ total = %d, want 2 (item1, item22)`, total)
+	}
+
+	// Case-insensitive has no literal prefix (the (?i) compile reports none), so the
+	// prefilter must not fire and must not drop the upper-case-only hit.
+	ci := docPV(`{"a":"ITEM5","b":"plain"}`, FormatJSON)
+	ci.Search(SearchQuery{Text: `item\d`, Mode: SearchRegex, CaseSensitive: false})
+	if _, total, _ := ci.SearchStatus(); total != 1 {
+		t.Errorf(`(?i)item\d total = %d, want 1 (ITEM5)`, total)
+	}
+}
+
 func TestSearchBadRegex(t *testing.T) {
 	pv := docPV(`{"a":1}`, FormatJSON)
 	pv.Search(SearchQuery{Text: "[", Mode: SearchRegex})

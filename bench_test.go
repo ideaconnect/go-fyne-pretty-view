@@ -97,6 +97,33 @@ func BenchmarkSearchRegex(b *testing.B) {
 	}
 }
 
+// BenchmarkSearchRegexLiteralPrefix measures a regex whose pattern has a selective
+// literal head ("needle", present on ~0.1% of lines): the literal-prefix prefilter
+// skips RE2 on every line lacking it via a cheap bytes.Index, so the scan is bounded
+// by the number of candidate lines, not the document size.
+func BenchmarkSearchRegexLiteralPrefix(b *testing.B) {
+	var sb strings.Builder
+	sb.WriteByte('[')
+	for i := 0; i < 20000; i++ {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		if i%1000 == 0 {
+			sb.WriteString(`"needle42"`)
+		} else {
+			sb.WriteString(`"filler-text-goes-right-here"`)
+		}
+	}
+	sb.WriteByte(']')
+	pv := New()
+	pv.doc = parse.Parse([]byte(sb.String()), FormatJSON, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.runSearch(SearchQuery{Text: `needle\d+`, Mode: SearchRegex, CaseSensitive: true})
+	}
+}
+
 // BenchmarkHorizontalScrollHugeLine measures one reflow (rebuild of the visible
 // rows) of a document whose single value is a ~2 MB line, scrolled horizontally to
 // column 1000. This is the case build()'s cull must bound: the old code paid a full
