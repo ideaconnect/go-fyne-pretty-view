@@ -91,8 +91,10 @@ func (p jsonParser) Parse(src []byte, b *model.Builder) error {
 	// trailing content means this is not one JSON document — NDJSON, concatenated
 	// values, or a log/markdown line that merely begins with a bracket — so fall
 	// back to raw, where every byte stays visible on its own line, instead of
-	// silently dropping everything past the first value.
-	s.skipSpace()
+	// silently dropping everything past the first value. Trailing JSONC comments are
+	// emitted as nodes (symmetric with leading comments); only real trailing data
+	// triggers the raw fallback.
+	s.emitComments(s.scanTrivia())
 	if s.pos < len(s.src) {
 		return errors.New("prettyview: trailing content after top-level JSON value")
 	}

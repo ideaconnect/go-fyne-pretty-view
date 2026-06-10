@@ -96,9 +96,10 @@ func (pv *PrettyView) TappedSecondary(e *fyne.PointEvent) {
 }
 
 // nodeAtPosition resolves the structural node owning the display line under a local
-// pointer position, or NoNode if the click is below the content or on an empty
-// document. The context menu uses it to offer "Copy subtree" for the clicked node;
-// keying off the line's Owner (not a byte offset) makes it work for every format.
+// pointer position, or NoNode on an empty document. A click below the content clamps
+// to the last visible line (HitTest), so it resolves to that line's owner. The
+// context menu uses this to offer "Copy subtree" for the clicked node; keying off the
+// line's Owner (not a byte offset) makes it work for every format.
 func (pv *PrettyView) nodeAtPosition(local fyne.Position) model.NodeID {
 	if pv.doc == nil {
 		return model.NoNode

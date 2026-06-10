@@ -58,10 +58,6 @@ func (pv *PrettyView) Search(q SearchQuery) {
 	pv.runSearch(q)
 }
 
-// searchDebounced coalesces rapid keystrokes: it waits cfg.search.DebounceFor
-// before running the (synchronous) scan on the Fyne goroutine, so typing a word
-// triggers one scan instead of one per character. A non-positive DebounceFor runs
-// immediately.
 // SearchDebounced runs Search(q) after the configured SearchConfig.DebounceFor delay,
 // coalescing a burst of rapid calls (e.g. one per keystroke from a host's own search
 // field) so only the last query in the burst scans. With DebounceFor <= 0 it is
@@ -69,6 +65,9 @@ func (pv *PrettyView) Search(q SearchQuery) {
 // ClearSearch / SetData supersedes a still-pending scan. Call it on the Fyne goroutine.
 func (pv *PrettyView) SearchDebounced(q SearchQuery) { pv.searchDebounced(q) }
 
+// searchDebounced coalesces rapid keystrokes: it waits cfg.search.DebounceFor before
+// running the (synchronous) scan on the Fyne goroutine, so typing a word triggers one
+// scan instead of one per character. A non-positive DebounceFor runs immediately.
 func (pv *PrettyView) searchDebounced(q SearchQuery) {
 	pv.stopSearchTimer()
 	// Bump the generation so that any earlier debounced scan that has ALREADY fired

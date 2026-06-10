@@ -175,6 +175,14 @@ func (e *searchEntry) KeyUp(key *fyne.KeyEvent) {
 	e.Entry.KeyUp(key)
 }
 
+// FocusLost clears the held-Shift flag: glfw delivers KeyUp only to the focused
+// object, so a Shift released while the entry is unfocused would otherwise stick and
+// mis-route the next Enter to find-previous.
+func (e *searchEntry) FocusLost() {
+	e.shiftHeld = false
+	e.Entry.FocusLost()
+}
+
 func (e *searchEntry) TypedKey(key *fyne.KeyEvent) {
 	switch key.Name {
 	case fyne.KeyEscape:

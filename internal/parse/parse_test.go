@@ -183,6 +183,15 @@ func TestJSONCCommentsRendered(t *testing.T) {
 	if got := int(Parse([]byte("{}"), FormatJSONC, 0).TotalVisibleRows()); got != 1 {
 		t.Errorf("empty {} = %d rows, want 1 (leaf)", got)
 	}
+	// A trailing comment after the root value renders too (symmetric with leading) and
+	// must not trigger the trailing-content raw fallback.
+	tr := Parse([]byte(`{"a":1} // trailing note`), FormatJSONC, 0)
+	if tr.Format != FormatJSONC {
+		t.Fatalf("trailing-comment format = %v, want jsonc (not raw fallback)", tr.Format)
+	}
+	if text := renderDoc(tr); !strings.Contains(text, "// trailing note") {
+		t.Errorf("trailing JSONC comment not rendered:\n%s", text)
+	}
 }
 
 // TestJSONNonASCIIWhitespace is the regression for the detector/scanner whitespace
