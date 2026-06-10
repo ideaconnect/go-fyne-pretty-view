@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
 // TestContextMenuItems checks the right-click menu's items, their enabled state,
@@ -17,7 +18,7 @@ func TestContextMenuItems(t *testing.T) {
 	defer win.Close()
 
 	// With nothing selected, Copy is greyed out; Select all is available.
-	m := pv.contextMenu()
+	m := pv.contextMenu(model.NoNode)
 	if len(m.Items) != 2 {
 		t.Fatalf("contextMenu has %d items, want 2", len(m.Items))
 	}
@@ -45,7 +46,7 @@ func TestContextMenuItems(t *testing.T) {
 	if !pv.sel.active {
 		t.Fatal("Select all action did not activate a selection")
 	}
-	enabledCopy := pv.contextMenu().Items[0]
+	enabledCopy := pv.contextMenu(model.NoNode).Items[0]
 	if enabledCopy.Disabled {
 		t.Fatal("Copy should be enabled once there is a selection")
 	}
@@ -59,12 +60,49 @@ func TestContextMenuItems(t *testing.T) {
 // act on (a viewer constructed without data must not panic building the menu).
 func TestContextMenuEmptyDocument(t *testing.T) {
 	pv := New()
-	m := pv.contextMenu()
+	m := pv.contextMenu(model.NoNode)
 	if !m.Items[0].Disabled {
 		t.Error("Copy should be disabled on an empty viewer")
 	}
 	if !m.Items[1].Disabled {
 		t.Error("Select all should be disabled on an empty viewer")
+	}
+}
+
+// TestContextMenuCopySubtree: with a node resolved from the clicked line, the menu
+// offers "Copy subtree" whose action copies that node's whole subtree (here, the "a"
+// object), regardless of fold state and for any format (it keys off the line Owner).
+func TestContextMenuCopySubtree(t *testing.T) {
+	src := []byte(`{"a":{"b":"value"},"c":42}`)
+	pv, win := renderInWindow(t, src, FormatJSON, 500, 400)
+	defer win.Close()
+
+	// The fold head of the inner "a" object owns its head line.
+	node := findFoldHead(pv.doc, `"a"`)
+	if node == model.NoNode {
+		t.Fatal(`could not find the "a" fold head`)
+	}
+	m := pv.contextMenu(node)
+	var sub *fyne.MenuItem
+	for _, it := range m.Items {
+		if it.Label == "Copy subtree" {
+			sub = it
+		}
+	}
+	if sub == nil {
+		t.Fatal(`"Copy subtree" item not offered for a resolved node`)
+	}
+	sub.Action()
+	got := fyne.CurrentApp().Clipboard().Content()
+	if !strings.Contains(got, `"b"`) || !strings.Contains(got, `"value"`) {
+		t.Errorf("Copy subtree clipboard = %q, want the \"a\" subtree", got)
+	}
+	if strings.Contains(got, `"c"`) {
+		t.Errorf("Copy subtree leaked a sibling: %q", got)
+	}
+	// With no resolved node the item is absent (base menu of 2).
+	if len(pv.contextMenu(model.NoNode).Items) != 2 {
+		t.Error("base menu (NoNode) should not include Copy subtree")
 	}
 }
 

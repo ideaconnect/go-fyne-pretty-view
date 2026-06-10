@@ -92,7 +92,23 @@ func (pv *PrettyView) TappedSecondary(e *fyne.PointEvent) {
 	if c == nil {
 		return
 	}
-	widget.ShowPopUpMenuAtPosition(pv.contextMenu(), c, e.AbsolutePosition)
+	widget.ShowPopUpMenuAtPosition(pv.contextMenu(pv.nodeAtPosition(e.Position)), c, e.AbsolutePosition)
+}
+
+// nodeAtPosition resolves the structural node owning the display line under a local
+// pointer position, or NoNode if the click is below the content or on an empty
+// document. The context menu uses it to offer "Copy subtree" for the clicked node;
+// keying off the line's Owner (not a byte offset) makes it work for every format.
+func (pv *PrettyView) nodeAtPosition(local fyne.Position) model.NodeID {
+	if pv.doc == nil {
+		return model.NoNode
+	}
+	cx, cy := pv.contentPos(local)
+	pos := pv.hitTest(cx, cy)
+	if pos.line < 0 || int(pos.line) >= len(pv.doc.Lines) {
+		return model.NoNode
+	}
+	return pv.doc.Lines[pos.line].Owner
 }
 
 // contextMenu builds the right-click menu: Copy (greyed out unless there is a
@@ -100,7 +116,7 @@ func (pv *PrettyView) TappedSecondary(e *fyne.PointEvent) {
 // keyboard accelerator so the menu reads like a native one. hasSelection is the
 // cheap ordered() predicate, not SelectedText, so opening the menu over a
 // select-all of a multi-megabyte document does not materialize the whole string.
-func (pv *PrettyView) contextMenu() *fyne.Menu {
+func (pv *PrettyView) contextMenu(node model.NodeID) *fyne.Menu {
 	_, _, hasSelection := pv.ordered()
 	empty := pv.doc == nil || pv.doc.TotalVisibleRows() == 0
 
@@ -108,11 +124,26 @@ func (pv *PrettyView) contextMenu() *fyne.Menu {
 	copyItem.Disabled = !hasSelection
 	copyItem.Shortcut = &fyne.ShortcutCopy{}
 
+	items := []*fyne.MenuItem{copyItem}
+
+	// "Copy subtree" copies the node owning the right-clicked line — a value, or a
+	// whole {…}/[…]/<tag>…</tag> container — regardless of fold state. It keys off the
+	// line's Owner, so unlike CopySubtree(byteOffset) it works for every format.
+	if !empty && node != model.NoNode && node != 0 {
+		n := node
+		items = append(items, fyne.NewMenuItem("Copy subtree", func() {
+			if app := fyne.CurrentApp(); app != nil {
+				app.Clipboard().SetContent(pv.subtreeText(n))
+			}
+		}))
+	}
+
 	selectAll := fyne.NewMenuItem("Select all", pv.SelectAll)
 	selectAll.Disabled = empty
 	selectAll.Shortcut = &fyne.ShortcutSelectAll{}
+	items = append(items, selectAll)
 
-	return fyne.NewMenu("", copyItem, selectAll)
+	return fyne.NewMenu("", items...)
 }
 
 // refreshContent re-sizes the scroll content (row count / width may have changed)
