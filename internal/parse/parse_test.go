@@ -151,21 +151,37 @@ func TestRawParserFormatDetect(t *testing.T) {
 	}
 }
 
-// TestJSONCCommentsSkipped covers the JSONC comment branches of skipSpace: a //
-// line comment, a /* */ block comment, and a block comment left unclosed at EOF.
-func TestJSONCCommentsSkipped(t *testing.T) {
+// TestJSONCCommentsRendered: in JSONC mode // line and /* */ block comments are
+// emitted as nodes (visible, searchable, copyable) rather than silently stripped,
+// while plain JSON still skips them. Covers a line comment, a block comment, and a
+// block comment left unclosed at EOF.
+func TestJSONCCommentsRendered(t *testing.T) {
 	src := []byte("{ // a line comment\n  \"a\": 1, /* block */ \"b\": 2 /* unclosed")
 	d := Parse(src, FormatJSONC, 0)
 	if d.Format != FormatJSONC {
 		t.Fatalf("format = %v, want jsonc", d.Format)
 	}
-	var sb strings.Builder
-	for li := 0; li < d.TotalLines(); li++ {
-		sb.WriteString(d.LineString(int32(li)))
-		sb.WriteByte('\n')
+	text := renderDoc(d)
+	if !strings.Contains(text, `"a"`) || !strings.Contains(text, `"b"`) {
+		t.Errorf("JSONC dropped keys:\n%s", text)
 	}
-	if text := sb.String(); !strings.Contains(text, `"a"`) || !strings.Contains(text, `"b"`) {
-		t.Errorf("JSONC comment handling dropped keys:\n%s", text)
+	for _, c := range []string{"// a line comment", "/* block */"} {
+		if !strings.Contains(text, c) {
+			t.Errorf("JSONC comment %q not rendered as a node:\n%s", c, text)
+		}
+	}
+	// Plain JSON of the same bytes still skips comments (no comment nodes).
+	if pj := renderDoc(Parse(src, FormatJSON, 0)); strings.Contains(pj, "line comment") {
+		t.Errorf("plain JSON should not render comments as nodes:\n%s", pj)
+	}
+	// A comment inside otherwise-empty braces makes a real container, not a {} leaf.
+	withComment := renderDoc(Parse([]byte("{ /* c */ }"), FormatJSONC, 0))
+	if !strings.Contains(withComment, "/* c */") {
+		t.Errorf("comment in empty braces not rendered:\n%s", withComment)
+	}
+	// Truly empty braces stay a single {} leaf.
+	if got := int(Parse([]byte("{}"), FormatJSONC, 0).TotalVisibleRows()); got != 1 {
+		t.Errorf("empty {} = %d rows, want 1 (leaf)", got)
 	}
 }
 

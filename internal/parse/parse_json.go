@@ -66,7 +66,7 @@ func (p jsonParser) Detect(src []byte) int {
 
 func (p jsonParser) Parse(src []byte, b *model.Builder) error {
 	s := &jsonScanner{src: src, jsonc: p.jsonc, b: b}
-	s.skipSpace()
+	s.emitComments(s.scanTrivia()) // leading JSONC comments become top-level nodes
 	if s.pos >= len(s.src) {
 		return errors.New("prettyview: empty JSON input")
 	}
@@ -121,8 +121,19 @@ func (s *jsonScanner) peek() byte {
 	return 0
 }
 
-// skipSpace consumes whitespace and, in JSONC mode, // line and /* */ block
-// comments (treated as whitespace in M1; rendered as nodes is a later refinement).
+// commentSpan is the byte range of a // or /* */ comment, returned by scanTrivia in
+// JSONC mode so the container/top-level parser can emit it as a KindComment node.
+type commentSpan struct{ start, end int }
+
+// skipSpace consumes whitespace and // / /* */ comments. It is scanTrivia with the
+// comment spans discarded — used where emitting a comment node would be ill-placed
+// (between a key and its colon, after a value before its comma).
+func (s *jsonScanner) skipSpace() { s.scanTrivia() }
+
+// scanTrivia consumes whitespace and // line / /* */ block comments, and in JSONC
+// mode returns each comment's byte span (nil in plain JSON, where comments are still
+// tolerated and skipped). The caller emits the spans as nodes at a structurally sound
+// point (see emitComments).
 //
 // Its whitespace set must match what auto-detection trims (unicode.IsSpace, in
 // jsonParser.Detect / AutoDetect): if the scanner stopped on a byte the detector
@@ -131,7 +142,8 @@ func (s *jsonScanner) peek() byte {
 // members would silently drop the rest of the container. So the ASCII fast path
 // includes \f and \v, and any non-ASCII byte is decoded and tested with
 // unicode.IsSpace (covering NBSP, the line/paragraph separators, etc.).
-func (s *jsonScanner) skipSpace() {
+func (s *jsonScanner) scanTrivia() []commentSpan {
+	var spans []commentSpan
 	for s.pos < len(s.src) {
 		c := s.src[s.pos]
 		switch {
@@ -143,15 +155,20 @@ func (s *jsonScanner) skipSpace() {
 			// the byte rather than skipping past it.
 			r, size := utf8.DecodeRune(s.src[s.pos:])
 			if !unicode.IsSpace(r) {
-				return
+				return spans
 			}
 			s.pos += size
 		case c == '/' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '/':
+			start := s.pos
 			s.pos += 2
 			for s.pos < len(s.src) && s.src[s.pos] != '\n' {
 				s.pos++
 			}
+			if s.jsonc {
+				spans = append(spans, commentSpan{start, s.pos})
+			}
 		case c == '/' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '*':
+			start := s.pos
 			s.pos += 2
 			for s.pos+1 < len(s.src) && !(s.src[s.pos] == '*' && s.src[s.pos+1] == '/') {
 				s.pos++
@@ -161,9 +178,24 @@ func (s *jsonScanner) skipSpace() {
 			} else {
 				s.pos = len(s.src)
 			}
+			if s.jsonc {
+				spans = append(spans, commentSpan{start, s.pos})
+			}
 		default:
-			return
+			return spans
 		}
+	}
+	return spans
+}
+
+// emitComments emits each collected comment as a KindComment leaf child of the
+// current container. The bytes are zero-copy unless they hold a control byte (a block
+// comment spanning lines), in which case cleanSrcSeg C-escapes them so the comment
+// stays on one display row.
+func (s *jsonScanner) emitComments(spans []commentSpan) {
+	for _, c := range spans {
+		s.b.Leaf(model.KindComment, c.start, c.end,
+			[]model.Seg{cleanSrcSeg(s.src, model.RoleComment, c.start, c.end)})
 	}
 }
 
@@ -269,9 +301,11 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 	}
 	s.pos++ // consume opening brace/bracket
 
-	// Empty container: render as a single leaf `{}` / `[]`.
-	s.skipSpace()
-	if s.peek() == close {
+	// Empty container: render as a single leaf `{}` / `[]`. JSONC comments inside the
+	// braces are buffered first, so `{}` stays a leaf but `{ /* c */ }` is a real
+	// (foldable) container with the comment as its child.
+	comments := s.scanTrivia()
+	if s.peek() == close && len(comments) == 0 {
 		s.pos++
 		segs := make([]model.Seg, 0, len(prefix)+1)
 		segs = append(segs, prefix...)
@@ -287,9 +321,10 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 	head = append(head, prefix...)
 	head = append(head, model.LitSeg(model.RolePunct, string(open)))
 	id := s.b.Open(kind, srcStart, head)
+	s.emitComments(comments) // leading comments inside the container, now that it is open
 
 	for {
-		s.skipSpace()
+		s.emitComments(s.scanTrivia()) // comments between members / before the close
 		if s.pos >= len(s.src) {
 			s.fail("unterminated container")
 			break

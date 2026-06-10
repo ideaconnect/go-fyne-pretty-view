@@ -34,7 +34,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 
 ## Features
 
-- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override. (JSONC is parsed leniently, but `//` and `/* */` comments are currently skipped, not rendered.)
+- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override. (JSONC `//` and `/* */` comments render as their own nodes — visible, searchable, copyable.)
 - **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
 - **Expand / fold** every container, with a collapse summary on folded nodes (`{ 38 items }`, `[ 3 items ]`, `<tag> 5 children`).
 - **True character-level free-text selection** across rows, with exact-substring copy (`Ctrl/Cmd+C`) and select-all (`Ctrl/Cmd+A`).
