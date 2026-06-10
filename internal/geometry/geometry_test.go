@@ -149,6 +149,18 @@ func TestHitTestGoldenRoundTripWrapped(t *testing.T) {
 	}
 }
 
+// TestHitTestEmptyDocument covers the no-rows guard: HitTest on a document with no
+// visible rows returns the (-1, 0) sentinel rather than indexing an empty arena.
+func TestHitTestEmptyDocument(t *testing.T) {
+	d := model.EmptyDocument()
+	if d.TotalVisibleRows() != 0 {
+		t.Fatalf("EmptyDocument has %d visible rows, want 0", d.TotalVisibleRows())
+	}
+	if line, col := HitTest(d, testMetrics(), 50, 50); line != -1 || col != 0 {
+		t.Errorf("HitTest on empty doc = (%d, %d), want (-1, 0)", line, col)
+	}
+}
+
 func TestHitTestClampsBeyondEnd(t *testing.T) {
 	d := loadDoc(t, "small.json")
 	m := testMetrics()

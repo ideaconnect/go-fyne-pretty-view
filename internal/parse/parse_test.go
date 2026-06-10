@@ -444,6 +444,27 @@ func TestHTMLDeeplyNestedDoesNotCrash(t *testing.T) {
 	}
 }
 
+// TestJSONStringEscapes covers scanString's escape branch (no fixture has a
+// backslash): an escaped quote/backslash must not terminate the string early, and a
+// trailing backslash at EOF (unterminated) must recover tolerantly, not crash.
+func TestJSONStringEscapes(t *testing.T) {
+	d := Parse([]byte(`{"k":"a \"quote\" and a \\ slash"}`), FormatJSON, 0)
+	if d.Format != FormatJSON {
+		t.Fatalf("escaped-string format = %v, want json", d.Format)
+	}
+	if text := renderDoc(d); !strings.Contains(text, "quote") || !strings.Contains(text, "slash") {
+		t.Errorf("escaped string was truncated:\n%s", text)
+	}
+	// Unterminated (trailing backslash before EOF): tolerant recovery, key kept visible.
+	d2 := Parse([]byte(`{"k":"x\`), FormatJSON, 0)
+	if d2 == nil || d2.TotalLines() == 0 {
+		t.Fatal("unterminated string produced no document")
+	}
+	if !strings.Contains(renderDoc(d2), `"k"`) {
+		t.Error("unterminated-string recovery dropped the key")
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {
