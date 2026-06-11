@@ -99,12 +99,23 @@ func (pv *PrettyView) editInsert(s []byte) {
 		return
 	}
 	pv.ensureRawForEdit()
-	at := pv.caretOff()
+	caretBefore := pv.caretOff()
+	at := caretBefore
+	var removed []byte
 	if lo, hi, ok := pv.selectionByteRange(); ok {
+		removed = pv.bufRange(lo, hi)
 		pv.buf.Delete(lo, hi-lo)
 		at = lo
 	}
 	pv.buf.Insert(at, s)
+	pv.recordEdit(editOp{
+		at:          at,
+		removed:     removed,
+		inserted:    append([]byte(nil), s...),
+		caretBefore: caretBefore,
+		caretAfter:  at + len(s),
+		coalescable: removed == nil && isSingleRune(s) && s[0] != '\n',
+	})
 	pv.reprojectRaw()
 	pv.setCaretOff(at + len(s))
 	pv.afterEdit()
@@ -118,21 +129,26 @@ func (pv *PrettyView) editDelete(forward bool) {
 		return
 	}
 	pv.ensureRawForEdit()
+	caretBefore := pv.caretOff()
 	if lo, hi, ok := pv.selectionByteRange(); ok {
+		removed := pv.bufRange(lo, hi)
 		pv.buf.Delete(lo, hi-lo)
+		pv.recordEdit(editOp{at: lo, removed: removed, caretBefore: caretBefore, caretAfter: lo})
 		pv.reprojectRaw()
 		pv.setCaretOff(lo)
 		pv.afterEdit()
 		return
 	}
-	at := pv.caretOff()
+	at := caretBefore
 	src := pv.buf.Bytes()
 	if forward {
 		if at >= len(src) {
 			return
 		}
 		_, n := utf8.DecodeRune(src[at:])
+		removed := append([]byte(nil), src[at:at+n]...)
 		pv.buf.Delete(at, n)
+		pv.recordEdit(editOp{at: at, removed: removed, caretBefore: caretBefore, caretAfter: at})
 		pv.reprojectRaw()
 		pv.setCaretOff(at)
 	} else {
@@ -140,7 +156,9 @@ func (pv *PrettyView) editDelete(forward bool) {
 			return
 		}
 		_, n := utf8.DecodeLastRune(src[:at])
+		removed := append([]byte(nil), src[at-n:at]...)
 		pv.buf.Delete(at-n, n)
+		pv.recordEdit(editOp{at: at - n, removed: removed, caretBefore: caretBefore, caretAfter: at - n})
 		pv.reprojectRaw()
 		pv.setCaretOff(at - n)
 	}
@@ -154,7 +172,8 @@ func (pv *PrettyView) caretStepRune(forward bool) {
 		return
 	}
 	pv.ensureRawForEdit()
-	if !pv.sel.placed { // first arrow just places the caret at the top of the buffer
+	pv.coalesceBreak = true // a caret move ends the current typing run for undo
+	if !pv.sel.placed {     // first arrow just places the caret at the top of the buffer
 		pv.setCaretOff(0)
 		pv.revealCaret()
 		return
@@ -182,6 +201,7 @@ func (pv *PrettyView) caretStepRune(forward bool) {
 // but collapses the selection, so a plain arrow in edit mode moves without selecting.
 func (pv *PrettyView) keyMoveCaret(dRows, col int, toLineStart, toLineEnd bool) {
 	pv.ensureRawForEdit()
+	pv.coalesceBreak = true // a caret move ends the current typing run for undo
 	pv.keyExtend(dRows, col, toLineStart, toLineEnd)
 	pv.sel.anchor = pv.sel.focus
 	pv.sel.active = false

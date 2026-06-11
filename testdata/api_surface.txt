@@ -41,6 +41,7 @@ prettyview func WithSearchConfig(s SearchConfig) Option
 prettyview func WithSyntaxColors(v fyne.ThemeVariant, s SyntaxColors) Option
 prettyview func WithTabWidth(n int) Option
 prettyview func WithTheme(v fyne.ThemeVariant, t Theme) Option
+prettyview func WithUndoLimit(n int) Option
 prettyview func WithWrap(m WrapMode) Option
 prettyview method (*PrettyView) ClearSearch()
 prettyview method (*PrettyView) ClearSelection()
@@ -67,6 +68,7 @@ prettyview method (*PrettyView) MouseIn(*desktop.MouseEvent)
 prettyview method (*PrettyView) MouseMoved(ev *desktop.MouseEvent)
 prettyview method (*PrettyView) MouseOut()
 prettyview method (*PrettyView) MouseUp(*desktop.MouseEvent)
+prettyview method (*PrettyView) Redo()
 prettyview method (*PrettyView) Reformat()
 prettyview method (*PrettyView) Reparse(format Format)
 prettyview method (*PrettyView) ScrollOffset() fyne.Position
@@ -97,6 +99,7 @@ prettyview method (*PrettyView) TappedSecondary(e *fyne.PointEvent)
 prettyview method (*PrettyView) TypedKey(ev *fyne.KeyEvent)
 prettyview method (*PrettyView) TypedRune(r rune)
 prettyview method (*PrettyView) TypedShortcut(s fyne.Shortcut)
+prettyview method (*PrettyView) Undo()
 prettyview method (*PrettyView) Wrap() WrapMode
 prettyview type AutoFormatMode uint8
 prettyview type Format = model.Format

@@ -70,6 +70,7 @@ type config struct {
 	lineNumbers   bool        // render an opt-in line-number gutter
 	editable      bool        // construct as an editor (input) rather than a read-only viewer
 	input         InputConfig // edit-mode live-formatting knobs (only used when editable)
+	undoLimit     int         // cap on undo history entries (default 200)
 	themeOverride map[fyne.ThemeVariant]Theme
 }
 
@@ -93,6 +94,7 @@ func defaultConfig() config {
 		tabWidth:      4,
 		indentStep:    16,
 		input:         defaultInputConfig(),
+		undoLimit:     200,
 	}
 }
 
@@ -185,6 +187,18 @@ func WithLineNumbers() Option {
 // widget behaves byte-for-byte like a v1 viewer.
 func WithEditable() Option {
 	return func(c *config) { c.editable = true }
+}
+
+// WithUndoLimit caps the number of undo history entries an editable widget keeps
+// (default 200); past the cap the oldest entry is evicted, bounding memory. A run of
+// single-rune inserts coalesces into one entry (typing a word is one undo). n <= 0 is
+// ignored (keeps the default). Only meaningful with WithEditable.
+func WithUndoLimit(n int) Option {
+	return func(c *config) {
+		if n > 0 {
+			c.undoLimit = n
+		}
+	}
 }
 
 // WithInputConfig sets the edit-mode live-formatting knobs (debounce delay and

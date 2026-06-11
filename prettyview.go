@@ -84,6 +84,10 @@ type PrettyView struct {
 	lastFmtHash    uint64
 	onChanged      func(string) // fired (debounced) after the edited text settles
 
+	// undo/redo history (#42): inverse byte-splice operations, capped by cfg.undoLimit.
+	hist          editHistory
+	coalesceBreak bool // set after nav/undo/redo/reformat so the next insert starts a fresh undo unit
+
 	// view state, owned by the Fyne goroutine
 	r          *prettyViewRenderer
 	met        geometry.Metrics
@@ -142,6 +146,7 @@ func New(opts ...Option) *PrettyView {
 		// to land, even before any SetData. NewTextBuffer copies, so it never aliases
 		// the document's Src.
 		pv.buf = model.NewTextBuffer(pv.doc.Src)
+		pv.hist.limit = pv.cfg.undoLimit
 	}
 	pv.ExtendBaseWidget(pv)
 	return pv

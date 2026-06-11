@@ -410,6 +410,10 @@ func (pv *PrettyView) TypedShortcut(s fyne.Shortcut) {
 		pv.CopySelection()
 	case *fyne.ShortcutSelectAll:
 		pv.SelectAll()
+	case *fyne.ShortcutUndo:
+		pv.Undo() // no-op unless editable
+	case *fyne.ShortcutRedo:
+		pv.Redo() // no-op unless editable
 	case *desktop.CustomShortcut:
 		if sc.KeyName == fyne.KeyF && sc.Modifier == fyne.KeyModifierShortcutDefault && pv.onSearchRequested != nil {
 			pv.onSearchRequested()

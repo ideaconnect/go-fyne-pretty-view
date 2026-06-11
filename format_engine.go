@@ -94,6 +94,7 @@ func (pv *PrettyView) reformatNow() {
 		return // already showing the structured form of these exact bytes (idempotent guard)
 	}
 	pv.caretBuf = pv.caretOff() // exact offset from the current (raw or structured) caret
+	pv.coalesceBreak = true     // a reformat ends the current typing run for undo
 	nd := parse.Parse(snapshot, pv.cfg.format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
 	pv.lastFmtLen, pv.lastFmtHash = len(snapshot), hash64(snapshot)
 
