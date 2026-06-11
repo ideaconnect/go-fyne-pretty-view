@@ -46,13 +46,13 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/parse"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // PrettyView is the virtualized structured-data viewer widget.

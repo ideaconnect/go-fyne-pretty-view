@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // TestCollapseExpandToDepth covers runtime fold-to-depth at the model level:

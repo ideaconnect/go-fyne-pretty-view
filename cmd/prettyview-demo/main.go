@@ -20,8 +20,8 @@ import (
 	"fyne.io/fyne/v2/widget"
 	fynetooltip "github.com/dweymouth/fyne-tooltip"
 
-	prettyview "github.com/ideaconnect/go-fyne-pretty-view"
-	"github.com/ideaconnect/go-fyne-pretty-view/fonttheme"
+	prettyview "github.com/ideaconnect/go-fyne-pretty-view/v2"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/fonttheme"
 )
 
 var fixtures = []string{

@@ -4,8 +4,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/parse"
 )
 
 func testMetrics() Metrics {

@@ -6,8 +6,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // modelPos is a position in the document: a stable display-line index and a rune

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"unicode"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 
 	"golang.org/x/net/html"
 )

@@ -9,7 +9,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
 )
 
 // applyGutter sizes the line-number gutter from the document's line count (so the

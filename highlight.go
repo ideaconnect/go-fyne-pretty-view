@@ -5,7 +5,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
 )
 
 // Selection and search-match highlight rectangles are drawn per visible row, on

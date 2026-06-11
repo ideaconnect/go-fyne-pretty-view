@@ -9,8 +9,8 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 const maxIndentGuides = 32

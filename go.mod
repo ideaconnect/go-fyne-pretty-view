@@ -1,4 +1,4 @@
-module github.com/ideaconnect/go-fyne-pretty-view
+module github.com/ideaconnect/go-fyne-pretty-view/v2
 
 go 1.26.4
 
