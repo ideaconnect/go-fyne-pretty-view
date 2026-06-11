@@ -25,19 +25,19 @@ func TestTextVsSource(t *testing.T) {
 	defer win.Close()
 
 	typeStr(pv, `{"a":1}`)
-	pv.Reformat()
-
-	// Source is the raw bytes the user typed (minified).
+	// Before any reformat, Source() is exactly the typed (minified) bytes.
 	if got := string(pv.Source()); got != `{"a":1}` {
-		t.Errorf("Source() = %q, want the raw typed bytes %q", got, `{"a":1}`)
+		t.Errorf("Source() before reformat = %q, want the typed bytes %q", got, `{"a":1}`)
 	}
-	// Text is the pretty, multi-line displayed form — distinct from raw Source.
-	txt := pv.Text()
-	if !strings.Contains(txt, "\n") || !strings.Contains(txt, `"a"`) {
+
+	pv.Reformat()
+	// Reformat pretty-prints the buffer in place, so Source() is now the indented bytes.
+	if src := string(pv.Source()); !strings.Contains(src, "\n") || !strings.Contains(src, `"a"`) {
+		t.Errorf("Source() after reformat = %q, want the pretty multi-line form", src)
+	}
+	// Text() is the displayed text of the (now pretty) buffer.
+	if txt := pv.Text(); !strings.Contains(txt, "\n") || !strings.Contains(txt, `"a"`) {
 		t.Errorf("Text() = %q, want the pretty multi-line form", txt)
-	}
-	if txt == string(pv.Source()) {
-		t.Error("Text() should differ from raw Source() after a reformat")
 	}
 
 	// A read-only viewer keeps v1 Source semantics (the loaded bytes).

@@ -1,6 +1,7 @@
 package prettyview
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -31,26 +32,27 @@ func TestFormatOnPausePrettyPrints(t *testing.T) {
 	defer win.Close()
 
 	typeStr(pv, `{"a":1,"b":2}`)
-	if pv.Format() != FormatRaw {
-		t.Fatalf("while typing the doc should be the raw projection, got %v", pv.Format())
+	// While typing, the buffer holds the as-typed (minified) bytes — colored, not reflowed.
+	if strings.Contains(string(pv.buf.Bytes()), "\n") {
+		t.Fatalf("typing must not reflow the buffer, got %q", pv.buf.Bytes())
 	}
 
-	pv.Reformat() // the explicit form of the on-pause action
+	pv.Reformat() // pretty-prints by rewriting the buffer in place
 	if pv.Format() != FormatJSON {
-		t.Errorf("after Reformat doc format = %v, want JSON (structured pretty)", pv.Format())
+		t.Errorf("after Reformat doc format = %v, want JSON", pv.Format())
 	}
 	if pv.doc.TotalLines() < 3 {
 		t.Errorf("structured JSON should pretty-print to multiple lines, got %d", pv.doc.TotalLines())
 	}
-	if !pv.editStructured {
-		t.Error("Reformat should switch to the structured projection")
+	if !strings.Contains(string(pv.buf.Bytes()), "\n") {
+		t.Errorf("Reformat must rewrite the buffer to the indented form, got %q", pv.buf.Bytes())
 	}
 
-	// Editing after a reformat reverts to raw and applies the edit at the right place.
+	// Editing after a reformat keeps the prettified layout (it now lives in the buffer bytes).
 	pv.FocusGained()
 	typeStr(pv, "x")
-	if pv.editStructured {
-		t.Error("typing after a reformat must drop back to the raw projection")
+	if !strings.Contains(string(pv.buf.Bytes()), "\n") {
+		t.Error("typing after a reformat must keep the prettified layout")
 	}
 }
 
@@ -91,11 +93,11 @@ func TestInvalidMidEditDegradesToRaw(t *testing.T) {
 	defer win.Close()
 	typeStr(pv, "plain text here {[")
 	pv.Reformat() // must not panic
-	if pv.editStructured {
-		t.Error("non-structured input must not enter the structured projection")
-	}
 	if pv.Format() != FormatRaw {
 		t.Errorf("non-structured input should render raw, got %v", pv.Format())
+	}
+	if strings.Contains(string(pv.buf.Bytes()), "\n") {
+		t.Errorf("raw input must not be rewritten by Reformat, got %q", pv.buf.Bytes())
 	}
 
 	// Partial JSON mid-type must not panic (the tolerant parser renders it either way),
@@ -137,24 +139,24 @@ func TestFormatManualVsOnBlur(t *testing.T) {
 	off, w1 := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
 	defer w1.Close()
 	typeStr(off, `{"a":1}`)
-	off.editSettled() // a settle is a no-op for the reformat in Off mode
-	if off.editStructured {
-		t.Error("AutoFormatOff must not auto-reformat")
+	off.editSettled() // a settle does not reflow in Off mode
+	if strings.Contains(string(off.buf.Bytes()), "\n") {
+		t.Error("AutoFormatOff must not auto-reformat on a settle")
 	}
 	off.Reformat()
-	if !off.editStructured || off.Format() != FormatJSON {
-		t.Error("Reformat() must reformat even in Off mode")
+	if !strings.Contains(string(off.buf.Bytes()), "\n") || off.Format() != FormatJSON {
+		t.Errorf("Reformat() must reformat even in Off mode, buffer = %q", off.buf.Bytes())
 	}
 
 	// AutoFormatOnBlur reformats on FocusLost, not while focused.
 	blur, w2 := newEditPV(t, InputConfig{AutoFormat: AutoFormatOnBlur})
 	defer w2.Close()
 	typeStr(blur, `{"a":1}`)
-	if blur.editStructured {
+	if strings.Contains(string(blur.buf.Bytes()), "\n") {
 		t.Error("OnBlur must not reformat while focused")
 	}
 	blur.FocusLost()
-	if !blur.editStructured || blur.Format() != FormatJSON {
-		t.Error("OnBlur must reformat on FocusLost")
+	if !strings.Contains(string(blur.buf.Bytes()), "\n") || blur.Format() != FormatJSON {
+		t.Errorf("OnBlur must reformat on FocusLost, buffer = %q", blur.buf.Bytes())
 	}
 }

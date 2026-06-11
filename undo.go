@@ -57,7 +57,6 @@ func (pv *PrettyView) Undo() {
 	if !pv.cfg.editable || pv.buf == nil || len(pv.hist.undo) == 0 {
 		return
 	}
-	pv.ensureRawForEdit()
 	op := pv.hist.undo[len(pv.hist.undo)-1]
 	pv.hist.undo = pv.hist.undo[:len(pv.hist.undo)-1]
 	pv.buf.Delete(op.at, len(op.inserted))
@@ -75,7 +74,6 @@ func (pv *PrettyView) Redo() {
 	if !pv.cfg.editable || pv.buf == nil || len(pv.hist.redo) == 0 {
 		return
 	}
-	pv.ensureRawForEdit()
 	op := pv.hist.redo[len(pv.hist.redo)-1]
 	pv.hist.redo = pv.hist.redo[:len(pv.hist.redo)-1]
 	pv.buf.Delete(op.at, len(op.removed))

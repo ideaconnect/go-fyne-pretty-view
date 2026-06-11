@@ -233,7 +233,10 @@ func (pv *PrettyView) FocusLost() {
 		pv.r.dragArmed = false
 	}
 	if pv.cfg.editable && pv.cfg.input.AutoFormat == AutoFormatOnBlur {
-		pv.reformatNow() // reformat-on-blur (#40)
+		pv.reformat() // reformat-on-blur: pretty-print the buffer when focus leaves
+		if pv.onChanged != nil {
+			pv.onChanged(string(pv.buf.Bytes()))
+		}
 	}
 	pv.refreshSelectionView()
 }

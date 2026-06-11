@@ -10,9 +10,10 @@ import (
 
 // This file implements v2 edit mode (docs/DESIGN.md §12). The widget edits a separate
 // gap buffer (pv.buf) and never mutates a parsed Document. While editing, the displayed
-// document is the *raw* projection of the buffer, so display lines map 1:1 to buffer
-// lines and the caret (sel.focus) is exactly a buffer (line, col). Structured
-// re-formatting and live syntax colors arrive on a debounced pause in a later issue.
+// document is always the syntax-colored, layout-preserving projection of the buffer
+// (see reprojectRaw), so display lines map 1:1 to buffer lines and the caret (sel.focus)
+// is exactly a buffer (line, col). An explicit Reformat (format_engine.go) pretty-prints
+// by rewriting the buffer bytes in place; it never swaps to a separate display mode.
 //
 // The mode is fixed at construction (WithEditable); there is no runtime setter and the
 // widget renders no toggle — see DECISION V2-3.
@@ -122,20 +123,12 @@ func (pv *PrettyView) editKey(ev *fyne.KeyEvent) bool {
 	return true
 }
 
-// caretOff is the caret's byte offset in the buffer. An unplaced caret is offset 0.
-// In the raw projection the buffer (line, col) maps 1:1, so the offset is read directly;
-// in the structured projection the caret is in display coordinates, so it is mapped back
-// through the document's source ranges (SourceOffsetAt). Either way it reflects the LIVE
-// sel.focus — including a click or arrow move made in the structured view.
+// caretOff is the caret's byte offset in the buffer. An unplaced caret is offset 0. The
+// displayed projection is always the colorized-raw line split of the buffer, so the buffer
+// (line, col) maps 1:1 and the offset is read directly from the live sel.focus.
 func (pv *PrettyView) caretOff() int {
 	if !pv.sel.placed {
 		return 0
-	}
-	if pv.editStructured {
-		if pv.sel.focus == pv.caretBufPos {
-			return pv.caretBuf // exact offset from the reformat; the caret has not moved since
-		}
-		return pv.doc.SourceOffsetAt(pv.sel.focus.line, pv.sel.focus.col) // moved -> derive from the display
 	}
 	return pv.buf.ByteOffAt(int(pv.sel.focus.line), pv.sel.focus.col)
 }
@@ -151,21 +144,15 @@ func (pv *PrettyView) setCaretOff(off int) {
 	pv.sel.grab = grabNone
 }
 
-// selectionByteRange returns the active selection as a [lo, hi) buffer byte range. Both
-// endpoints are mapped in the CURRENT projection (raw 1:1, or structured via source
-// ranges), so it must be read BEFORE ensureRawForEdit collapses the selection.
+// selectionByteRange returns the active selection as a [lo, hi) buffer byte range. The
+// displayed projection maps 1:1 onto the buffer, so both endpoints are direct buffer
+// offsets.
 func (pv *PrettyView) selectionByteRange() (lo, hi int, ok bool) {
 	if !pv.sel.active {
 		return 0, 0, false
 	}
-	var a, b int
-	if pv.editStructured {
-		a = pv.doc.SourceOffsetAt(pv.sel.anchor.line, pv.sel.anchor.col)
-		b = pv.doc.SourceOffsetAt(pv.sel.focus.line, pv.sel.focus.col)
-	} else {
-		a = pv.buf.ByteOffAt(int(pv.sel.anchor.line), pv.sel.anchor.col)
-		b = pv.buf.ByteOffAt(int(pv.sel.focus.line), pv.sel.focus.col)
-	}
+	a := pv.buf.ByteOffAt(int(pv.sel.anchor.line), pv.sel.anchor.col)
+	b := pv.buf.ByteOffAt(int(pv.sel.focus.line), pv.sel.focus.col)
 	if a > b {
 		a, b = b, a
 	}
@@ -177,9 +164,6 @@ func (pv *PrettyView) editInsert(s []byte) {
 	if !pv.cfg.editable || pv.buf == nil || len(s) == 0 {
 		return
 	}
-	// Capture the caret and selection in the CURRENT projection BEFORE ensureRawForEdit
-	// reverts to raw (which collapses the selection). The buffer bytes do not change
-	// across the revert, so these byte offsets stay valid.
 	caretBefore := pv.caretOff()
 	selLo, selHi, hasSel := pv.selectionByteRange()
 	// Reject an edit that would grow the buffer past the MaxEditBytes cap (a delete or a
@@ -193,7 +177,6 @@ func (pv *PrettyView) editInsert(s []byte) {
 			return
 		}
 	}
-	pv.ensureRawForEdit()
 	at := caretBefore
 	var removed []byte
 	if hasSel {
@@ -222,10 +205,8 @@ func (pv *PrettyView) editDelete(forward bool) {
 	if !pv.cfg.editable || pv.buf == nil {
 		return
 	}
-	// Capture caret + selection BEFORE ensureRawForEdit collapses the selection.
 	caretBefore := pv.caretOff()
 	selLo, selHi, hasSel := pv.selectionByteRange()
-	pv.ensureRawForEdit()
 	if hasSel {
 		removed := pv.bufRange(selLo, selHi)
 		pv.buf.Delete(selLo, selHi-selLo)
@@ -267,7 +248,6 @@ func (pv *PrettyView) caretStepRune(forward bool) {
 	if pv.buf == nil {
 		return
 	}
-	pv.ensureRawForEdit()
 	pv.coalesceBreak = true // a caret move ends the current typing run for undo
 	if !pv.sel.placed {     // first arrow just places the caret at the top of the buffer
 		pv.setCaretOff(0)
@@ -296,7 +276,6 @@ func (pv *PrettyView) caretStepRune(forward bool) {
 // keyMoveCaret moves the caret like keyExtend (wrap-aware vertical / line-bound moves)
 // but collapses the selection, so a plain arrow in edit mode moves without selecting.
 func (pv *PrettyView) keyMoveCaret(dRows, col int, toLineStart, toLineEnd bool) {
-	pv.ensureRawForEdit()
 	pv.coalesceBreak = true // a caret move ends the current typing run for undo
 	pv.keyExtend(dRows, col, toLineStart, toLineEnd)
 	pv.sel.anchor = pv.sel.focus
@@ -304,11 +283,14 @@ func (pv *PrettyView) keyMoveCaret(dRows, col int, toLineStart, toLineEnd bool) 
 	pv.refreshSelectionView()
 }
 
-// reprojectRaw rebuilds the displayed document as the raw line-split projection of the
-// edit buffer (DECISION V2-1: never mutate a Document; rebuild from bytes). The new
-// Document zero-copies into the buffer snapshot's own bytes, so invariant 3 holds.
+// reprojectRaw rebuilds the displayed document as the syntax-colored, layout-preserving
+// line-split projection of the edit buffer (DECISION V2-1: never mutate a Document; rebuild
+// from bytes). The colorizer assigns roles in place without reflowing, so display lines map
+// 1:1 to buffer lines (the caret stays exact) and highlighting is live on every keystroke.
+// The new Document zero-copies into the buffer snapshot's own bytes, so invariant 3 holds.
 func (pv *PrettyView) reprojectRaw() {
-	pv.doc = parse.ParseEditable(pv.buf.Bytes(), pv.cfg.collapseDepth, pv.cfg.tabWidth)
+	src := pv.buf.Bytes()
+	pv.doc = parse.ParseEditableColored(src, pv.resolveFormat(src), pv.cfg.collapseDepth, pv.cfg.tabWidth)
 }
 
 // afterEdit resizes/reflows for the new line count and keeps the caret in view.

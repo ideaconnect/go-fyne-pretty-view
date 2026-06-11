@@ -1,10 +1,11 @@
 // Command prettyview-editor demonstrates the v2 EDITABLE mode of the prettyview
-// widget: type or paste data and watch it pretty-format live on a typing pause.
+// widget: type or paste data with live syntax highlighting, and pretty-print on demand.
 //
 // It is the companion to prettyview-demo (the read-only viewer). The same widget,
 // constructed with prettyview.WithEditable(), becomes a light editor — with a rendered
-// caret, undo/redo, cut/paste, a live validity status, and debounced re-formatting into
-// the structured, syntax-colored view.
+// caret, undo/redo, cut/paste, a live validity status, real-time syntax coloring while
+// typing, and a Reformat button that pretty-prints the buffer in place (the caret stays
+// put). Formatting is on demand: typing never reflows the text out from under you.
 package main
 
 import (
@@ -56,12 +57,12 @@ func startArg() string {
 // buildUI assembles the editor demo bound to window w and loads the initial content. It
 // is separated from main (which only adds ShowAndRun) so the wiring is testable.
 func buildUI(w fyne.Window, start string) fyne.CanvasObject {
-	// The one line that turns the viewer into an editor: WithEditable(). AutoFormatOnPause
-	// re-parses into the pretty/colored view after a typing pause; line numbers make the
-	// validation gutter marker visible.
+	// The one line that turns the viewer into an editor: WithEditable(). The default
+	// AutoFormatOff keeps typing snappy with live syntax colors and no surprise reflow;
+	// the Reformat button pretty-prints on demand. Line numbers make the validation gutter
+	// marker visible.
 	ed := prettyview.New(
 		prettyview.WithEditable(),
-		prettyview.WithInputConfig(prettyview.InputConfig{AutoFormat: prettyview.AutoFormatOnPause}),
 		prettyview.WithLineNumbers(),
 	)
 
@@ -82,6 +83,7 @@ func buildUI(w fyne.Window, start string) fyne.CanvasObject {
 	load := func(name string) {
 		ed.SetData([]byte(samples[name]), prettyview.FormatAuto)
 		w.SetTitle("prettyview editor demo — " + name)
+		refreshStatus() // SetData sets validity synchronously; mirror it into the status bar
 	}
 	sampleSel := widget.NewSelect(sampleNames, load)
 
@@ -92,8 +94,8 @@ func buildUI(w fyne.Window, start string) fyne.CanvasObject {
 		widget.NewButton("Redo", ed.Redo),
 	)
 
-	hint := widget.NewLabel("Click in, then type or paste — it pretty-formats on a pause. " +
-		"Reformat formats now; Undo/Redo (or Ctrl/Cmd+Z / Shift+Z) walk the history.")
+	hint := widget.NewLabel("Click in, then type or paste — syntax highlighting is live as you type. " +
+		"Reformat pretty-prints in place (the caret stays put); Undo/Redo (or Ctrl/Cmd+Z / Shift+Z) walk the history.")
 	hint.Wrapping = fyne.TextWrapWord
 
 	top := container.NewVBox(controls, hint)

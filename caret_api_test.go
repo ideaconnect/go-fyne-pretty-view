@@ -75,12 +75,12 @@ func TestEditAboveCapSkipsAutoReparse(t *testing.T) {
 	pv.FocusGained()
 
 	pv.editSettled() // auto path: suppressed above the cap
-	if pv.editStructured {
+	if strings.Contains(string(pv.buf.Bytes()), "\n") {
 		t.Error("auto-format-on-pause must be suppressed above MaxEditBytes")
 	}
-	pv.Reformat() // explicit reformat still works
-	if !pv.editStructured || pv.Format() != FormatJSON {
-		t.Error("explicit Reformat() must work even above the cap")
+	pv.Reformat() // explicit reformat still works above the cap
+	if !strings.Contains(string(pv.buf.Bytes()), "\n") || pv.Format() != FormatJSON {
+		t.Errorf("explicit Reformat() must work even above the cap, buffer = %q", pv.buf.Bytes())
 	}
 }
 

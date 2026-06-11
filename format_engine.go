@@ -1,51 +1,59 @@
 package prettyview
 
 import (
-	"hash/fnv"
+	"bytes"
 	"time"
 
 	"fyne.io/fyne/v2"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/parse"
 )
 
-// This file is the v2 live-format engine (docs/DESIGN.md §12, issue #40). While the
-// user types, the widget shows the cheap raw projection of the edit buffer (#39); on a
-// debounced pause (or an explicit Reformat) it re-parses the buffer structurally and
-// shows the pretty, syntax-colored projection. The buffer bytes are never rewritten by
-// the reformat, so the caret's byte offset is stable across the raw<->structured swap.
+// This file is the v2 live-format engine (docs/DESIGN.md §12). In edit mode the widget
+// always shows a syntax-colored, layout-preserving projection of the edit buffer (the
+// caret stays an exact buffer position). Typing never reflows; it only re-colors. An
+// explicit Reformat (or, opt-in, an auto-format on a typing pause / blur) pretty-prints by
+// REWRITING the buffer bytes in place and remapping the caret once, so the prettified
+// layout persists while you keep typing. Reformat only rewrites a structured, VALID parse;
+// raw or invalid input is left exactly as typed (just recolored), so it can never corrupt
+// in-progress text.
 
 // SetInputConfig updates the edit-mode formatting knobs after construction, merging
-// non-zero fields over the current config (the field-merge WithSearchConfig uses). It
-// has no observable effect on a read-only widget, which never consults the input config.
-// Call it on the Fyne goroutine.
+// non-zero fields over the current config. No effect on a read-only widget. Call it on the
+// Fyne goroutine.
 func (pv *PrettyView) SetInputConfig(c InputConfig) { c.mergeInto(&pv.cfg.input) }
 
-// SetOnChanged registers a callback invoked (debounced, after the edited text settles)
-// with the current buffer text. Use it to mirror the edited content into the host.
-// Setting it replaces any previous callback. Fires only for editable widgets.
+// SetOnChanged registers a callback invoked (debounced, after the edited text settles, and
+// after each Reformat) with the current buffer text. Use it to mirror the edited content
+// into the host. Setting it replaces any previous callback. Fires only for editable widgets.
 func (pv *PrettyView) SetOnChanged(fn func(string)) { pv.onChanged = fn }
 
-// Reformat re-parses the edit buffer under the active format and shows the structured,
-// pretty-printed projection now, regardless of the AutoFormat mode. Invalid input
-// degrades to the raw projection without panicking. No-op for a read-only widget. Call
-// it on the Fyne goroutine.
+// Reformat pretty-prints the edit buffer NOW: it re-parses under the active format and, if
+// the parse is structured and valid, rewrites the buffer to the indented form and remaps
+// the caret to the same token (so the caret "stays in place"). Raw or invalid input is
+// left untouched (only its colors/validity refresh). It runs regardless of the AutoFormat
+// mode and never panics. No-op for a read-only widget. Call it on the Fyne goroutine.
 func (pv *PrettyView) Reformat() {
 	if !pv.cfg.editable {
 		return
 	}
-	pv.reformatNow()
+	pv.reformat()
+	if pv.onChanged != nil {
+		pv.onChanged(string(pv.buf.Bytes()))
+	}
 }
 
-// scheduleReformat debounces the structured reformat after an edit, mirroring the
-// search debounce (timer + generation counter + fyne.Do + destroyed guard). It arms a
-// timer only when there is settle work to do — auto-format on pause, or an onChanged
-// listener. A non-positive DebounceFor settles immediately.
+// scheduleReformat debounces the settle after an edit, mirroring the search debounce
+// (timer + generation counter + fyne.Do + destroyed guard). It arms a timer only when a
+// settle has observable work: auto-format on pause, or an onChanged / onValidation
+// listener. A non-positive DebounceFor settles immediately. The settle never reflows by
+// default (AutoFormatOff) — it only refreshes validity and fires onChanged.
 func (pv *PrettyView) scheduleReformat() {
-	if !pv.cfg.editable {
-		return
+	if !pv.cfg.editable || pv.r == nil {
+		return // not shown yet: the settle's work (validity + repaint) needs a live renderer
 	}
-	if pv.cfg.input.AutoFormat != AutoFormatOnPause && pv.onChanged == nil {
-		return // nothing to settle
+	if pv.cfg.input.AutoFormat != AutoFormatOnPause && pv.onChanged == nil && pv.onValidation == nil {
+		return // nothing observes a settle
 	}
 	pv.stopEditTimer()
 	// Bump the generation so an earlier timer that already fired and queued its fyne.Do
@@ -70,91 +78,123 @@ func (pv *PrettyView) scheduleReformat() {
 	})
 }
 
-// editSettled runs once a typing burst settles: reformat (when AutoFormatOnPause) and
-// fire onChanged with the settled buffer text.
+// editSettled runs once a typing burst settles: refresh live parse validity (or, when
+// AutoFormatOnPause is opted into, reflow), then fire onChanged with the settled text. The
+// buffer layout is left exactly as typed unless AutoFormatOnPause is set.
 func (pv *PrettyView) editSettled() {
-	// Above the MaxEditBytes cap, skip the auto reparse (full reparse on every pause is
-	// infeasible for a very large buffer); an explicit Reformat still runs.
-	if pv.cfg.input.AutoFormat == AutoFormatOnPause && !pv.aboveEditCap() {
-		pv.reformatNow()
+	// Above the MaxEditBytes cap, skip the per-pause reparse (a full reparse on every pause
+	// is infeasible for a very large buffer); an explicit Reformat still runs.
+	if !pv.aboveEditCap() {
+		if pv.cfg.input.AutoFormat == AutoFormatOnPause {
+			pv.reformat()
+		} else {
+			pv.refreshParseStatus()
+		}
 	}
 	if pv.onChanged != nil {
 		pv.onChanged(string(pv.buf.Bytes()))
 	}
 }
 
-// reformatNow swaps the displayed document to the structured projection of the current
-// buffer (the same render path as SetData). Invalid mid-edit input degrades to the raw
-// projection (no panic, no structured swap). The buffer bytes are unchanged, so the
-// caret's byte offset is stable; the structured caret is re-placed at line granularity
-// here (rune-precise re-anchoring is #41).
-func (pv *PrettyView) reformatNow() {
+// reformat re-parses the edit buffer and, for a structured & valid parse, rewrites the
+// buffer to its pretty-printed bytes and remaps the caret once. Raw/invalid input is left
+// untouched (only colors + validity refresh). It does NOT fire onChanged (callers do). The
+// whole-buffer rewrite is recorded as one undo unit, so Ctrl+Z reverts a reformat.
+func (pv *PrettyView) reformat() {
 	if !pv.cfg.editable || pv.buf == nil {
 		return
 	}
 	snapshot := pv.buf.Bytes()
-	if pv.editStructured && len(snapshot) == pv.lastFmtLen && hash64(snapshot) == pv.lastFmtHash {
-		return // already showing the structured form of these exact bytes (idempotent guard)
-	}
-	off := pv.caretOff()    // exact caret byte offset in the current (raw or structured) projection
-	pv.coalesceBreak = true // a reformat ends the current typing run for undo
-	nd := parse.Parse(snapshot, pv.cfg.format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
-	pv.lastFmtLen, pv.lastFmtHash = len(snapshot), hash64(snapshot)
+	nd := parse.Parse(snapshot, pv.resolveFormat(snapshot), pv.cfg.collapseDepth, pv.cfg.tabWidth)
+	status := pv.statusFor(nd, snapshot)
+	pv.setParseStatus(status)
 
-	if nd.Format == FormatRaw {
-		// A structured parse that failed (or genuinely raw content) keeps the edit-raw
-		// projection — which, unlike parse.Parse's raw fallback, has the trailing line
-		// the caret needs.
+	if nd.Format == FormatRaw || !status.OK {
+		// Genuinely raw, or structured-but-invalid: never rewrite (prettifying invalid
+		// input would corrupt the in-progress text). Refresh colors + gutter only.
 		pv.reprojectRaw()
-		pv.editStructured = false
-		pv.setCaretOff(off)
-	} else {
-		pv.doc = nd
-		pv.editStructured = true
-		// Anchor the caret across the reformat: the buffer bytes did not move, so the
-		// caret's byte offset maps straight to a rune-precise structured position (#41).
-		// A shape-changing edit lands the caret at the new token covering its byte.
-		line, col := pv.doc.LineColAtSourceOffset(off)
-		pv.sel.focus = modelPos{line: line, col: col}
-		pv.sel.anchor = pv.sel.focus
-		pv.sel.active = false
-		pv.sel.placed = true
-		// Remember the exact offset and the position it maps to, so an immediate edit is
-		// byte-exact despite the display<->source round-trip being lossy at synthesized
-		// separators; a later click/arrow changes sel.focus and invalidates this.
-		pv.caretBuf, pv.caretBufPos = off, pv.sel.focus
-	}
-	pv.setParseStatus(parseStatusOf(nd)) // validity of the structured parse (#45); fires OnValidationChanged on a flip
-	pv.applyGutter()
-	pv.ClearSearch() // matches from the pre-reformat projection are stale
-	pv.Refresh()
-}
-
-// ensureRawForEdit reverts a structured preview to the raw edit projection before an
-// edit or caret move, re-placing the caret at the same buffer byte offset (resolved from
-// the live structured position first). All editing then happens in the raw space, where
-// the caret is an exact buffer position.
-func (pv *PrettyView) ensureRawForEdit() {
-	if !pv.editStructured {
+		pv.applyGutter()
+		pv.refreshContent()
+		pv.refreshSelectionView()
 		return
 	}
-	off := pv.caretOff() // structured (line, col) -> buffer offset, while still structured
+
+	pretty, spans := serializePretty(nd)
+	if bytes.Equal(pretty, snapshot) {
+		// Already pretty: no buffer change, no caret jump. Refresh colors idempotently.
+		pv.reprojectRaw()
+		pv.applyGutter()
+		pv.refreshContent()
+		pv.refreshSelectionView()
+		return
+	}
+
+	off := pv.caretOff() // exact buffer offset in the current (colorized-raw) projection
+	newOff := remapCaretOffset(spans, off, len(pretty))
+	pv.coalesceBreak = true // a reformat ends the current typing run for undo
+	pv.recordEdit(editOp{
+		at:          0,
+		removed:     append([]byte(nil), snapshot...),
+		inserted:    append([]byte(nil), pretty...),
+		caretBefore: off,
+		caretAfter:  newOff,
+	})
+	pv.buf.Delete(0, pv.buf.Len())
+	pv.buf.Insert(0, pretty)
 	pv.reprojectRaw()
-	pv.editStructured = false
-	pv.setCaretOff(off)
+	pv.setCaretOff(newOff)
+	pv.applyGutter()
+	pv.ClearSearch() // matches from the pre-reformat layout are stale
+	pv.refreshContent()
+	pv.revealCaret()
 }
 
-// stopEditTimer cancels and clears any pending debounced reformat. Best-effort, like
+// refreshParseStatus recomputes the live validity of the buffer (without reflowing) and,
+// on a change, repaints so the gutter error tint follows. Used on a settle in the default
+// (no auto-reformat) mode.
+func (pv *PrettyView) refreshParseStatus() {
+	prev := pv.parseStatus
+	pv.setParseStatus(pv.statusFor(nil, pv.buf.Bytes()))
+	if pv.parseStatus != prev {
+		pv.applyGutter()
+		pv.refreshContent()
+	}
+}
+
+// statusFor computes the validity of snapshot's structured parse, with ErrorLine expressed
+// as a buffer (== display) line so the gutter tint and status read the right row. nd, if
+// non-nil, is a parse of snapshot already in hand (avoids a second parse).
+func (pv *PrettyView) statusFor(nd *model.Document, snapshot []byte) ParseStatus {
+	if nd == nil {
+		nd = parse.Parse(snapshot, pv.resolveFormat(snapshot), pv.cfg.collapseDepth, pv.cfg.tabWidth)
+	}
+	for li := range nd.Lines {
+		o := nd.Lines[li].Owner
+		if o != model.NoNode && int(o) < len(nd.Nodes) && nd.Nodes[o].Kind == model.KindError {
+			line, _ := pv.buf.LineColAt(int(nd.Nodes[o].SrcStart))
+			return ParseStatus{OK: false, ErrorLine: line}
+		}
+	}
+	return ParseStatus{OK: true, ErrorLine: -1}
+}
+
+// resolveFormat picks the concrete format for coloring/validity: the active content format
+// (curFormat — the last explicit SetData/Reparse format, or the construction default), or
+// the auto-detected one when that is FormatAuto. Auto-detecting live lets a fresh editor
+// adopt colors as soon as the typed text looks like JSON/XML, while an explicit format is
+// honored exactly (e.g. SetData(jsonBytes, FormatRaw) stays an uncolored plain-text editor).
+func (pv *PrettyView) resolveFormat(src []byte) Format {
+	if pv.curFormat != FormatAuto {
+		return pv.curFormat
+	}
+	return parse.AutoDetect(src)
+}
+
+// stopEditTimer cancels and clears any pending debounced settle. Best-effort, like
 // stopSearchTimer; must run on the Fyne goroutine.
 func (pv *PrettyView) stopEditTimer() {
 	if pv.editTimer != nil {
 		pv.editTimer.Stop()
 		pv.editTimer = nil
 	}
-}
-
-func hash64(b []byte) uint64 {
-	h := fnv.New64a()
-	_, _ = h.Write(b)
-	return h.Sum64()
 }

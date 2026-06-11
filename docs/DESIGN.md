@@ -940,11 +940,25 @@ mid-edit garbage to the raw fallback (parse.go:164-209).
 > into the snapshot the parser consumes. A rope/piece-table's asymptotics buy nothing
 > at the few-MB scale this widget targets and cost allocation and complexity.
 
-Between keystrokes the widget renders the buffer through the cheap `parseRaw`
-projection (raw-text highlight) so typing is never blocked on a structured parse; the
-structured reparse/reformat runs only on the debounced pause, cloning the search
-debounce machinery (timer + generation counter + `fyne.Do` + `destroyed` guard,
-search.go:78-109).
+While editing, the widget renders the buffer through a **tolerant, layout-preserving
+syntax colorizer** (`internal/parse/parse_editcolor.go`: `editColorParser` →
+`ParseEditableColored`, used by `reprojectRaw`). It lexes JSON/JSONC/XML/HTML in place —
+assigning the same color roles the structured parsers use — **without reflowing**, so
+display lines map 1:1 to buffer lines (each grid-hostile byte is one placeholder rune,
+keeping display-runes == buffer-runes) and the caret stays an exact buffer position.
+Unlike a structured parse it never fails: mid-edit/invalid input is colored best-effort,
+so highlighting is **live on every keystroke** and never flickers back to monochrome.
+There is no per-keystroke structured reparse and no separate "structured display" mode.
+
+Prettifying is **on demand**: `Reformat()` (or, opt-in, `AutoFormatOnPause`/`OnBlur`)
+re-parses the buffer and, only for a structured *and valid* parse, **rewrites the buffer
+bytes to the pretty-printed form** (`serializePretty`, depth × 2 spaces, the `Text()`
+convention) and remaps the caret once through the source spans — so the prettified layout
+persists as you keep typing. Raw or invalid input is left exactly as typed. The default
+`AutoFormat` is `AutoFormatOff`: typing never reflows the text out from under the user.
+The debounced settle (cloning the search debounce machinery: timer + generation counter +
+`fyne.Do` + `destroyed` guard) refreshes live parse validity and fires `OnChanged`; it
+reflows only under `AutoFormatOnPause`.
 
 ### 12.3 DECISION — mode is fixed at construction, never user-changeable
 
@@ -966,14 +980,18 @@ lands.
 
 ### 12.4 Caret bookkeeping across a reformat
 
-While editing, the gap buffer is the source of truth. Each reparse hands the parser a
-fresh contiguous snapshot, so the new `Document` zero-copies into **its own** immutable
-bytes (invariant 3 preserved — the new model never aliases the still-mutating buffer).
-The caret is a model position (`sel.focus`, selection.go) re-resolved against the new
-model after each rebuild; a semantic anchor that survives reflow/reformat is specified
-in a later issue (#41). The caret renders as a **single `canvas.Rectangle`** on a new
-`caretLayer` positioned by the one coordinate convention (`geometry.CellOrigin`) — one
-rect, not a widget-per-line, so invariant 1 is untouched.
+While editing, the gap buffer is the source of truth, and the displayed colorized-raw
+projection maps 1:1 onto it, so the caret (`sel.focus`, selection.go) is simply a buffer
+`(line, col)` — `caretOff`/`setCaretOff` (edit.go) convert directly via
+`buf.ByteOffAt`/`LineColAt`, with no separate structured-coordinate path. Each reproject
+hands the colorizer a fresh contiguous snapshot, so the new `Document` zero-copies into
+**its own** immutable bytes (invariant 3 preserved — the new model never aliases the
+still-mutating buffer). A `Reformat` is the only thing that moves the caret implicitly: it
+rewrites the buffer and remaps the caret once via the source spans `serializePretty`
+emits (exact for JSON/JSONC, which carry source offsets; XML/HTML have none, so the caret
+falls to the top). The caret renders as a **single `canvas.Rectangle`** on a `caretLayer`
+positioned by the one coordinate convention (`geometry.CellOrigin`) — one rect, not a
+widget-per-line, so invariant 1 is untouched.
 
 ### 12.5 Migration — a `/v2` major
 
@@ -987,12 +1005,11 @@ additive-over-v1 target, audited in #47).
 
 ### 12.6 The size-cap fallback
 
-The debounced **full** reparse/reformat is fine to a few MB. Above a configurable
-`MaxEditBytes` (#44, mirroring `WithMaxInputBytes`, prettyview.go:142-144) the widget
-**disables auto-format-on-pause** and keeps raw-highlight-only editing; structured
-reformat then happens only on an explicit `Format()`. This is the conservative
-per-keystroke-reparse alternative's job, demoted to a guarded fallback rather than the
-default path.
+The debounced validity reparse and the prettify are fine to a few MB. Above a configurable
+`MaxEditBytes` (#44, mirroring `WithMaxInputBytes`) the widget **suppresses the per-pause
+reparse** (no settle-time validity refresh) while keeping the live colorizer (a per-line
+lexer, not a full structured parse, so it stays cheap); an explicit `Reformat()` still
+rewrites. This bounds the worst-case background work for a very large buffer.
 
 ### 12.7 The seven invariants and what v2 trades
 

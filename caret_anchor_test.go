@@ -20,9 +20,6 @@ func TestCaretAnchorSurvivesReformatJSON(t *testing.T) {
 	pv.sel.placed = true
 
 	pv.Reformat()
-	if !pv.editStructured {
-		t.Fatal("reformat should switch to the structured projection")
-	}
 	lt := pv.doc.LineString(pv.sel.focus.line)
 	if !strings.Contains(lt, "deepvalue") {
 		t.Fatalf("caret landed on line %q, want the \"deepvalue\" line", lt)
@@ -50,9 +47,6 @@ func TestCaretAnchorShapeChangeLandsAtNode(t *testing.T) {
 	pv.sel.placed = true
 
 	pv.Reformat()
-	if !pv.editStructured {
-		t.Fatal("structured expected")
-	}
 	lt := pv.doc.LineString(pv.sel.focus.line)
 	if !strings.Contains(lt, "10") {
 		t.Errorf("caret inside the array landed on %q, want the first element (10) line", lt)
@@ -67,10 +61,7 @@ func TestCaretAnchorFallbackRawAndXML(t *testing.T) {
 	typeStr(raw, "plain text line one\nand line two")
 	raw.sel.focus = modelPos{line: 1, col: 3}
 	raw.sel.placed = true
-	raw.Reformat() // stays raw
-	if raw.editStructured {
-		t.Error("non-structured input must not enter the structured projection")
-	}
+	raw.Reformat() // stays raw (non-structured input is never rewritten)
 	if l := int(raw.sel.focus.line); l < 0 || l >= raw.doc.TotalLines() {
 		t.Errorf("caret line %d out of range after raw reformat (lines=%d)", l, raw.doc.TotalLines())
 	}
