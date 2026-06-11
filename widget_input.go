@@ -1,6 +1,9 @@
 package prettyview
 
 import (
+	"strconv"
+	"strings"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
@@ -112,6 +115,64 @@ func (pv *PrettyView) nodeAtPosition(local fyne.Position) model.NodeID {
 	return pv.doc.Lines[pos.line].Owner
 }
 
+// keyPath returns the JSONPath-style accessor of node from the document root, e.g.
+// $.users[2].name — object members contribute .key, array elements [index]. It walks
+// Parent links in the node arena; meaningful for JSON/JSONC.
+func (pv *PrettyView) keyPath(node model.NodeID) string {
+	d := pv.doc
+	var accessors []string
+	for n := node; n > 0; {
+		p := d.Nodes[n].Parent
+		if p <= 0 {
+			break // parent is the synthetic root: the top-level value is just "$"
+		}
+		if d.Nodes[p].Kind == model.KindArray {
+			accessors = append(accessors, "["+strconv.Itoa(pv.childIndex(p, n))+"]")
+		} else {
+			accessors = append(accessors, "."+pv.nodeKeyText(n))
+		}
+		n = p
+	}
+	var sb strings.Builder
+	sb.WriteByte('$')
+	for i := len(accessors) - 1; i >= 0; i-- {
+		sb.WriteString(accessors[i])
+	}
+	return sb.String()
+}
+
+// childIndex returns the position of child among parent's direct children. Direct
+// children are not contiguous in the arena, so it steps sibling-by-sibling using each
+// node's Subtree span.
+func (pv *PrettyView) childIndex(parent, child model.NodeID) int {
+	d := pv.doc
+	end := parent + d.Nodes[parent].Subtree
+	idx := 0
+	for c := parent + 1; c < end; c += d.Nodes[c].Subtree {
+		if c == child {
+			return idx
+		}
+		idx++
+	}
+	return idx
+}
+
+// nodeKeyText extracts an object member's key (unquoted) from its head line's RoleKey
+// segment, or "" if the node has no key.
+func (pv *PrettyView) nodeKeyText(n model.NodeID) string {
+	d := pv.doc
+	head := d.Nodes[n].HeadLine
+	if head < 0 {
+		return ""
+	}
+	for _, seg := range d.LineSegs(head) {
+		if seg.Role == model.RoleKey {
+			return strings.Trim(string(d.SegBytes(seg)), `"`)
+		}
+	}
+	return ""
+}
+
 // contextMenu builds the right-click menu: Copy (greyed out unless there is a
 // selection) and Select all (greyed out on an empty document). Both carry their
 // keyboard accelerator so the menu reads like a native one. hasSelection is the
@@ -137,6 +198,15 @@ func (pv *PrettyView) contextMenu(node model.NodeID) *fyne.Menu {
 				app.Clipboard().SetContent(pv.subtreeText(n))
 			}
 		}))
+		// "Copy key path" (JSON/JSONC) gives the JSONPath-style accessor of the node,
+		// e.g. $.users[2].name, walking Parent links in the node arena.
+		if pv.Format() == FormatJSON || pv.Format() == FormatJSONC {
+			items = append(items, fyne.NewMenuItem("Copy key path", func() {
+				if app := fyne.CurrentApp(); app != nil {
+					app.Clipboard().SetContent(pv.keyPath(n))
+				}
+			}))
+		}
 	}
 
 	selectAll := fyne.NewMenuItem("Select all", pv.SelectAll)

@@ -106,6 +106,49 @@ func TestContextMenuCopySubtree(t *testing.T) {
 	}
 }
 
+// TestContextMenuCopyKeyPath: for JSON the menu offers "Copy key path" whose action
+// copies the JSONPath accessor of the clicked node (walking Parent links), and the
+// item is absent for non-JSON formats.
+func TestContextMenuCopyKeyPath(t *testing.T) {
+	src := `{"users":[{"name":"ada"},{"name":"bob"}]}`
+	pv, win := renderInWindow(t, []byte(src), FormatJSON, 600, 400)
+	defer win.Close()
+
+	li := lineContaining(pv.doc, "bob") // the name member of users[1]
+	if li < 0 {
+		t.Fatal("could not find the 'bob' line")
+	}
+	node := pv.doc.Lines[li].Owner
+	if got := pv.keyPath(node); got != "$.users[1].name" {
+		t.Errorf("keyPath = %q, want $.users[1].name", got)
+	}
+
+	m := pv.contextMenu(node)
+	var item *fyne.MenuItem
+	for _, it := range m.Items {
+		if it.Label == "Copy key path" {
+			item = it
+		}
+	}
+	if item == nil {
+		t.Fatal(`"Copy key path" not offered for JSON`)
+	}
+	item.Action()
+	if got := fyne.CurrentApp().Clipboard().Content(); got != "$.users[1].name" {
+		t.Errorf("Copy key path clipboard = %q, want $.users[1].name", got)
+	}
+
+	// Not offered for XML (keys are not JSON-style).
+	xpv, xwin := renderInWindow(t, []byte(`<r><a>x</a></r>`), FormatXML, 400, 300)
+	defer xwin.Close()
+	xnode := xpv.doc.Lines[xpv.doc.LineAtRow(0)].Owner
+	for _, it := range xpv.contextMenu(xnode).Items {
+		if it.Label == "Copy key path" {
+			t.Error("Copy key path should not be offered for XML")
+		}
+	}
+}
+
 // TestTappedSecondaryShowsMenu: a right-click pops the context menu as a canvas
 // overlay and leaves any existing selection untouched.
 func TestTappedSecondaryShowsMenu(t *testing.T) {
