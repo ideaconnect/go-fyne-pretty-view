@@ -93,6 +93,17 @@ func iconBtn(icon fyne.Resource, tapped func()) *widget.Button {
 	return b
 }
 
+// iconLabel renders an icon with the SAME size and padding as iconBtn but inert: it is
+// a disabled low-importance button, so it reads as a button-shaped affordance (aligned
+// in the control row) without being clickable. Used for the search bar's leading
+// magnifier glyph, which is a label, not an action.
+func iconLabel(icon fyne.Resource) *widget.Button {
+	b := widget.NewButtonWithIcon("", icon, func() {})
+	b.Importance = widget.LowImportance
+	b.Disable()
+	return b
+}
+
 // NewFoldButtons returns an expand-all / collapse-all icon pair bound to pv.
 func NewFoldButtons(pv *PrettyView) fyne.CanvasObject {
 	return container.NewHBox(
@@ -301,7 +312,7 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 
 	// The entry expands (Border center); the counter, toggles and nav buttons sit in
 	// one HBox so the inter-control gaps are all one padding wide.
-	return container.NewBorder(nil, nil, widget.NewIcon(iconSearch()),
+	return container.NewBorder(nil, nil, iconLabel(iconSearch()),
 		container.NewHBox(container.NewCenter(count), caseBtn, regexBtn, prev, next), entry)
 }
 
