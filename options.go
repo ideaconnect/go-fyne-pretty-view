@@ -68,12 +68,30 @@ func WithFormat(f Format) Option { return func(c *config) { c.format = f } }
 // them to the viewport width. The mode can also be changed at runtime with SetWrap.
 func WithWrap(m WrapMode) Option { return func(c *config) { c.wrap = m } }
 
-// WithSearchConfig overrides the search tuning parameters. The struct is used as
-// given — it replaces the defaults wholesale, not field-by-field. A zero MaxMatches
-// or MinQueryLen still falls back to its default at scan time, but a zero DebounceFor
-// means "no debounce" (scan on every keystroke), NOT 150 ms; set it explicitly to
-// keep keystroke coalescing.
-func WithSearchConfig(s SearchConfig) Option { return func(c *config) { c.search = s } }
+// WithSearchConfig overrides the search tuning parameters, merging field-by-field:
+// each NON-ZERO field of s replaces the default, and a zero field keeps its default
+// (MaxMatches 10_000, DebounceFor 150ms, MinQueryLen 1). So setting only MaxMatches
+// leaves debouncing at its default — there is no zero-value trap. To DISABLE keystroke
+// debouncing, set a negative DebounceFor (e.g. -1), or drive input through Search,
+// which always scans immediately (SearchDebounced is the coalescing path).
+func WithSearchConfig(s SearchConfig) Option {
+	return func(c *config) { s.mergeInto(&c.search) }
+}
+
+// mergeInto copies s's non-zero fields over dst (whose fields are the defaults), so a
+// zero field keeps its default. A negative DebounceFor is non-zero, so it survives the
+// merge and disables debouncing (searchDebounced scans immediately for DebounceFor<=0).
+func (s SearchConfig) mergeInto(dst *SearchConfig) {
+	if s.MaxMatches != 0 {
+		dst.MaxMatches = s.MaxMatches
+	}
+	if s.DebounceFor != 0 {
+		dst.DebounceFor = s.DebounceFor
+	}
+	if s.MinQueryLen != 0 {
+		dst.MinQueryLen = s.MinQueryLen
+	}
+}
 
 // WithDefaultCollapseDepth auto-collapses every container at nesting depth d or
 // deeper on load. Top-level containers are at depth 0, so d=1 collapses everything

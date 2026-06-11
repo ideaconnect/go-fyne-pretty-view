@@ -27,6 +27,10 @@
 // LICENSE.txt and fonts/JetBrainsMono/OFL.txt. If you ship a binary built with
 // this package you redistribute those fonts; the OFL only asks that you carry the
 // license text (which is embedded here) — see the README's licensing notes.
+//
+// Stability: this package shares the module's versioning — pre-1.0 its exported
+// surface may change; from v1.0.0 it is frozen under semantic import versioning (see
+// the prettyview package doc and the README Stability section).
 package fonttheme
 
 import (
@@ -55,14 +59,16 @@ var sansItalic []byte
 var sansBoldItalic []byte
 
 // The bundled faces, exposed so callers can reuse one without rebuilding it (e.g.
-// pass MonoRegular to another widget, or to WithFonts to keep it explicitly).
+// pass MonoRegular to another widget, or to a Fonts field with WithFonts). The vars
+// use a Mono/Sans vocabulary; the trailing comment on each names the Fonts field it
+// backs (the UI Sans* vars back the unprefixed Fonts.Regular/Bold/Italic/BoldItalic).
 var (
-	MonoRegular    = fyne.NewStaticResource("JetBrainsMono-Regular.ttf", monoRegular)
-	MonoBold       = fyne.NewStaticResource("JetBrainsMono-Bold.ttf", monoBold)
-	SansRegular    = fyne.NewStaticResource("Inter-Regular.ttf", sansRegular)
-	SansBold       = fyne.NewStaticResource("Inter-Bold.ttf", sansBold)
-	SansItalic     = fyne.NewStaticResource("Inter-Italic.ttf", sansItalic)
-	SansBoldItalic = fyne.NewStaticResource("Inter-BoldItalic.ttf", sansBoldItalic)
+	MonoRegular    = fyne.NewStaticResource("JetBrainsMono-Regular.ttf", monoRegular) // -> Fonts.Mono
+	MonoBold       = fyne.NewStaticResource("JetBrainsMono-Bold.ttf", monoBold)       // -> Fonts.MonoBold
+	SansRegular    = fyne.NewStaticResource("Inter-Regular.ttf", sansRegular)         // -> Fonts.Regular
+	SansBold       = fyne.NewStaticResource("Inter-Bold.ttf", sansBold)               // -> Fonts.Bold
+	SansItalic     = fyne.NewStaticResource("Inter-Italic.ttf", sansItalic)           // -> Fonts.Italic
+	SansBoldItalic = fyne.NewStaticResource("Inter-BoldItalic.ttf", sansBoldItalic)   // -> Fonts.BoldItalic
 )
 
 // Fonts overrides the faces New installs. A nil field keeps the bundled default

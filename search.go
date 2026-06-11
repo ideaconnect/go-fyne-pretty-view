@@ -30,11 +30,12 @@ type SearchQuery struct {
 	CaseSensitive bool
 }
 
-// Match is one search hit, in model coordinates: a stable display-line index and
-// a rune column range into that line's expanded text. Keying by line (not visible
-// row) makes matches survive folding; the visible row is an O(log n) lookup.
+// Match is one search hit, in model coordinates: a stable display-line index and a
+// rune column range [ColStart,ColEnd) into that line's expanded text. All three are
+// int. Keying by line (not visible row) makes a match survive folding; the visible
+// row is an O(log n) lookup. Retrieve the current hits with PrettyView.Matches.
 type Match struct {
-	Line     int32
+	Line     int
 	ColStart int
 	ColEnd   int
 }
@@ -52,8 +53,12 @@ type searchState struct {
 // search shortcut (Ctrl/Cmd+F), so a host can focus its search field.
 func (pv *PrettyView) SetOnSearchRequested(fn func()) { pv.onSearchRequested = fn }
 
-// Search starts or replaces the active search and reveals the first match. It
-// runs synchronously and returns once matches are computed.
+// Search starts or replaces the active search and reveals the first match. It is the
+// IMMEDIATE path: it scans synchronously and returns once matches are computed, and it
+// never debounces. For per-keystroke input from a host search field, prefer
+// SearchDebounced (which coalesces a burst into one scan); use Search when you want
+// the scan to happen now. q.Mode selects SearchPlain or SearchRegex. Call it on the
+// Fyne goroutine.
 func (pv *PrettyView) Search(q SearchQuery) {
 	pv.runSearch(q)
 }
@@ -61,8 +66,10 @@ func (pv *PrettyView) Search(q SearchQuery) {
 // SearchDebounced runs Search(q) after the configured SearchConfig.DebounceFor delay,
 // coalescing a burst of rapid calls (e.g. one per keystroke from a host's own search
 // field) so only the last query in the burst scans. With DebounceFor <= 0 it is
-// equivalent to Search (immediate). Last call wins: a newer SearchDebounced / Search /
-// ClearSearch / SetData supersedes a still-pending scan. Call it on the Fyne goroutine.
+// equivalent to Search (immediate); since WithSearchConfig treats a zero DebounceFor as
+// "keep the 150ms default", pass a NEGATIVE DebounceFor (or call Search) to disable
+// debouncing. Last call wins: a newer SearchDebounced / Search / ClearSearch / SetData
+// supersedes a still-pending scan. Call it on the Fyne goroutine.
 func (pv *PrettyView) SearchDebounced(q SearchQuery) { pv.searchDebounced(q) }
 
 // searchDebounced coalesces rapid keystrokes: it waits cfg.search.DebounceFor before
@@ -143,6 +150,19 @@ func (pv *PrettyView) SearchStatus() (active, total int, capped bool) {
 		return 0, len(pv.search.matches), pv.search.capped
 	}
 	return pv.search.active + 1, len(pv.search.matches), pv.search.capped
+}
+
+// Matches returns a snapshot of the current search hits in document order (nil if
+// there is no active search), letting a host build its own match list or minimap.
+// The returned slice is a copy — mutating it does not affect the viewer, and it is
+// not updated as the document or search changes; call Matches again after a Search.
+func (pv *PrettyView) Matches() []Match {
+	if len(pv.search.matches) == 0 {
+		return nil
+	}
+	out := make([]Match, len(pv.search.matches))
+	copy(out, pv.search.matches)
+	return out
 }
 
 // SearchError reports the error from the most recent Search / SearchDebounced, or nil.
@@ -357,7 +377,7 @@ func (c *colCursor) col(off int) int {
 func (pv *PrettyView) addMatchB(li int32, cur *colCursor, bs, be int) {
 	cs := cur.col(bs)
 	ce := cur.col(be)
-	pv.search.matches = append(pv.search.matches, Match{Line: li, ColStart: cs, ColEnd: ce})
+	pv.search.matches = append(pv.search.matches, Match{Line: int(li), ColStart: cs, ColEnd: ce})
 }
 
 func isASCII(b []byte) bool {
@@ -383,7 +403,7 @@ func (pv *PrettyView) indexMatches() {
 		pv.search.byLine = make(map[int32][]int, len(pv.search.matches))
 	}
 	for i, m := range pv.search.matches {
-		pv.search.byLine[m.Line] = append(pv.search.byLine[m.Line], i)
+		pv.search.byLine[int32(m.Line)] = append(pv.search.byLine[int32(m.Line)], i)
 	}
 }
 
@@ -396,13 +416,13 @@ func (pv *PrettyView) revealActive() {
 		return
 	}
 	m := pv.search.matches[pv.search.active]
-	pv.doc.RevealLine(m.Line)
+	pv.doc.RevealLine(int32(m.Line))
 
 	if pv.r == nil {
 		return
 	}
 	pv.r.scroll.Content.Resize(pv.contentSize())
-	pv.centerOnLine(m.Line, m.ColStart) // scrollToOffset -> reflow redraws rows + highlights
+	pv.centerOnLine(int32(m.Line), m.ColStart) // scrollToOffset -> reflow redraws rows + highlights
 }
 
 func (pv *PrettyView) refreshMatchesView() {

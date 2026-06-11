@@ -257,12 +257,27 @@ func TestToolbarConfigOmitsControls(t *testing.T) {
 	if NewToolbar(pv, ToolbarConfig{ShowSearch: true}) == nil {
 		t.Error("search-only toolbar is nil")
 	}
-	// Everything (no window, so Open is omitted but the rest build).
-	if NewToolbar(pv, DefaultToolbarConfig()) == nil {
+	// Everything (nil window, so Open is omitted but the rest build).
+	if NewToolbar(pv, DefaultToolbarConfig(nil)) == nil {
 		t.Error("default toolbar is nil")
 	}
 	// The à-la-carte pieces build too.
 	if NewFoldButtons(pv) == nil || NewSearchBar(pv) == nil {
 		t.Error("individual control constructors returned nil")
+	}
+}
+
+// TestDefaultToolbarConfigWindow locks the #30 contract: DefaultToolbarConfig(win)
+// carries the window (so Open + Ctrl/Cmd+F are real), and nil omits it.
+func TestDefaultToolbarConfigWindow(t *testing.T) {
+	test.NewApp()
+	w := test.NewWindow(nil)
+	defer w.Close()
+
+	if cfg := DefaultToolbarConfig(w); cfg.Window != w || !cfg.ShowOpen || !cfg.ShowSearch {
+		t.Errorf("DefaultToolbarConfig(win) = %+v, want Window set with every Show* flag", cfg)
+	}
+	if cfg := DefaultToolbarConfig(nil); cfg.Window != nil {
+		t.Error("DefaultToolbarConfig(nil) should leave Window nil")
 	}
 }

@@ -39,13 +39,14 @@ type ToolbarConfig struct {
 	OnOpen             func()      // overrides the built-in Open behavior, if set
 }
 
-// DefaultToolbarConfig enables every control. Note that two of them still need more
-// than the flag: the Open button requires a Window (for the built-in dialog) or an
-// OnOpen handler, and Ctrl/Cmd+F search-focus requires a Window — set Window on the
-// returned config (e.g. cfg := DefaultToolbarConfig(); cfg.Window = w) or those two
-// are silently omitted. (Taking the Window as a parameter is a deferred v1.0 change.)
-func DefaultToolbarConfig() ToolbarConfig {
-	return ToolbarConfig{ShowOpen: true, ShowFormat: true, ShowExpandCollapse: true, ShowWrap: true, ShowSearch: true}
+// DefaultToolbarConfig enables every control bound to win: the Open button (its
+// built-in file dialog and Ctrl/Cmd+F search-focus both need a Window). Pass nil to
+// omit those two (or set OnOpen yourself afterward to drive Open without a Window).
+func DefaultToolbarConfig(win fyne.Window) ToolbarConfig {
+	return ToolbarConfig{
+		ShowOpen: true, ShowFormat: true, ShowExpandCollapse: true,
+		ShowWrap: true, ShowSearch: true, Window: win,
+	}
 }
 
 // NewToolbar builds an optional control bar bound to pv from cfg. Disabled
