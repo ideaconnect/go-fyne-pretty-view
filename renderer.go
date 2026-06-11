@@ -111,6 +111,7 @@ func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 func (r *prettyViewRenderer) Destroy() {
 	r.pv.destroyed.Store(true)
 	r.pv.stopSearchTimer()
+	r.pv.stopEditTimer()
 }
 func (r *prettyViewRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{r.scroll} }
 func (r *prettyViewRenderer) MinSize() fyne.Size           { return fyne.NewSize(120, 80) }

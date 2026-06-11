@@ -16,7 +16,9 @@ import (
 func renderEditable(t *testing.T, src []byte, w, h float32) (*PrettyView, fyne.Window) {
 	t.Helper()
 	test.NewApp()
-	pv := New(WithEditable())
+	// AutoFormatOff so the raw-editing assertions are not perturbed by a debounced
+	// structured reformat; the format-engine tests opt into OnPause/OnBlur explicitly.
+	pv := New(WithEditable(), WithInputConfig(InputConfig{AutoFormat: AutoFormatOff}))
 	if src != nil {
 		pv.SetData(src, FormatRaw)
 	}

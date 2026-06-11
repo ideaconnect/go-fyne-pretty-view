@@ -56,9 +56,15 @@ func (pv *PrettyView) editKey(ev *fyne.KeyEvent) bool {
 }
 
 // caretOff is the caret's byte offset in the buffer. An unplaced caret is offset 0.
+// While the structured (reformatted) projection is shown, the caret's (line, col) is in
+// structured space and does not map 1:1 to the buffer, so the stable caretBuf is used;
+// in the raw projection the offset is read directly from sel.focus.
 func (pv *PrettyView) caretOff() int {
 	if !pv.sel.placed {
 		return 0
+	}
+	if pv.editStructured {
+		return pv.caretBuf
 	}
 	return pv.buf.ByteOffAt(int(pv.sel.focus.line), pv.sel.focus.col)
 }
@@ -92,6 +98,7 @@ func (pv *PrettyView) editInsert(s []byte) {
 	if !pv.cfg.editable || pv.buf == nil || len(s) == 0 {
 		return
 	}
+	pv.ensureRawForEdit()
 	at := pv.caretOff()
 	if lo, hi, ok := pv.selectionByteRange(); ok {
 		pv.buf.Delete(lo, hi-lo)
@@ -110,6 +117,7 @@ func (pv *PrettyView) editDelete(forward bool) {
 	if !pv.cfg.editable || pv.buf == nil {
 		return
 	}
+	pv.ensureRawForEdit()
 	if lo, hi, ok := pv.selectionByteRange(); ok {
 		pv.buf.Delete(lo, hi-lo)
 		pv.reprojectRaw()
@@ -145,6 +153,7 @@ func (pv *PrettyView) caretStepRune(forward bool) {
 	if pv.buf == nil {
 		return
 	}
+	pv.ensureRawForEdit()
 	if !pv.sel.placed { // first arrow just places the caret at the top of the buffer
 		pv.setCaretOff(0)
 		pv.revealCaret()
@@ -172,6 +181,7 @@ func (pv *PrettyView) caretStepRune(forward bool) {
 // keyMoveCaret moves the caret like keyExtend (wrap-aware vertical / line-bound moves)
 // but collapses the selection, so a plain arrow in edit mode moves without selecting.
 func (pv *PrettyView) keyMoveCaret(dRows, col int, toLineStart, toLineEnd bool) {
+	pv.ensureRawForEdit()
 	pv.keyExtend(dRows, col, toLineStart, toLineEnd)
 	pv.sel.anchor = pv.sel.focus
 	pv.sel.active = false
@@ -190,6 +200,7 @@ func (pv *PrettyView) afterEdit() {
 	pv.applyGutter() // the line count (and so the gutter digit width) may have changed
 	pv.refreshContent()
 	pv.revealCaret()
+	pv.scheduleReformat() // a typing pause re-parses into the structured projection (#40)
 	if pv.onDataChanged != nil {
 		pv.onDataChanged()
 	}

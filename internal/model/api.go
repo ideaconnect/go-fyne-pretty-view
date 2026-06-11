@@ -25,6 +25,38 @@ func (d *Document) LineAndSubRowAtRow(row int32) (line, sub int32) {
 	return d.fold.lineAndSubRow(row)
 }
 
+// LineAtSourceOffset maps a byte offset into Src back to the display line whose source
+// bytes cover it: the last line whose first source-backed segment starts at or before
+// off (display lines are emitted in source order, so the first line that starts past off
+// ends the search). It is a coarse, line-granular map — enough to re-place an edit caret
+// on the right line after a raw->structured projection swap. Returns 0 for an empty
+// document. A rune-precise column map is the caret semantic anchor (#41).
+func (d *Document) LineAtSourceOffset(off int) int32 {
+	best := int32(0)
+	for li := 0; li < len(d.Lines); li++ {
+		start, ok := d.lineFirstSrcStart(int32(li))
+		if !ok {
+			continue
+		}
+		if start > off {
+			break
+		}
+		best = int32(li)
+	}
+	return best
+}
+
+// lineFirstSrcStart returns the Src start offset of a line's first source-backed
+// (BufSrc) segment, or false for a synthesized-only line.
+func (d *Document) lineFirstSrcStart(li int32) (int, bool) {
+	for _, s := range d.LineSegs(li) {
+		if s.Buf == BufSrc {
+			return int(s.Start), true
+		}
+	}
+	return 0, false
+}
+
 // Fold collapses node; Unfold expands it; Toggle flips it.
 func (d *Document) Fold(node NodeID)   { d.fold.fold(d, node) }
 func (d *Document) Unfold(node NodeID) { d.fold.unfold(d, node) }

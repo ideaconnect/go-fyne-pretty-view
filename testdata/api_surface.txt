@@ -8,6 +8,9 @@ fonttheme var SansBold
 fonttheme var SansBoldItalic
 fonttheme var SansItalic
 fonttheme var SansRegular
+prettyview const AutoFormatOff
+prettyview const AutoFormatOnBlur
+prettyview const AutoFormatOnPause
 prettyview const FormatAuto = model.FormatAuto
 prettyview const FormatHTML = model.FormatHTML
 prettyview const FormatJSON = model.FormatJSON
@@ -31,6 +34,7 @@ prettyview func WithDefaultCollapseDepth(d int) Option
 prettyview func WithEditable() Option
 prettyview func WithFormat(f Format) Option
 prettyview func WithIndentStep(px float32) Option
+prettyview func WithInputConfig(c InputConfig) Option
 prettyview func WithLineNumbers() Option
 prettyview func WithMaxInputBytes(n int) Option
 prettyview func WithSearchConfig(s SearchConfig) Option
@@ -63,6 +67,7 @@ prettyview method (*PrettyView) MouseIn(*desktop.MouseEvent)
 prettyview method (*PrettyView) MouseMoved(ev *desktop.MouseEvent)
 prettyview method (*PrettyView) MouseOut()
 prettyview method (*PrettyView) MouseUp(*desktop.MouseEvent)
+prettyview method (*PrettyView) Reformat()
 prettyview method (*PrettyView) Reparse(format Format)
 prettyview method (*PrettyView) ScrollOffset() fyne.Position
 prettyview method (*PrettyView) ScrollToLine(line int) bool
@@ -76,6 +81,8 @@ prettyview method (*PrettyView) SelectAll()
 prettyview method (*PrettyView) SelectedText() string
 prettyview method (*PrettyView) SetData(src []byte, format Format)
 prettyview method (*PrettyView) SetDefaultCollapseDepth(depth int)
+prettyview method (*PrettyView) SetInputConfig(c InputConfig)
+prettyview method (*PrettyView) SetOnChanged(fn func(string))
 prettyview method (*PrettyView) SetOnDataChanged(fn func())
 prettyview method (*PrettyView) SetOnSearchChanged(fn func())
 prettyview method (*PrettyView) SetOnSearchRequested(fn func())
@@ -91,7 +98,9 @@ prettyview method (*PrettyView) TypedKey(ev *fyne.KeyEvent)
 prettyview method (*PrettyView) TypedRune(r rune)
 prettyview method (*PrettyView) TypedShortcut(s fyne.Shortcut)
 prettyview method (*PrettyView) Wrap() WrapMode
+prettyview type AutoFormatMode uint8
 prettyview type Format = model.Format
+prettyview type InputConfig struct { AutoFormat AutoFormatMode; DebounceFor time.Duration }
 prettyview type Match struct { ColEnd int; ColStart int; Line int }
 prettyview type Option func(*config)
 prettyview type PrettyView struct { embeds widget.BaseWidget }

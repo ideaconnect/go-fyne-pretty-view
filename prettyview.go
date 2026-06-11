@@ -73,6 +73,17 @@ type PrettyView struct {
 	// so display lines map 1:1 to buffer lines and the caret is a buffer position.
 	buf *model.TextBuffer
 
+	// live-format engine (#40). editStructured is true when the displayed doc is the
+	// structured (pretty) reformat rather than the raw edit projection; caretBuf is the
+	// caret's stable byte offset, used to re-place it across the raw<->structured swap.
+	editTimer      *time.Timer
+	editGen        int
+	editStructured bool
+	caretBuf       int
+	lastFmtLen     int // idempotent-reformat guard: byte length + hash of the last reparse
+	lastFmtHash    uint64
+	onChanged      func(string) // fired (debounced) after the edited text settles
+
 	// view state, owned by the Fyne goroutine
 	r          *prettyViewRenderer
 	met        geometry.Metrics
@@ -159,6 +170,8 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 		// editing, display lines map 1:1 to buffer lines so the caret stays a trivial
 		// buffer position. Structured re-formatting happens on a debounced pause (#40).
 		pv.buf = model.NewTextBuffer(src)
+		pv.editStructured = false
+		pv.lastFmtLen, pv.lastFmtHash = 0, 0
 		pv.doc = parse.ParseEditable(pv.buf.Bytes(), pv.cfg.collapseDepth, pv.cfg.tabWidth)
 	} else {
 		pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
@@ -166,6 +179,9 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 	pv.ClearSearch()
 	pv.ClearSelection() // a selection from the old document is meaningless against the new one
 	pv.Refresh()
+	if pv.cfg.editable {
+		pv.scheduleReformat() // newly loaded data pretty-prints after the debounce (if AutoFormatOnPause)
+	}
 	if pv.onDataChanged != nil {
 		pv.onDataChanged()
 	}
