@@ -28,6 +28,10 @@ API may change between minor versions; breaking changes are called out under
 - `CopySubtree(byteOffset)` and `ExpandTo(byteOffset)` now resolve nodes for **XML and
   HTML** too (real per-node source byte offsets are populated), not JSON/JSONC only.
 
+### Fixed
+- Search bar: pressing Enter (find-next) repeatedly now advances through every match
+  (1→2→3→…, wrapping) instead of always snapping back to match #2.
+
 ## [v0.5.0-alpha] — parser hardening + chrome parity
 
 ### Added

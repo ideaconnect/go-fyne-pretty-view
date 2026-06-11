@@ -241,20 +241,24 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 	}
 	entry.OnChanged = func(string) { pv.searchDebounced(query()) }
 	entry.OnSubmitted = func(string) {
-		// Enter applies immediately, bypassing the debounce. If the query is already
-		// applied (the debounced scan ran), Enter means find-next, so advance. But on
-		// a fresh query that beat the debounce, Search reveals match #1 — don't jump
-		// straight past it to #2; only advance when the text is unchanged.
-		advance := pv.search.query.Text == entry.Text
-		pv.Search(query())
-		if advance {
+		// If the box's query is already the applied one, Enter means find-next, so just
+		// advance — re-running Search would reset the active match to #1 (so every Enter
+		// would snap back to #2). Otherwise Enter beat the debounce (or the query/toggles
+		// changed): apply it, which reveals match #1 without jumping past it.
+		if pv.search.query == query() {
 			pv.SearchNext()
+			return
 		}
+		pv.Search(query())
 	}
 	entry.onPrev = func() {
-		if pv.search.query.Text != entry.Text {
-			pv.Search(query())
+		// Same contract for Shift+Enter: step backward on the applied query, only
+		// re-Search (revealing #1, then wrapping to the last) when the query changed.
+		if pv.search.query == query() {
+			pv.SearchPrev()
+			return
 		}
+		pv.Search(query())
 		pv.SearchPrev()
 	}
 	entry.onEscape = func() {
