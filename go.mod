@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	fyne.io/fyne/v2 v2.7.4
 	github.com/fyne-io/oksvg v0.2.0
-	golang.org/x/net v0.55.0
+	golang.org/x/net v0.56.0
 )
 
 require github.com/dweymouth/fyne-tooltip v0.4.0
@@ -39,7 +39,7 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
 	golang.org/x/image v0.41.0 // indirect; pinned ahead of Fyne's request for tiff CVE coverage (govulncheck gate)
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
