@@ -308,6 +308,21 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 // keepCol is the sentinel for keyExtend meaning "preserve the focus column".
 const keepCol = -1
 
+// subRowOfCol returns the sub-row index whose [breaks[k],breaks[k+1]) span holds col.
+// breaks is the WrapBreaks slice [0, …, lineLen]; under WrapNone it is [0, lineLen],
+// so the result is always 0.
+func subRowOfCol(breaks []int32, col int) int {
+	for k := 0; k+1 < len(breaks); k++ {
+		if int32(col) < breaks[k+1] {
+			return k
+		}
+	}
+	if len(breaks) >= 2 {
+		return len(breaks) - 2
+	}
+	return 0
+}
+
 // keyExtend moves the keyboard caret (the selection focus) by dRows visible rows
 // and/or to a column, keeping the anchor, so a Shift+arrow extends the selection.
 // The first move establishes a caret at the top visible line if none exists.
@@ -324,19 +339,29 @@ func (pv *PrettyView) keyExtend(dRows, col int, toLineStart, toLineEnd bool) {
 	f := pv.sel.focus
 	vl := pv.doc.VisibleLine(f.line)
 	if dRows != 0 {
-		row := pv.doc.RowOfLine(vl) + int32(dRows)
-		row = int32(clampInt(int(row), 0, int(pv.doc.TotalVisibleRows())-1))
-		vl = pv.doc.LineAtRow(row)
-		f.line = vl
+		// Baseline is the caret's CURRENT visual row — the line's first row plus the
+		// sub-row holding f.col — so repeated moves advance under soft-wrap instead of
+		// snapping back to the line's first sub-row. Under WrapNone every line is one
+		// row (breaks == [0, lineLen]) and this reduces to RowOfLine(vl)+dRows.
+		breaks := pv.doc.WrapBreaks(vl, nil)
+		sub := subRowOfCol(breaks, f.col)
+		visualCol := f.col - int(breaks[sub]) // horizontal offset within the sub-row
+		row := clampInt(int(pv.doc.RowOfLine(vl))+sub+dRows, 0, int(pv.doc.TotalVisibleRows())-1)
+		nl, nsub := pv.doc.LineAndSubRowAtRow(int32(row))
+		f.line, vl = nl, nl
+		nbreaks := pv.doc.WrapBreaks(nl, nil)
+		if int(nsub) > len(nbreaks)-2 {
+			nsub = int32(len(nbreaks) - 2)
+		}
+		// Preserve the horizontal position, clamped into the destination sub-row.
+		f.col = clampInt(int(nbreaks[nsub])+visualCol, int(nbreaks[nsub]), int(nbreaks[nsub+1]))
 	}
 	switch {
 	case toLineStart:
 		f.col = 0
 	case toLineEnd:
 		f.col = pv.doc.LineRuneLen(vl)
-	case col == keepCol:
-		f.col = clampInt(f.col, 0, pv.doc.LineRuneLen(vl))
-	default:
+	case col != keepCol:
 		f.col = clampInt(col, 0, pv.doc.LineRuneLen(vl))
 	}
 	pv.sel.focus = f

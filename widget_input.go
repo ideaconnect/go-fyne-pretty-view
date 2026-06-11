@@ -168,7 +168,14 @@ func (pv *PrettyView) nodeKeyText(n model.NodeID) string {
 	}
 	for _, seg := range d.LineSegs(head) {
 		if seg.Role == model.RoleKey {
-			return strings.Trim(string(d.SegBytes(seg)), `"`)
+			// The key path is gated to JSON/JSONC, so a RoleKey segment is a valid JSON
+			// string literal — Unquote recovers the true key (handling an embedded or
+			// escaped quote) instead of blindly trimming quote bytes.
+			s := string(d.SegBytes(seg))
+			if unq, err := strconv.Unquote(s); err == nil {
+				return unq
+			}
+			return strings.Trim(s, `"`)
 		}
 	}
 	return ""

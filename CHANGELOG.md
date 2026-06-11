@@ -12,6 +12,21 @@ API may change between minor versions; breaking changes are called out under
 - `ScrollToLine(line) bool`, `ScrollOffset()`, and `SetScrollOffset(pos)` — a
   format-independent programmatic scroll / go-to-line API and scroll-position
   save/restore.
+- `CollapseToDepth(d)` / `ExpandToDepth(d)` — runtime fold-to-depth on `PrettyView`
+  and `Document`.
+- `WithLineNumbers()` — an opt-in line-number gutter (numbers drawn from the model,
+  no per-line widgets).
+- Right-click **Copy key path** (JSON/JSONC) — the clicked node's JSONPath accessor,
+  e.g. `$.users[1].name`.
+- Keyboard selection and fold control: `Shift`+arrows / `Shift`+`Home`/`End` extend a
+  selection from the caret, `Enter` toggles the caret line's fold, `Left`/`Right`
+  scroll horizontally.
+- `example_test.go` (rendered on pkg.go.dev), `CHANGELOG.md`, and `SECURITY.md`;
+  release archives now ship a `SHA256SUMS` manifest.
+
+### Changed
+- `CopySubtree(byteOffset)` and `ExpandTo(byteOffset)` now resolve nodes for **XML and
+  HTML** too (real per-node source byte offsets are populated), not JSON/JSONC only.
 
 ## [v0.5.0-alpha] — parser hardening + chrome parity
 

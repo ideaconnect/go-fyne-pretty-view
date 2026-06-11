@@ -84,3 +84,43 @@ func TestKeyboardShiftSelection(t *testing.T) {
 		t.Errorf("Shift+End focus col = %d, want line end %d", pv.sel.focus.col, wantCol)
 	}
 }
+
+// TestKeyboardShiftSelectionWrap: under WrapWord, repeated Shift+Down advances the
+// caret across a wrapped line's sub-rows instead of sticking on the first one (the
+// keyExtend baseline must be the caret's current VISUAL row).
+func TestKeyboardShiftSelectionWrap(t *testing.T) {
+	long := strings.Repeat("word ", 80)
+	pv, win := renderInWindow(t, []byte(`["`+long+`"]`), FormatJSON, 200, 400)
+	defer win.Close()
+	pv.SetWrap(WrapWord)
+	pv.Refresh()
+	pv.FocusGained()
+
+	strLine := lineContaining(pv.doc, "word")
+	if strLine < 0 {
+		t.Fatal("could not find the wrapped string line")
+	}
+	vl := pv.doc.VisibleLine(strLine)
+	if breaks := pv.doc.WrapBreaks(vl, nil); len(breaks) <= 2 {
+		t.Fatalf("precondition: the line should wrap into >1 sub-row, breaks=%v", breaks)
+	}
+
+	pv.sel.anchor = modelPos{line: strLine, col: 0}
+	pv.sel.focus = pv.sel.anchor
+	pv.sel.placed = true
+	startRow := pv.doc.RowOfLine(vl)
+
+	pv.shiftHeld = true
+	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyDown})
+	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyDown})
+
+	fvl := pv.doc.VisibleLine(pv.sel.focus.line)
+	sub := subRowOfCol(pv.doc.WrapBreaks(fvl, nil), pv.sel.focus.col)
+	focusRow := pv.doc.RowOfLine(fvl) + int32(sub)
+	if focusRow <= startRow {
+		t.Errorf("Shift+Down under wrap is stuck: focus visual row %d <= start row %d", focusRow, startRow)
+	}
+	if !pv.sel.active {
+		t.Error("Shift+Down under wrap did not activate a selection")
+	}
+}
