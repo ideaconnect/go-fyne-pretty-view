@@ -22,6 +22,7 @@ var (
 	_ fyne.Draggable         = (*PrettyView)(nil)
 	_ fyne.Focusable         = (*PrettyView)(nil)
 	_ fyne.Shortcutable      = (*PrettyView)(nil)
+	_ desktop.Keyable        = (*PrettyView)(nil) // KeyDown/KeyUp track Shift for keyboard selection
 )
 
 // contentPos converts a widget-local pixel (as delivered to input handlers) into

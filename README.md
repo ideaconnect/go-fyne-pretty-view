@@ -42,7 +42,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - **Copy a whole section** (subtree) to the clipboard, regardless of fold state.
 - **Search** with plain or regular-expression matching, case sensitivity, match navigation, and **auto-reveal into folded nodes**.
 - **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally — selection, search, and copy still operate on whole logical lines.
-- **Keyboard navigation**: arrows, `PageUp`/`PageDown`, `Home`/`End`, `Esc` to clear the selection, `Ctrl/Cmd+F` to focus search.
+- **Keyboard navigation**: arrows scroll (all four), `Space`/`PageDown` & `PageUp` page, `Home`/`End` jump to top/bottom; **`Shift`+arrows / `Shift`+`Home`/`End` extend a selection** from the caret; **`Enter` toggles the fold** on the caret's line; `Esc` clears the selection; `Ctrl/Cmd+F` focuses search.
 - **Optional, à-la-carte controls**: a built-in toolbar (Open, format, expand/collapse, wrap, search) you can enable control-by-control — or drive everything from your own widgets via the public API.
 
 ## Why it stays small
@@ -127,7 +127,7 @@ matching runtime setters; the on-screen chrome is **entirely opt-in**.
 | Tab display width | `4` | `WithTabWidth(n)`. |
 | Indent step (px/level) | `16` | `WithIndentStep(px)`. |
 | Theme / colors | Track the host Fyne theme | `WithTheme` / `WithSyntaxColors` at build; `SetTheme` / `SetSyntaxColors` at runtime. |
-| Keyboard navigation | On | Always on (arrows, `PageUp`/`PageDown`, `Home`/`End`, `Esc`). |
+| Keyboard navigation | On | Always on: arrows scroll, `Space`/`PageUp`/`PageDown`, `Home`/`End`; `Shift`+arrows extend the selection; `Enter` toggles the caret line's fold; `Esc` clears. |
 
 `SearchQuery.Mode` is `SearchPlain` (default) or `SearchRegex`; matches are capped
 by `SearchConfig.MaxMatches` (10 000 by default) and revealed even inside folded

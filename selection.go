@@ -228,6 +228,7 @@ func (pv *PrettyView) MouseMoved(ev *desktop.MouseEvent) {
 func (pv *PrettyView) FocusGained() { pv.focused = true; pv.refreshSelectionView() }
 func (pv *PrettyView) FocusLost() {
 	pv.focused = false
+	pv.shiftHeld = false // a Shift released off-widget must not stick
 	if pv.r != nil {
 		pv.r.dragArmed = false
 	}
@@ -238,6 +239,20 @@ func (pv *PrettyView) TypedRune(rune) {}
 // TypedKey handles Escape (clear selection) and keyboard scrolling/navigation:
 // Up/Down scroll one row, PageUp/PageDown one viewport, Home/End jump to the top/
 // bottom. A multi-megabyte viewer should be navigable without the mouse.
+// KeyDown / KeyUp track the Shift modifier (fyne.KeyEvent carries none), so TypedKey
+// can tell Shift+arrow (extend the keyboard selection) from a plain arrow (scroll).
+func (pv *PrettyView) KeyDown(key *fyne.KeyEvent) {
+	if key.Name == desktop.KeyShiftLeft || key.Name == desktop.KeyShiftRight {
+		pv.shiftHeld = true
+	}
+}
+
+func (pv *PrettyView) KeyUp(key *fyne.KeyEvent) {
+	if key.Name == desktop.KeyShiftLeft || key.Name == desktop.KeyShiftRight {
+		pv.shiftHeld = false
+	}
+}
+
 func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 	if pv.r == nil {
 		if ev.Name == fyne.KeyEscape {
@@ -246,13 +261,38 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 		return
 	}
 	vpH := pv.r.scroll.Size().Height
+
+	// Shift+arrow / Shift+Home/End extend the keyboard selection from the caret.
+	if pv.shiftHeld {
+		switch ev.Name {
+		case fyne.KeyDown:
+			pv.keyExtend(1, keepCol, false, false)
+			return
+		case fyne.KeyUp:
+			pv.keyExtend(-1, keepCol, false, false)
+			return
+		case fyne.KeyHome:
+			pv.keyExtend(0, 0, true, false)
+			return
+		case fyne.KeyEnd:
+			pv.keyExtend(0, 0, false, true)
+			return
+		}
+	}
+
 	switch ev.Name {
 	case fyne.KeyEscape:
 		pv.ClearSelection()
+	case fyne.KeyReturn, fyne.KeyEnter:
+		pv.keyToggleFold() // toggle the fold on the caret line, if it is a fold head
 	case fyne.KeyDown:
 		pv.r.scrollBy(0, pv.met.RowH)
 	case fyne.KeyUp:
 		pv.r.scrollBy(0, -pv.met.RowH)
+	case fyne.KeyLeft:
+		pv.r.scrollBy(-4*pv.met.CharWidth, 0)
+	case fyne.KeyRight:
+		pv.r.scrollBy(4*pv.met.CharWidth, 0)
 	case fyne.KeyPageDown, fyne.KeySpace:
 		pv.r.scrollBy(0, vpH)
 	case fyne.KeyPageUp:
@@ -262,6 +302,61 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 	case fyne.KeyEnd:
 		cs := pv.contentSize()
 		pv.r.scrollToOffset(fyne.NewPos(pv.r.scroll.Offset.X, max(0, cs.Height-vpH)))
+	}
+}
+
+// keepCol is the sentinel for keyExtend meaning "preserve the focus column".
+const keepCol = -1
+
+// keyExtend moves the keyboard caret (the selection focus) by dRows visible rows
+// and/or to a column, keeping the anchor, so a Shift+arrow extends the selection.
+// The first move establishes a caret at the top visible line if none exists.
+func (pv *PrettyView) keyExtend(dRows, col int, toLineStart, toLineEnd bool) {
+	if pv.doc == nil || pv.doc.TotalVisibleRows() == 0 {
+		return
+	}
+	if !pv.sel.placed {
+		li := pv.doc.LineAtRow(int32(max(pv.r.firstRow, 0)))
+		pv.sel.anchor = modelPos{line: li, col: 0}
+		pv.sel.focus = pv.sel.anchor
+		pv.sel.placed = true
+	}
+	f := pv.sel.focus
+	vl := pv.doc.VisibleLine(f.line)
+	if dRows != 0 {
+		row := pv.doc.RowOfLine(vl) + int32(dRows)
+		row = int32(clampInt(int(row), 0, int(pv.doc.TotalVisibleRows())-1))
+		vl = pv.doc.LineAtRow(row)
+		f.line = vl
+	}
+	switch {
+	case toLineStart:
+		f.col = 0
+	case toLineEnd:
+		f.col = pv.doc.LineRuneLen(vl)
+	case col == keepCol:
+		f.col = clampInt(f.col, 0, pv.doc.LineRuneLen(vl))
+	default:
+		f.col = clampInt(col, 0, pv.doc.LineRuneLen(vl))
+	}
+	pv.sel.focus = f
+	pv.sel.active = pv.sel.anchor != pv.sel.focus
+	pv.sel.grab = grabNone
+	pv.centerOnLine(vl, f.col) // keep the moving caret in view
+	pv.refreshSelectionView()
+}
+
+// keyToggleFold toggles the fold on the caret's line when it is a fold head.
+func (pv *PrettyView) keyToggleFold() {
+	if pv.doc == nil || !pv.sel.placed {
+		return
+	}
+	li := pv.sel.focus.line
+	if int(li) < 0 || int(li) >= len(pv.doc.Lines) {
+		return
+	}
+	if node := pv.doc.Lines[li].Fold; node != model.NoNode {
+		pv.toggleFold(node)
 	}
 }
 

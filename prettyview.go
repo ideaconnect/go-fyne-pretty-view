@@ -80,6 +80,7 @@ type PrettyView struct {
 	sel          selection
 	focused      bool
 	overTriangle bool
+	shiftHeld    bool // tracked via KeyDown/KeyUp; Shift+arrows extend the keyboard selection
 
 	// search state
 	search            searchState
