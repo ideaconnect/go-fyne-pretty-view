@@ -202,14 +202,12 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 // 1:1 onto the edit buffer's bytes (the caret math depends on that alignment). See
 // docs/DESIGN.md §12.
 func ParseEditable(src []byte, collapseDepth, tabWidth int) *model.Document {
-	if tabWidth < 1 {
-		tabWidth = 4
-	}
+	_ = tabWidth // edit mode renders each grid-hostile byte (incl. tab) as one placeholder rune, not an expansion
 	if uint64(len(src)) > math.MaxUint32 {
 		src = src[:int(uint64(math.MaxUint32))] // dead in practice (edit input is bounded), keeps offsets sane
 	}
 	b := model.NewBuilder(src, FormatRaw, collapseDepth)
-	_ = editRawParser{tabWidth: tabWidth}.Parse(src, b)
+	_ = editRawParser{}.Parse(src, b)
 	return b.Finish()
 }
 

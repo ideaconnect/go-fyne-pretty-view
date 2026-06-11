@@ -1,6 +1,7 @@
 package prettyview
 
 import (
+	"strings"
 	"unicode/utf8"
 
 	"fyne.io/fyne/v2"
@@ -21,6 +22,38 @@ import (
 // lifetime; there is deliberately no SetEditable. A read-only widget behaves
 // byte-for-byte like a v1 viewer.
 func (pv *PrettyView) Editable() bool { return pv.cfg.editable }
+
+// Paste inserts the clipboard text at the caret, replacing any active selection. Line
+// endings are normalized to LF (so a multi-line paste makes real display lines); any
+// remaining control bytes render as safe placeholders in the live projection and as
+// visible escapes once the structured reformat runs. It is one undo unit. No-op for a
+// read-only widget. Call it on the Fyne goroutine.
+func (pv *PrettyView) Paste() {
+	if !pv.cfg.editable {
+		return
+	}
+	app := fyne.CurrentApp()
+	if app == nil {
+		return
+	}
+	content := app.Clipboard().Content()
+	if content == "" {
+		return
+	}
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	pv.editInsert([]byte(content)) // replaces the selection and records one undo unit
+}
+
+// Cut copies the current selection to the clipboard and deletes it, as one undo unit.
+// No-op for a read-only widget or when nothing is selected. Call it on the Fyne goroutine.
+func (pv *PrettyView) Cut() {
+	if !pv.cfg.editable || pv.selectedText() == "" {
+		return
+	}
+	pv.CopySelection()
+	pv.editDelete(false) // an active selection is removed as a single undo unit
+}
 
 // editKey handles the keys edit mode owns, returning true if it consumed the event.
 // Keys it returns false for (Escape, PageUp/Down, …) fall through to the read-only

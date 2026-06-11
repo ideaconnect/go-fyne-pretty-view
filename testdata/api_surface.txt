@@ -51,6 +51,7 @@ prettyview method (*PrettyView) CopySelection()
 prettyview method (*PrettyView) CopySubtree(byteOffset int) bool
 prettyview method (*PrettyView) CreateRenderer() fyne.WidgetRenderer
 prettyview method (*PrettyView) Cursor() desktop.Cursor
+prettyview method (*PrettyView) Cut()
 prettyview method (*PrettyView) DragEnd()
 prettyview method (*PrettyView) Dragged(ev *fyne.DragEvent)
 prettyview method (*PrettyView) Editable() bool
@@ -68,6 +69,7 @@ prettyview method (*PrettyView) MouseIn(*desktop.MouseEvent)
 prettyview method (*PrettyView) MouseMoved(ev *desktop.MouseEvent)
 prettyview method (*PrettyView) MouseOut()
 prettyview method (*PrettyView) MouseUp(*desktop.MouseEvent)
+prettyview method (*PrettyView) Paste()
 prettyview method (*PrettyView) Redo()
 prettyview method (*PrettyView) Reformat()
 prettyview method (*PrettyView) Reparse(format Format)
