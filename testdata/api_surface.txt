@@ -102,6 +102,7 @@ prettyview method (*PrettyView) SetWrap(mode WrapMode)
 prettyview method (*PrettyView) Source() []byte
 prettyview method (*PrettyView) Tapped(e *fyne.PointEvent)
 prettyview method (*PrettyView) TappedSecondary(e *fyne.PointEvent)
+prettyview method (*PrettyView) Text() string
 prettyview method (*PrettyView) TypedKey(ev *fyne.KeyEvent)
 prettyview method (*PrettyView) TypedRune(r rune)
 prettyview method (*PrettyView) TypedShortcut(s fyne.Shortcut)

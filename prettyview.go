@@ -43,6 +43,7 @@ package prettyview
 
 import (
 	"image/color"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -202,22 +203,50 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 func (pv *PrettyView) SetText(s string) { pv.SetData([]byte(s), FormatAuto) }
 
 // Reparse re-parses the current source under a different format (e.g. when a UI
-// lets the user override auto-detection). No-op if no document is loaded.
+// lets the user override auto-detection). No-op if no document is loaded. In edit mode
+// it re-reads the live edit buffer (via Source), not a stale model snapshot.
 func (pv *PrettyView) Reparse(format Format) {
 	if pv.doc == nil {
 		return
 	}
-	pv.SetData(pv.doc.Src, format)
+	pv.SetData(pv.Source(), format)
 }
 
-// Source returns the bytes of the current document (the originally supplied input),
-// or nil. The returned slice ALIASES the document's retained input buffer; treat it as
-// read-only and copy before mutating, or you corrupt the model the viewer renders from.
+// Source returns the raw bytes of the current content. For a read-only viewer this is
+// the originally supplied input and the returned slice ALIASES the document's retained
+// buffer (treat it as read-only, copy before mutating). For an editable widget it is the
+// live edit buffer — the bytes the user has typed/pasted — returned as a fresh copy that
+// is safe to keep. Returns nil before any content is loaded.
+//
+// Round-trip: SetData(pv.Source(), pv.Format()) reproduces an equivalent document, so an
+// editable widget's edits can be re-loaded into a read-only viewer losslessly.
 func (pv *PrettyView) Source() []byte {
+	if pv.cfg.editable && pv.buf != nil {
+		return pv.buf.Bytes() // live edited bytes; a fresh, owned copy
+	}
 	if pv.doc == nil {
 		return nil
 	}
 	return pv.doc.Src
+}
+
+// Text returns the text of the document as currently displayed, as a string: the
+// structured, pretty-printed (depth-indented) form once a reformat has run, or the raw
+// text while typing. It is the editor-facing convenience getter, distinct from the raw
+// Source bytes (which are what the user literally typed). Folding does not truncate it.
+func (pv *PrettyView) Text() string {
+	if pv.doc == nil {
+		return ""
+	}
+	var b strings.Builder
+	for li := 0; li < pv.doc.TotalLines(); li++ {
+		for d := 0; d < int(pv.doc.Lines[li].Depth); d++ {
+			b.WriteString("  ") // two-space indent per nesting level (the display uses pixel indents)
+		}
+		b.WriteString(pv.doc.LineString(int32(li)))
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 // Format reports the format actually used for the current document.
