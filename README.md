@@ -76,6 +76,11 @@ go get github.com/ideaconnect/go-fyne-pretty-view
 Requires Go 1.26.4+ and the usual Fyne build dependencies (a C compiler and the
 OpenGL/X11 headers on Linux).
 
+**Fyne compatibility.** Built and tested against **Fyne v2.7.x** (the version pinned
+in [go.mod](go.mod)). Newer Fyne v2 minor releases are expected to work; each Fyne
+bump arrives as its own reviewable PR (it is excluded from the batched dependency
+group) and is validated before release. Security reporting is in [SECURITY.md](SECURITY.md).
+
 ## Quick start
 
 ```go
