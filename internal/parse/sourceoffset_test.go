@@ -29,3 +29,24 @@ func TestLineAtSourceOffset(t *testing.T) {
 		t.Errorf("out-of-range offset -> line %d, want < %d", got, d.TotalLines())
 	}
 }
+
+// TestLineColAtSourceOffset checks the rune-precise Src-offset -> (line, col) map used
+// to anchor the caret across a non-destructive reformat (#41).
+func TestLineColAtSourceOffset(t *testing.T) {
+	src := []byte("{\n  \"a\": 1,\n  \"bb\": 22\n}")
+	d := Parse(src, FormatJSON, 0)
+
+	off := bytes.Index(src, []byte("22"))
+	line, col := d.LineColAtSourceOffset(off)
+	lt := d.LineString(line)
+	if !strings.Contains(lt, "bb") {
+		t.Fatalf("offset of \"22\" mapped to line %q, want the \"bb\" line", lt)
+	}
+	runes := []rune(lt)
+	if col < 0 || col > len(runes) {
+		t.Fatalf("col %d out of range for %q", col, lt)
+	}
+	if !strings.HasPrefix(string(runes[col:]), "22") {
+		t.Errorf("col %d in %q does not land at the \"22\" token (got %q)", col, lt, string(runes[col:]))
+	}
+}

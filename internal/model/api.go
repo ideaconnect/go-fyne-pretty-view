@@ -1,5 +1,7 @@
 package model
 
+import "unicode/utf8"
+
 // This file is the public projection/fold surface of Document. The fold index
 // itself stays unexported; the view drives folding through these delegators and
 // never touches projection internals.
@@ -55,6 +57,33 @@ func (d *Document) lineFirstSrcStart(li int32) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// LineColAtSourceOffset maps a Src byte offset to a rune-precise display (line, col):
+// it finds the line covering off (LineAtSourceOffset) and then walks that line's
+// segments, returning the displayed-rune column where off falls. An offset inside a
+// source-backed segment lands exactly on its rune; one in inter-token whitespace (not
+// displayed) clamps to the nearest segment boundary. This is the caret anchor across a
+// non-destructive reformat: the buffer bytes don't move, so a stable byte offset maps
+// straight to the new structured position (issue #41). Returns (0,0) for an empty doc.
+func (d *Document) LineColAtSourceOffset(off int) (line int32, col int) {
+	if len(d.Lines) == 0 {
+		return 0, 0
+	}
+	line = d.LineAtSourceOffset(off)
+	runesBefore := 0
+	for _, s := range d.LineSegs(line) {
+		if s.Buf == BufSrc {
+			if off <= int(s.Start) {
+				return line, runesBefore // before this token (inter-token gap) -> its start
+			}
+			if off < int(s.End) {
+				return line, runesBefore + utf8.RuneCount(d.Src[s.Start:off])
+			}
+		}
+		runesBefore += utf8.RuneCount(d.SegBytes(s))
+	}
+	return line, runesBefore // past the last source token on the line -> end of its text
 }
 
 // Fold collapses node; Unfold expands it; Toggle flips it.

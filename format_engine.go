@@ -107,8 +107,11 @@ func (pv *PrettyView) reformatNow() {
 	} else {
 		pv.doc = nd
 		pv.editStructured = true
-		line := pv.doc.LineAtSourceOffset(pv.caretBuf) // coarse; rune-precise column is #41
-		pv.sel.focus = modelPos{line: line, col: 0}
+		// Anchor the caret across the reformat: the buffer bytes did not move, so the
+		// caret's stable byte offset maps straight to a rune-precise structured position
+		// (#41). A shape-changing edit lands the caret at the new token covering its byte.
+		line, col := pv.doc.LineColAtSourceOffset(pv.caretBuf)
+		pv.sel.focus = modelPos{line: line, col: col}
 		pv.sel.anchor = pv.sel.focus
 		pv.sel.active = false
 	}
