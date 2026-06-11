@@ -901,6 +901,129 @@ Root `Tapped`/`Cursor` model-space hit-test; triangle hot-zone; `toggle`→`Refr
 
 ---
 
+## 12. v2 edit model (M12 — editable input + live formatting)
+
+> **Status.** Ratified output of the v2.0.0 design spike (issue #36). This section is
+> the contract every other v2.0.0 issue (#37–#48) cites; those issues must not
+> contradict it. v1 stays frozen; v2 ships under a new `/v2` module path (§12.5).
+> A doc-drift test (`TestDesignDocHasV2EditSection`) guards the load-bearing claims.
+
+v1 is a viewer: bytes in, pretty view out, read-only. v2 makes the same widget an
+**opt-in light editor** — the host can let a user type or paste raw/messy data and
+watch it pretty-format live — **without** giving up the memory bound or the
+model-based machinery that justify this widget's existence.
+
+### 12.1 DECISION — edit on a raw text buffer, never mutate the model
+
+> **DECISION V2-1 (rebuild from bytes).** Editing mutates a separate, owned **gap
+> buffer over `[]byte`**; it never mutates the parsed `Document`. On a debounced
+> pause the buffer's bytes are handed to `parse.Parse` wholesale, producing a
+> **fresh, internally-immutable `Document`** that atomically replaces the old one
+> (the existing `SetData` rebuild path, prettyview.go:138-174). The model is never
+> edited in place.
+
+Why not in-place model edits: a `Node`'s subtree is the contiguous id range
+`[id, id+Subtree)` and data tokens are zero-copy ranges into one shared `Src`
+(model.go:104-121, :138-171). A single-character insert would have to shift every
+downstream `SrcStart/SrcEnd`, re-thread `SegFirst`, and re-balance the fold index —
+O(document) per keystroke and a standing invitation to corrupt the arenas.
+Rebuild-from-bytes keeps each built model exactly as immutable and pointer-free as
+v1's (invariant 3 holds per snapshot); we pay one wholesale reparse per *pause*, not
+per keystroke, reusing the tolerant `recover()`-guarded parser that already degrades
+mid-edit garbage to the raw fallback (parse.go:164-209).
+
+### 12.2 DECISION — buffer representation and the live-highlight path
+
+> **DECISION V2-2 (gap buffer).** Use a **gap buffer**, not a piece table or rope.
+> Edits while typing are caret-local (the gap sits at the caret); `Src` is already
+> one contiguous `[]byte`; and `buf.Bytes()` collapses the gap with a single `copy`
+> into the snapshot the parser consumes. A rope/piece-table's asymptotics buy nothing
+> at the few-MB scale this widget targets and cost allocation and complexity.
+
+Between keystrokes the widget renders the buffer through the cheap `parseRaw`
+projection (raw-text highlight) so typing is never blocked on a structured parse; the
+structured reparse/reformat runs only on the debounced pause, cloning the search
+debounce machinery (timer + generation counter + `fyne.Do` + `destroyed` guard,
+search.go:78-109).
+
+### 12.3 DECISION — mode is fixed at construction, never user-changeable
+
+> **DECISION V2-3 (construction-time mode).** Input-vs-output is a **host decision
+> made once at construction** and is **immutable for the widget's lifetime**. The
+> surface is exactly `WithEditable() Option` (default = read-only viewer) plus a
+> read-only `Editable() bool` accessor. There is **no `SetEditable`, no
+> `OnEditModeChanged`, and no toggle rendered in the widget's own chrome**. To change
+> purpose, the host constructs a different widget.
+
+Rationale (user directive, 2026-06-11): *"its purpose, input or output, should be
+defined, not user changeable."* The viewer must never present an end-user control
+that flips it into an editor. A **host-only** runtime flip (`SetEditable`, driven from
+the host's own external menu — still never a widget-rendered control) is a real future
+want but is **deferred to the Future Features milestone (#54)**: it has to define
+enter/exit buffer, caret, undo-history, and dirty-discard semantics that v2.0
+deliberately does not answer, and it stays purely additive (a v2.x minor) when it
+lands.
+
+### 12.4 Caret bookkeeping across a reformat
+
+While editing, the gap buffer is the source of truth. Each reparse hands the parser a
+fresh contiguous snapshot, so the new `Document` zero-copies into **its own** immutable
+bytes (invariant 3 preserved — the new model never aliases the still-mutating buffer).
+The caret is a model position (`sel.focus`, selection.go) re-resolved against the new
+model after each rebuild; a semantic anchor that survives reflow/reformat is specified
+in a later issue (#41). The caret renders as a **single `canvas.Rectangle`** on a new
+`caretLayer` positioned by the one coordinate convention (`geometry.CellOrigin`) — one
+rect, not a widget-per-line, so invariant 1 is untouched.
+
+### 12.5 Migration — a `/v2` major
+
+New exported symbols (`WithEditable`, `Editable`, `Text`, `Format`, `Caret`/`SetCaret`,
+`InputConfig`, undo/clipboard, parse-status) cannot ship under the v1 frozen surface
+(`TestExportedSurfaceGolden`, api_surface_test.go:31), and the builder/summary seam
+will change internally. So v2 bumps the module path to `…/go-fyne-pretty-view/v2` (#37)
+and re-baselines the surface golden. Read-only stays the default, so a v1 host migrates
+by changing **only** the import path — every v1 symbol keeps v1 semantics (the
+additive-over-v1 target, audited in #47).
+
+### 12.6 The size-cap fallback
+
+The debounced **full** reparse/reformat is fine to a few MB. Above a configurable
+`MaxEditBytes` (#44, mirroring `WithMaxInputBytes`, prettyview.go:142-144) the widget
+**disables auto-format-on-pause** and keeps raw-highlight-only editing; structured
+reformat then happens only on an explicit `Format()`. This is the conservative
+per-keystroke-reparse alternative's job, demoted to a guarded fallback rather than the
+default path.
+
+### 12.7 The seven invariants and what v2 trades
+
+v2 is built so that **five of the seven invariants stay green untouched**, and the two
+it relaxes are relaxed *consciously and locally*, not as accidents.
+
+| # | Invariant (source) | v2 status |
+|---|---|---|
+| 1 | Only visible rows are widgets (§1.1 M-1) | **Held** — rebuild feeds the same virtualized renderer; the caret is one extra rect, not a per-line widget. |
+| 2 | Per-row horizontal culling (M-2) | **Held** — unchanged; rebuilt models render through the same culled row path. |
+| 3 | Struct-of-arrays, pointer-free, zero-copy model (M-3) | **Held per snapshot** — each reparse yields a fresh immutable model that aliases *its own* bytes, never the live buffer. |
+| 4 | Selection / search / copy are model-based (M-4) | **Held** — caret, selection and search still operate on `(line,col)` and the arenas, never on a `CanvasObject`. |
+| 5 | One coordinate convention (geometry.go) | **Held** — the caret reuses `CellOrigin`; no second convention is introduced. |
+| 6 | Immutability after build (§9) | **Traded (local).** A live mutable **edit buffer** now sits beside the model, and the model is replaced on each debounced reformat (v1 replaced it only on `SetData`). Each *built* `Document` stays immutable; what's relaxed is the widget-level "nothing mutates after build." |
+| 7 | Memory budget ≈5–7× source (M-3) | **Traded (bounded).** Edit mode adds the gap buffer (≈ source size + gap) plus one transient reparse snapshot; documented delta, and `MaxEditBytes` (§12.6) bounds the worst case. Read-only widgets allocate no buffer and are unchanged. |
+
+> **INVARIANT V2-INV (no silent regression).** A read-only v2 widget (no
+> `WithEditable()`) is byte-for-byte equivalent to v1 in object count, memory, and
+> behavior. Editing's costs are paid only when a host opts in. `renderer_test.go` and
+> `memory_test.go` must stay green for the read-only path.
+
+### 12.8 Rejected alternatives
+
+- **In-place model edits** — rejected: breaks invariants 3/6/7 (subtree-range shifts, re-threading, O(doc)/keystroke). §12.1.
+- **Two-pane input | output** (raw editor pane + read-only pretty pane) — rejected as the *default*: it dodges caret-stability-across-reformat by never reformatting the pane the user types in; kept only as a possible future layout flag.
+- **Piece table / rope buffer** — rejected: no asymptotic win at the few-MB target; more allocation and complexity than a gap buffer over the already-contiguous `Src`. §12.2.
+- **Per-keystroke full reparse as the default** — rejected as default, **kept as the over-cap fallback** (§12.6); blocking a structured parse on every rune is needless below the cap where raw-highlight + debounce suffice.
+- **A user-facing view/edit toggle in the chrome** — rejected outright by DECISION V2-3; mode is host-defined and fixed at construction.
+
+---
+
 Relevant Fyne source files this design is grounded on (absolute paths):
 - `fyne.io/fyne/v2@v2.7.4/widget/list.go` (fast-path window math 413-435; recycle pool 649-754; Content.Objects rebuild 758-763)
 - `fyne.io/fyne/v2@v2.7.4/internal/widget/scroller.go` (Offset 490, OnScrolled 495, ScrollToOffset 572 no-OnScrolled, both-axes Content.Move 454, canvas.Refresh idiom 477)
