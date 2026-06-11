@@ -195,6 +195,24 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 	return b.Finish()
 }
 
+// ParseEditable builds the edit-mode raw projection of src for v2 edit mode: one
+// display line per physical line, WITH a trailing empty line after a final newline (and
+// a single empty line for empty input), so the caret always has a line to occupy. It
+// does not strip a BOM or otherwise rewrite bytes, so display line/column offsets map
+// 1:1 onto the edit buffer's bytes (the caret math depends on that alignment). See
+// docs/DESIGN.md §12.
+func ParseEditable(src []byte, collapseDepth, tabWidth int) *model.Document {
+	if tabWidth < 1 {
+		tabWidth = 4
+	}
+	if uint64(len(src)) > math.MaxUint32 {
+		src = src[:int(uint64(math.MaxUint32))] // dead in practice (edit input is bounded), keeps offsets sane
+	}
+	b := model.NewBuilder(src, FormatRaw, collapseDepth)
+	_ = editRawParser{tabWidth: tabWidth}.Parse(src, b)
+	return b.Finish()
+}
+
 // safeParse runs a parser behind a panic boundary. The parsers are tolerance-first
 // and should never panic, but they consume untrusted input; if an unforeseen case
 // ever trips a panic, degrade to the raw fallback (content always displays) rather

@@ -32,6 +32,7 @@ type config struct {
 	indentStep    float32
 	maxInputBytes int  // cap on SetData/SetText input; 0 = no cap (the 4 GiB model ceiling)
 	lineNumbers   bool // render an opt-in line-number gutter
+	editable      bool // construct as an editor (input) rather than a read-only viewer
 	themeOverride map[fyne.ThemeVariant]Theme
 }
 
@@ -134,6 +135,18 @@ func WithMaxInputBytes(n int) Option {
 // holds; wrap-continuation rows leave the gutter blank. Off by default.
 func WithLineNumbers() Option {
 	return func(c *config) { c.lineNumbers = true }
+}
+
+// WithEditable constructs the widget as an editor (input) rather than the default
+// read-only viewer (output): the host can let a user type or paste data and edit it
+// in place. The input-vs-output purpose is fixed at construction and CANNOT be changed
+// afterwards — there is deliberately no SetEditable and the widget renders no view/edit
+// toggle in its chrome ("its purpose, input or output, should be defined, not user
+// changeable"; see docs/DESIGN.md §12.3). Read Editable to query the constructed mode;
+// a host-only runtime flip is a deferred future feature. Off by default, so a read-only
+// widget behaves byte-for-byte like a v1 viewer.
+func WithEditable() Option {
+	return func(c *config) { c.editable = true }
 }
 
 // WithIndentStep sets the pixels of indentation per nesting level.

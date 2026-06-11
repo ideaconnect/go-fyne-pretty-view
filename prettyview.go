@@ -68,12 +68,18 @@ type PrettyView struct {
 	cfg config
 	doc *model.Document
 
+	// edit state (nil/zero unless constructed WithEditable). buf is the mutable
+	// source-of-truth; in edit mode the displayed doc is the raw projection of buf,
+	// so display lines map 1:1 to buffer lines and the caret is a buffer position.
+	buf *model.TextBuffer
+
 	// view state, owned by the Fyne goroutine
 	r          *prettyViewRenderer
 	met        geometry.Metrics
 	palette    []color.Color
 	guideColor color.Color
 	selColor   color.Color
+	caretColor color.Color
 	viewOffX   float32 // current horizontal scroll offset (content space)
 	viewW      float32 // current viewport width
 
@@ -120,6 +126,12 @@ func New(opts ...Option) *PrettyView {
 		o(&pv.cfg)
 	}
 	pv.doc = model.EmptyDocument()
+	if pv.cfg.editable {
+		// An editable widget always owns a buffer so the first keystroke has somewhere
+		// to land, even before any SetData. NewTextBuffer copies, so it never aliases
+		// the document's Src.
+		pv.buf = model.NewTextBuffer(pv.doc.Src)
+	}
 	pv.ExtendBaseWidget(pv)
 	return pv
 }
@@ -142,7 +154,15 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 	if max := pv.cfg.maxInputBytes; max > 0 && len(src) > max {
 		src = src[:max] // tolerant parsers render a truncated document
 	}
-	pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
+	if pv.cfg.editable {
+		// Seed the edit buffer from the input and display its raw projection: while
+		// editing, display lines map 1:1 to buffer lines so the caret stays a trivial
+		// buffer position. Structured re-formatting happens on a debounced pause (#40).
+		pv.buf = model.NewTextBuffer(src)
+		pv.doc = parse.ParseEditable(pv.buf.Bytes(), pv.cfg.collapseDepth, pv.cfg.tabWidth)
+	} else {
+		pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
+	}
 	pv.ClearSearch()
 	pv.ClearSelection() // a selection from the old document is meaningless against the new one
 	pv.Refresh()

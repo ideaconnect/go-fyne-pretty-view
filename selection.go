@@ -234,7 +234,15 @@ func (pv *PrettyView) FocusLost() {
 	}
 	pv.refreshSelectionView()
 }
-func (pv *PrettyView) TypedRune(rune) {}
+
+// TypedRune inserts a typed character at the caret when the widget is editable
+// (replacing any active selection); it is a no-op for a read-only viewer, exactly
+// as in v1.
+func (pv *PrettyView) TypedRune(r rune) {
+	if pv.cfg.editable {
+		pv.editInsert([]byte(string(r)))
+	}
+}
 
 // TypedKey handles Escape (clear selection) and keyboard scrolling/navigation:
 // Up/Down scroll one row, PageUp/PageDown one viewport, Home/End jump to the top/
@@ -278,6 +286,14 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 			pv.keyExtend(0, 0, false, true)
 			return
 		}
+	}
+
+	// Edit mode claims the printable/navigation/deletion keys (arrows move the caret,
+	// Enter inserts a newline, Backspace/Delete edit) before the read-only handlers, so
+	// none of v1's Enter=fold / arrow=scroll meanings collide with typing. Keys it does
+	// not claim (Escape, PageUp/Down) fall through to the read-only behavior below.
+	if pv.cfg.editable && pv.editKey(ev) {
+		return
 	}
 
 	switch ev.Name {
@@ -638,6 +654,7 @@ func (pv *PrettyView) refreshSelectionView() {
 		return
 	}
 	pv.r.rebuildSelection(pv.r.firstRow, pv.r.lastRow)
+	pv.r.rebuildCaret() // focus/caret moves repaint without a full reflow
 }
 
 func near(a, b fyne.Position) bool {

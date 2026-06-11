@@ -28,6 +28,7 @@ prettyview func NewWithData(src []byte, format Format, opts ...Option) *PrettyVi
 prettyview func NewWrapToggle(pv *PrettyView) fyne.CanvasObject
 prettyview func ShowOpenDialog(pv *PrettyView, win fyne.Window)
 prettyview func WithDefaultCollapseDepth(d int) Option
+prettyview func WithEditable() Option
 prettyview func WithFormat(f Format) Option
 prettyview func WithIndentStep(px float32) Option
 prettyview func WithLineNumbers() Option
@@ -47,6 +48,7 @@ prettyview method (*PrettyView) CreateRenderer() fyne.WidgetRenderer
 prettyview method (*PrettyView) Cursor() desktop.Cursor
 prettyview method (*PrettyView) DragEnd()
 prettyview method (*PrettyView) Dragged(ev *fyne.DragEvent)
+prettyview method (*PrettyView) Editable() bool
 prettyview method (*PrettyView) ExpandAll()
 prettyview method (*PrettyView) ExpandTo(off int) bool
 prettyview method (*PrettyView) ExpandToDepth(depth int)
@@ -86,7 +88,7 @@ prettyview method (*PrettyView) Source() []byte
 prettyview method (*PrettyView) Tapped(e *fyne.PointEvent)
 prettyview method (*PrettyView) TappedSecondary(e *fyne.PointEvent)
 prettyview method (*PrettyView) TypedKey(ev *fyne.KeyEvent)
-prettyview method (*PrettyView) TypedRune(rune)
+prettyview method (*PrettyView) TypedRune(r rune)
 prettyview method (*PrettyView) TypedShortcut(s fyne.Shortcut)
 prettyview method (*PrettyView) Wrap() WrapMode
 prettyview type Format = model.Format

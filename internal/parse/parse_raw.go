@@ -94,3 +94,26 @@ func parseRaw(src []byte, collapseDepth, tabWidth int) *model.Document {
 	_ = rawParser{tabWidth: tabWidth}.Parse(src, b)
 	return b.Finish()
 }
+
+// editRawParser is the raw projection used by v2 edit mode. It differs from rawParser
+// in exactly one way: it always emits a final line — including an EMPTY one after a
+// trailing newline, and a single empty line for empty input — so the caret has a line
+// to sit on after the last '\n' (the standard text-editor convention). The result has
+// strings.Count(src,"\n")+1 display lines, mapping 1:1 to the edit buffer's logical
+// lines so the caret's (line, col) is a direct buffer position. Viewers keep using
+// rawParser, which omits that phantom trailing blank line.
+type editRawParser struct{ tabWidth int }
+
+func (p editRawParser) Parse(src []byte, b *model.Builder) error {
+	start := 0
+	for {
+		nl := bytes.IndexByte(src[start:], '\n')
+		if nl < 0 {
+			b.Leaf(model.KindRawLine, start, len(src), rawLineSegs(src, start, len(src), p.tabWidth))
+			return nil
+		}
+		end := start + nl
+		b.Leaf(model.KindRawLine, start, end, rawLineSegs(src, start, end, p.tabWidth))
+		start = end + 1
+	}
+}
