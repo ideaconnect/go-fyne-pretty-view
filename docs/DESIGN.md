@@ -161,7 +161,7 @@ func (pv *PrettyView) CollapseAll()
 
 // ExpandTo expands every collapsed ancestor of the node owning byte offset off,
 // then scrolls it into view, reporting whether such a node was found. Source byte
-// offsets are populated for JSON/JSONC only; XML/HTML return false.
+// offsets are populated for every structured format (JSON/JSONC/XML/HTML).
 func (pv *PrettyView) ExpandTo(byteOffset int) bool
 
 // SetDefaultCollapseDepth collapses, on load, every container at depth d or deeper
@@ -182,7 +182,7 @@ func (pv *PrettyView) CopySelection()
 
 // CopySubtree copies the node under byteOffset (the whole {…}/[…] span), regardless
 // of fold state, as the viewer's pretty-printed rendering (not the original source
-// bytes), reporting whether a node was found and copied. JSON/JSONC only; XML/HTML
+// bytes), reporting whether a node was found and copied. Works for every structured format
 // carry no per-node source offset and return false.
 func (pv *PrettyView) CopySubtree(byteOffset int) bool
 
@@ -734,7 +734,7 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 
 ### 6.8 Copy (model-based, source-byte accurate)
 
-`selectedText()` walks the visible lines of the span and appends each whole line's **displayed bytes** via `AppendDisplayLine` (rewriting tab pads back to `\t` for raw docs, §4.3), rune-slicing only a partial endpoint, joined with `\n`. `SelectedText()` slices model bytes, never reads a `CanvasObject` (selectable.go:120-131 analog). `CopySelection` → `fyne.CurrentApp().Clipboard().SetContent(txt)` (app-level clipboard, app.go:88; `Window.Clipboard()` is deprecated, window.go:104). **Folded-region semantics:** default WYSIWYG — a collapsed node contributes its summary string. `CopySubtree(byteOffset)` re-renders the node's full `[id, id+subtree[id])` subtree as the viewer's pretty-printed display text (not the original source bytes) regardless of fold, and reports a bool (JSON/JSONC only; XML/HTML lack per-node source offsets and return false). **Copy-after-collapse contract (A2 Issue #7):** if a node inside an active selection is collapsed, copy then returns the summary for that node, not the hidden children — asserted by a test.
+`selectedText()` walks the visible lines of the span and appends each whole line's **displayed bytes** via `AppendDisplayLine` (rewriting tab pads back to `\t` for raw docs, §4.3), rune-slicing only a partial endpoint, joined with `\n`. `SelectedText()` slices model bytes, never reads a `CanvasObject` (selectable.go:120-131 analog). `CopySelection` → `fyne.CurrentApp().Clipboard().SetContent(txt)` (app-level clipboard, app.go:88; `Window.Clipboard()` is deprecated, window.go:104). **Folded-region semantics:** default WYSIWYG — a collapsed node contributes its summary string. `CopySubtree(byteOffset)` re-renders the node's full `[id, id+subtree[id])` subtree as the viewer's pretty-printed display text (not the original source bytes) regardless of fold, and reports a bool (source offsets are populated for JSON/JSONC/XML/HTML). **Copy-after-collapse contract (A2 Issue #7):** if a node inside an active selection is collapsed, copy then returns the summary for that node, not the hidden children — asserted by a test.
 
 ---
 

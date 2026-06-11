@@ -149,6 +149,35 @@ func TestContextMenuCopyKeyPath(t *testing.T) {
 	}
 }
 
+// TestCopySubtreeExpandToAllFormats: with XML/HTML source offsets populated, the
+// byte-offset CopySubtree and ExpandTo now resolve a node on every structured format
+// (they returned false for XML/HTML before).
+func TestCopySubtreeExpandToAllFormats(t *testing.T) {
+	cases := []struct {
+		name, src, want string
+		format          Format
+		off             int
+	}{
+		{"json", `{"a":{"b":1}}`, `"b"`, FormatJSON, 6},
+		{"xml", `<root><a>x</a></root>`, "<a", FormatXML, 7},
+		{"html", `<div><p>hi</p></div>`, "<p", FormatHTML, 6},
+	}
+	for _, c := range cases {
+		test.NewApp()
+		pv := NewWithData([]byte(c.src), c.format)
+		if !pv.CopySubtree(c.off) {
+			t.Errorf("%s: CopySubtree(%d) returned false (source offsets not populated?)", c.name, c.off)
+			continue
+		}
+		if got := fyne.CurrentApp().Clipboard().Content(); !strings.Contains(got, c.want) {
+			t.Errorf("%s: CopySubtree clipboard = %q, want it to contain %q", c.name, got, c.want)
+		}
+		if !pv.ExpandTo(c.off) {
+			t.Errorf("%s: ExpandTo(%d) returned false", c.name, c.off)
+		}
+	}
+}
+
 // TestTappedSecondaryShowsMenu: a right-click pops the context menu as a canvas
 // overlay and leaves any existing selection untouched.
 func TestTappedSecondaryShowsMenu(t *testing.T) {

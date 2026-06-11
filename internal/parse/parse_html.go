@@ -64,7 +64,7 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 	z := html.NewTokenizer(bytes.NewReader(src))
 	var names []string // open element names, mirroring the model.Builder's container stack
 
-	closeTo := func(name string) {
+	closeTo := func(name string, srcEnd int) {
 		idx := -1
 		for i := len(names) - 1; i >= 0; i-- {
 			if names[i] == name {
@@ -78,19 +78,28 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 		for len(names) > idx {
 			nm := names[len(names)-1]
 			names = names[:len(names)-1]
-			b.Close(0, endSegs(nm))
+			b.Close(srcEnd, endSegs(nm))
 		}
 	}
 
 	havePending := false
 	var pendTT html.TokenType
 	var pendTok html.Token
+	// Byte spans via summing z.Raw() lengths, so element nodes carry real Src ranges
+	// into the source (for copy-subtree). tokStart/tokEnd is the span of the token
+	// returned by nextToken; pendStart/pendEnd that of a one-token lookahead.
+	off, tokStart, tokEnd := 0, 0, 0
+	var pendStart, pendEnd int
 	nextToken := func() (html.TokenType, html.Token) {
 		if havePending {
 			havePending = false
+			tokStart, tokEnd = pendStart, pendEnd
 			return pendTT, pendTok
 		}
 		tt := z.Next()
+		tokStart = off
+		off += len(z.Raw())
+		tokEnd = off
 		return tt, z.Token()
 	}
 
@@ -103,38 +112,40 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 		case html.StartTagToken:
 			switch {
 			case isVoidElement(tok.Data):
-				b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, false))
+				b.Leaf(model.KindEmptyElement, tokStart, tokEnd, htmlStartSegs(tok, false))
 			case b.Depth() >= maxNestDepth:
 				// Past the nesting cap: emit as a non-foldable leaf so adversarial
 				// deeply-nested HTML stays bounded (its end tag finds no open match in
 				// names and is ignored). HTML's tokenizer is iterative, so unlike the
 				// recursive JSON/XML parsers this guards model shape, not a stack overflow.
-				b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, false))
+				b.Leaf(model.KindEmptyElement, tokStart, tokEnd, htmlStartSegs(tok, false))
 			default:
 				// Peek one token: a start tag immediately followed by its matching end
 				// tag is an empty element, emitted inline (non-foldable) like the XML
 				// path, rather than a foldable node that collapses to "0 children".
+				startOff := tokStart // the start tag's offset, captured before peeking
 				ntt, ntok := nextToken()
 				if ntt == html.EndTagToken && ntok.Data == tok.Data {
-					b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, true))
+					b.Leaf(model.KindEmptyElement, startOff, tokEnd, htmlStartSegs(tok, true))
 				} else {
-					b.Open(model.KindElement, 0, htmlStartSegs(tok, false))
+					b.Open(model.KindElement, startOff, htmlStartSegs(tok, false))
 					names = append(names, tok.Data)
+					pendStart, pendEnd = tokStart, tokEnd          // restore the peeked token's span when re-read
 					havePending, pendTT, pendTok = true, ntt, ntok // re-process the peeked token
 				}
 			}
 		case html.SelfClosingTagToken:
-			b.Leaf(model.KindEmptyElement, 0, 0, htmlStartSegs(tok, true))
+			b.Leaf(model.KindEmptyElement, tokStart, tokEnd, htmlStartSegs(tok, true))
 		case html.EndTagToken:
-			closeTo(tok.Data)
+			closeTo(tok.Data, tokEnd)
 		case html.TextToken:
 			if txt := collapseSpace(tok.Data); txt != "" {
-				b.Leaf(model.KindText, 0, 0, []model.Seg{model.LitSeg(model.RoleString, txt)})
+				b.Leaf(model.KindText, tokStart, tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)})
 			}
 		case html.CommentToken:
-			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(tok.Data)+" -->")})
+			b.Leaf(model.KindComment, tokStart, tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(tok.Data)+" -->")})
 		case html.DoctypeToken:
-			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!DOCTYPE "+collapseSpace(tok.Data)+">")})
+			b.Leaf(model.KindComment, tokStart, tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!DOCTYPE "+collapseSpace(tok.Data)+">")})
 		}
 	}
 	return nil

@@ -59,16 +59,16 @@ func (xmlParser) Parse(src []byte, b *model.Builder) error {
 		}
 		switch tok := t.(type) {
 		case xml.StartElement:
-			s.parseElement(tok)
+			s.parseElement(tok, s.tokStart)
 		case xml.Comment:
-			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
+			b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
 		case xml.ProcInst:
-			b.Leaf(model.KindComment, 0, 0, []model.Seg{procInstSeg(tok)})
+			b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{procInstSeg(tok)})
 		case xml.Directive:
-			b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!"+collapseSpace(string(tok))+">")})
+			b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!"+collapseSpace(string(tok))+">")})
 		case xml.CharData:
 			if txt := collapseSpace(string(tok)); txt != "" {
-				b.Leaf(model.KindText, 0, 0, []model.Seg{model.LitSeg(model.RoleString, txt)})
+				b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)})
 			}
 		}
 	}
@@ -80,38 +80,50 @@ type xmlScanner struct {
 	b       *model.Builder
 	peeked  xml.Token
 	hasPeek bool
+
+	// Byte span of the most recent token from next() and the peeked token, via
+	// dec.InputOffset(), so element nodes carry real Src ranges for copy-subtree.
+	tokStart, tokEnd   int
+	peekStart, peekEnd int
 }
 
 func (s *xmlScanner) next() (xml.Token, error) {
 	if s.hasPeek {
 		s.hasPeek = false
+		s.tokStart, s.tokEnd = s.peekStart, s.peekEnd
 		return s.peeked, nil
 	}
+	start := int(s.dec.InputOffset())
 	t, err := s.dec.Token()
 	if err != nil {
 		return nil, err
 	}
+	s.tokStart, s.tokEnd = start, int(s.dec.InputOffset())
 	return xml.CopyToken(t), nil
 }
 
 func (s *xmlScanner) peek() (xml.Token, bool) {
 	if !s.hasPeek {
+		start := int(s.dec.InputOffset())
 		t, err := s.dec.Token()
 		if err != nil {
 			return nil, false
 		}
 		s.peeked = xml.CopyToken(t)
+		s.peekStart, s.peekEnd = start, int(s.dec.InputOffset())
 		s.hasPeek = true
 	}
 	return s.peeked, true
 }
 
-func (s *xmlScanner) parseElement(start xml.StartElement) {
+// parseElement builds one element. srcStart is the byte offset of its '<', so its
+// node carries a real [SrcStart,SrcEnd) span into the source (for copy-subtree).
+func (s *xmlScanner) parseElement(start xml.StartElement, srcStart int) {
 	// Empty element: <tag/> or <tag></tag> — render inline as a single leaf.
 	if t, ok := s.peek(); ok {
 		if end, isEnd := t.(xml.EndElement); isEnd && end.Name == start.Name {
 			s.hasPeek = false // consume the end token
-			s.b.Leaf(model.KindEmptyElement, 0, 0, startSegs(start, true))
+			s.b.Leaf(model.KindEmptyElement, srcStart, s.peekEnd, startSegs(start, true))
 			return
 		}
 	}
@@ -120,12 +132,12 @@ func (s *xmlScanner) parseElement(start xml.StartElement) {
 	// and drain its subtree (keeping the decoder balanced) instead of recursing,
 	// so adversarial deeply-nested XML can't overflow the stack.
 	if s.b.Depth() >= maxNestDepth {
-		s.b.Leaf(model.KindError, 0, 0, startSegs(start, false))
+		s.b.Leaf(model.KindError, srcStart, srcStart, startSegs(start, false))
 		s.skipElement()
 		return
 	}
 
-	s.b.Open(model.KindElement, 0, startSegs(start, false))
+	s.b.Open(model.KindElement, srcStart, startSegs(start, false))
 	for {
 		t, err := s.next()
 		if err != nil {
@@ -133,18 +145,18 @@ func (s *xmlScanner) parseElement(start xml.StartElement) {
 		}
 		switch tok := t.(type) {
 		case xml.StartElement:
-			s.parseElement(tok)
+			s.parseElement(tok, s.tokStart)
 		case xml.EndElement:
-			s.b.Close(0, endSegs(start.Name.Local))
+			s.b.Close(s.tokEnd, endSegs(start.Name.Local))
 			return
 		case xml.CharData:
 			if txt := collapseSpace(string(tok)); txt != "" {
-				s.b.Leaf(model.KindText, 0, 0, []model.Seg{model.LitSeg(model.RoleString, txt)})
+				s.b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)})
 			}
 		case xml.Comment:
-			s.b.Leaf(model.KindComment, 0, 0, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
+			s.b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
 		case xml.ProcInst:
-			s.b.Leaf(model.KindComment, 0, 0, []model.Seg{procInstSeg(tok)})
+			s.b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{procInstSeg(tok)})
 		}
 	}
 }

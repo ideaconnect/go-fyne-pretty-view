@@ -320,11 +320,12 @@ func (pv *PrettyView) CopySelection() {
 }
 
 // CopySubtree copies the displayed text of the node owning byteOffset (its whole
-// {…}/[…] span, regardless of fold state) to the clipboard, reporting whether a
-// node was found and copied. Source byte offsets are populated for JSON/JSONC only;
-// XML and HTML nodes carry no source span, so CopySubtree returns false for them
-// (copying an XML/HTML subtree by offset is not yet supported). The copied text is
-// the viewer's pretty-printed rendering of the subtree, not the original bytes.
+// {…}/[…]/<tag>…</tag> span, regardless of fold state) to the clipboard, reporting
+// whether a node was found and copied. Source byte offsets are populated for every
+// structured format (JSON/JSONC/XML/HTML); an out-of-range offset returns false. The
+// copied text is the viewer's pretty-printed rendering of the subtree, not the
+// original bytes. (The right-click "Copy subtree" menu item does the same without an
+// offset, for any format.)
 func (pv *PrettyView) CopySubtree(byteOffset int) bool {
 	node := pv.nodeAtByteOffset(byteOffset)
 	if node == model.NoNode {

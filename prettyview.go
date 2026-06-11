@@ -235,10 +235,10 @@ func (pv *PrettyView) SetDefaultCollapseDepth(depth int) {
 }
 
 // ExpandTo expands every collapsed ancestor of the node owning byte offset off and
-// scrolls it into view, reporting whether such a node was found. Source byte
-// offsets are populated for JSON/JSONC only; XML and HTML carry no per-node source
-// span (their tokenizers don't expose one), so on those formats no node matches an
-// arbitrary offset and ExpandTo returns false without scrolling.
+// scrolls it into view, reporting whether such a node was found. Source byte offsets
+// are populated for every structured format (JSON/JSONC/XML/HTML), so this resolves a
+// node on each; an out-of-range offset returns false without scrolling. See
+// ScrollToLine for a line-index alternative.
 func (pv *PrettyView) ExpandTo(off int) bool {
 	if pv.doc == nil {
 		return false

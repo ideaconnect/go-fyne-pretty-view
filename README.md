@@ -121,7 +121,7 @@ matching runtime setters; the on-screen chrome is **entirely opt-in**.
 | Initial collapse depth | Fully expanded (`0`) | `WithDefaultCollapseDepth(d)` at build, or `SetDefaultCollapseDepth(d)` at runtime. |
 | Free-text selection & copy | On | Always on; `SelectAll()`, `SelectedText()`, `CopySelection()`, `ClearSelection()`, `Ctrl/Cmd+A`, `Ctrl/Cmd+C`. |
 | Right-click context menu | On | Always on (Copy / Select all). |
-| Copy a subtree | On demand | `CopySubtree(byteOffset) bool` (JSON/JSONC only; copies the pretty-printed subtree). |
+| Copy a subtree | On demand | `CopySubtree(byteOffset) bool` (any format; copies the pretty-printed subtree). Also a right-click menu item. |
 | Search | On demand | `Search(SearchQuery{Text, Mode, CaseSensitive})`, `SearchNext()`, `SearchPrev()`, `ClearSearch()`, `SearchStatus()`. Tune with `WithSearchConfig(...)`. |
 | Soft word-wrap | Off (`WrapNone`) | `WithWrap(WrapWord)` at build, or `SetWrap(WrapWord)` / `SetWrap(WrapNone)` at runtime; `Wrap()` reads it. |
 | Tab display width | `4` | `WithTabWidth(n)`. |
@@ -218,9 +218,9 @@ search box, e.g. on `Ctrl/Cmd+F`).
 | `SetData(src, format)` / `SetText(s)` | load content |
 | `Reparse(format)` / `Source()` / `Format()` | re-parse the current bytes / read them back / current format |
 | `ExpandAll()` / `CollapseAll()` / `SetDefaultCollapseDepth(d)` | fold control |
-| `ExpandTo(byteOffset) bool` | reveal & scroll to a node (JSON/JSONC only; returns false on XML/HTML, which lack source offsets) |
+| `ExpandTo(byteOffset) bool` / `ScrollToLine(line) bool` | reveal & scroll to a node by source offset (any structured format) or to a display line (any format) |
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
-| `CopySelection()` / `CopySubtree(byteOffset) bool` | clipboard (CopySubtree is JSON/JSONC only and copies the pretty-printed subtree; returns false on XML/HTML) |
+| `CopySelection()` / `CopySubtree(byteOffset) bool` | clipboard (CopySubtree copies the pretty-printed subtree for any format) |
 | `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` | search |
 | `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
