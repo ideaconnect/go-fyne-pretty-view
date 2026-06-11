@@ -8,15 +8,15 @@ fonttheme var SansBold
 fonttheme var SansBoldItalic
 fonttheme var SansItalic
 fonttheme var SansRegular
-prettyview const FormatAuto
-prettyview const FormatHTML
-prettyview const FormatJSON
-prettyview const FormatJSONC
-prettyview const FormatRaw
-prettyview const FormatXML
-prettyview const SearchPlain SearchMode
+prettyview const FormatAuto = model.FormatAuto
+prettyview const FormatHTML = model.FormatHTML
+prettyview const FormatJSON = model.FormatJSON
+prettyview const FormatJSONC = model.FormatJSONC
+prettyview const FormatRaw = model.FormatRaw
+prettyview const FormatXML = model.FormatXML
+prettyview const SearchPlain SearchMode = iota
 prettyview const SearchRegex
-prettyview const WrapNone WrapMode
+prettyview const WrapNone WrapMode = iota
 prettyview const WrapWord
 prettyview func DefaultToolbarConfig(win fyne.Window) ToolbarConfig
 prettyview func New(opts ...Option) *PrettyView
@@ -92,7 +92,7 @@ prettyview method (*PrettyView) Wrap() WrapMode
 prettyview type Format = model.Format
 prettyview type Match struct { ColEnd int; ColStart int; Line int }
 prettyview type Option func(*config)
-prettyview type PrettyView struct {  }
+prettyview type PrettyView struct { embeds widget.BaseWidget }
 prettyview type SearchConfig struct { DebounceFor time.Duration; MaxMatches int; MinQueryLen int }
 prettyview type SearchMode uint8
 prettyview type SearchQuery struct { CaseSensitive bool; Mode SearchMode; Text string }

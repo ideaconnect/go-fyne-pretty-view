@@ -104,6 +104,13 @@ func genDeclSurface(pkg string, d *ast.GenDecl, render func(ast.Node) string) []
 			if st, ok := s.Type.(*ast.StructType); ok {
 				var fields []string
 				for _, f := range st.Fields.List {
+					if len(f.Names) == 0 {
+						// Embedded field: its type determines the promoted (host-callable)
+						// method set, so it is part of the frozen surface — capture it, or
+						// swapping widget.BaseWidget for another embed would pass silently.
+						fields = append(fields, "embeds "+render(f.Type))
+						continue
+					}
 					for _, name := range f.Names {
 						if name.IsExported() {
 							fields = append(fields, name.Name+" "+render(f.Type))
@@ -128,13 +135,19 @@ func genDeclSurface(pkg string, d *ast.GenDecl, render func(ast.Node) string) []
 			if d.Tok == token.CONST {
 				kind = "const"
 			}
-			for _, name := range s.Names {
+			for i, name := range s.Names {
 				if !name.IsExported() {
 					continue
 				}
 				line := pkg + " " + kind + " " + name.Name
 				if s.Type != nil {
 					line += " " + render(s.Type)
+				}
+				// Capture an explicit const value so repointing it (e.g. FormatAuto to a
+				// different model constant) flips the golden. Untyped iota-block ordering
+				// is out of scope (an implicit value renders nothing).
+				if kind == "const" && i < len(s.Values) {
+					line += " = " + render(s.Values[i])
 				}
 				out = append(out, line)
 			}

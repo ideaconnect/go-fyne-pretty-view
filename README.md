@@ -163,9 +163,9 @@ pv := prettyview.New(
     prettyview.WithIndentStep(16),                      // pixels per nesting level
     prettyview.WithTabWidth(4),
     prettyview.WithLineNumbers(),                        // opt-in line-number gutter
-    // WithSearchConfig replaces the search config wholesale — set DebounceFor
-    // explicitly, or keystroke search is not coalesced (it scans on every keystroke).
-    prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000, DebounceFor: 150 * time.Millisecond}),
+    // WithSearchConfig merges field-by-field: a zero field keeps its default
+    // (DebounceFor stays 150ms). Pass a negative DebounceFor to disable coalescing.
+    prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000}),
 )
 ```
 
