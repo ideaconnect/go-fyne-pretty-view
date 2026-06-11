@@ -193,6 +193,17 @@ bar := prettyview.NewToolbar(pv, prettyview.ToolbarConfig{
 w.SetContent(container.NewBorder(bar, nil, nil, nil, pv))
 ```
 
+The built-in controls are icon-only and carry **hover tooltips** (via
+[fyne-tooltip](https://github.com/dweymouth/fyne-tooltip)). Fyne core has no tooltip
+support, so the tooltips render only if you wrap your window content in a tooltip layer
+once — otherwise they are simply absent:
+
+```go
+import fynetooltip "github.com/dweymouth/fyne-tooltip"
+
+w.SetContent(fynetooltip.AddWindowToolTipLayer(content, w.Canvas()))
+```
+
 ```go
 // (b) Or omit the toolbar and wire your own controls to the public API. Use
 // SearchDebounced (not Search) for per-keystroke input so a burst coalesces into one

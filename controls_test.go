@@ -3,6 +3,8 @@ package prettyview
 import (
 	"testing"
 
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/test"
@@ -62,6 +64,10 @@ func findSearchEntry(o fyne.CanvasObject) *searchEntry {
 // findButtonByText returns the first *widget.Button in o's tree with the given label.
 func findButtonByText(o fyne.CanvasObject, text string) *widget.Button {
 	switch w := o.(type) {
+	case *ttwidget.Button: // tooltip-enabled button: return its embedded widget.Button
+		if w.Text == text {
+			return &w.Button
+		}
 	case *widget.Button:
 		if w.Text == text {
 			return w
@@ -74,6 +80,21 @@ func findButtonByText(o fyne.CanvasObject, text string) *widget.Button {
 		}
 	}
 	return nil
+}
+
+// findToolTipButtons collects every tooltip-enabled button in the tree, for asserting
+// the built-in controls carry hover labels.
+func findToolTipButtons(o fyne.CanvasObject) []*ttwidget.Button {
+	var out []*ttwidget.Button
+	switch w := o.(type) {
+	case *ttwidget.Button:
+		out = append(out, w)
+	case *fyne.Container:
+		for _, c := range w.Objects {
+			out = append(out, findToolTipButtons(c)...)
+		}
+	}
+	return out
 }
 
 // TestSearchBarCaseToggle: the "Aa" toggle makes the bar issue case-sensitive
@@ -303,6 +324,49 @@ func TestToolbarConfigOmitsControls(t *testing.T) {
 	if NewFoldButtons(pv) == nil || NewSearchBar(pv) == nil {
 		t.Error("individual control constructors returned nil")
 	}
+}
+
+// TestControlsHaveToolTips guards that every built-in icon control carries a hover
+// label (fyne-tooltip), so an icon-only button has an affordance for what it does.
+func TestControlsHaveToolTips(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON)
+	w := test.NewWindow(nil)
+	defer w.Close()
+
+	for _, c := range []struct {
+		name string
+		root fyne.CanvasObject
+		want int // minimum tooltip-bearing buttons expected
+	}{
+		{"search bar", NewSearchBar(pv), 5},                     // magnifier, Aa, .*, prev, next
+		{"toolbar", NewToolbar(pv, DefaultToolbarConfig(w)), 5}, // open, expand, collapse, wrap, + search bar's
+		{"fold buttons", NewFoldButtons(pv), 2},                 // expand, collapse
+		{"wrap toggle", NewWrapToggle(pv), 1},                   // wrap
+	} {
+		btns := findToolTipButtons(c.root)
+		if len(btns) < c.want {
+			t.Errorf("%s: found %d tooltip buttons, want >= %d", c.name, len(btns), c.want)
+		}
+		for _, b := range btns {
+			if b.ToolTip() == "" {
+				t.Errorf("%s: a control button has an empty tooltip", c.name)
+			}
+		}
+	}
+}
+
+// TestToolTipLayerOptional: constructing and rendering the controls WITHOUT a
+// tooltip layer must not panic — the host step (AddWindowToolTipLayer) is optional;
+// tooltips simply do not show.
+func TestToolTipLayerOptional(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON)
+	w := test.NewWindow(NewToolbar(pv, DefaultToolbarConfig(nil)))
+	defer w.Close()
+	w.Resize(fyne.NewSize(500, 60))
+	// Render — no AddWindowToolTipLayer wrapping; must not panic.
+	w.Canvas().Capture()
 }
 
 // TestDefaultToolbarConfigWindow locks the #30 contract: DefaultToolbarConfig(win)

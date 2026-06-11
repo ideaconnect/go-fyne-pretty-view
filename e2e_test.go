@@ -26,7 +26,7 @@ func TestE2EUserFlow(t *testing.T) {
 	// checkbox, with the viewer filling the rest — like a host app would assemble.
 	search := widget.NewEntry()
 	search.OnChanged = func(s string) { pv.Search(SearchQuery{Text: s}) }
-	wrap := NewWrapToggle(pv).(*widget.Button)
+	wrap := NewWrapToggle(pv) // a fyne.CanvasObject (tooltip-enabled button); tap via Tappable
 	ui := container.NewBorder(container.NewVBox(search, wrap), nil, nil, nil, pv)
 
 	win := test.NewWindow(ui)
@@ -65,7 +65,7 @@ func TestE2EUserFlow(t *testing.T) {
 	}
 
 	// --- 3. Tick the Wrap checkbox; the viewer switches to soft-wrap. ---
-	test.Tap(wrap)
+	test.Tap(wrap.(fyne.Tappable))
 
 	if !pv.doc.WrapActive() {
 		t.Error("ticking the Wrap checkbox did not enable soft-wrap")

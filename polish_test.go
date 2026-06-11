@@ -7,7 +7,6 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
-	"fyne.io/fyne/v2/widget"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
 )
 
@@ -110,15 +109,15 @@ func TestWrapToggleControl(t *testing.T) {
 	win.Resize(fyne.NewSize(300, 400))
 	pv.Refresh()
 
-	btn, ok := NewWrapToggle(pv).(*widget.Button)
+	btn, ok := NewWrapToggle(pv).(fyne.Tappable)
 	if !ok {
-		t.Fatal("NewWrapToggle is not a *widget.Button")
+		t.Fatal("NewWrapToggle is not tappable")
 	}
-	btn.OnTapped() // toggle on
+	test.Tap(btn) // toggle on
 	if pv.Wrap() != WrapWord {
 		t.Error("tapping the toggle did not enable WrapWord")
 	}
-	btn.OnTapped() // toggle off
+	test.Tap(btn) // toggle off
 	if pv.Wrap() != WrapNone {
 		t.Error("tapping the toggle again did not restore WrapNone")
 	}
