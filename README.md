@@ -353,14 +353,20 @@ frozen and receives critical/security fixes only.
 
 ## Demo
 
+Two demos — the read-only **viewer** and the editable-input **editor** (v2):
+
 ```sh
-go run ./cmd/prettyview-demo               # loads testdata/openapi.json
-go run ./cmd/prettyview-demo path/to/file  # or any file
+make run-viewer            # or: go run ./cmd/prettyview-demo [path]
+make run-editor            # or: go run ./cmd/prettyview-editor [sample|path]
 ```
 
-The demo shows both control styles at once: the built-in `NewToolbar` (Open,
-format, expand/collapse, wrap, search) used as-is, plus an app-supplied fixture
-dropdown that drives the public API directly.
+The **viewer** demo shows both control styles at once: the built-in `NewToolbar`
+(Open, format, expand/collapse, wrap, search) used as-is, plus an app-supplied
+fixture dropdown that drives the public API directly.
+
+The **editor** demo (`WithEditable`) lets you type or paste data and watch it
+pretty-format live on a typing pause, with a sample picker, **Reformat / Undo /
+Redo** controls, and a live validity status bar.
 
 Prebuilt binaries are produced by CI for Linux, Windows, and macOS — each is a
 zip containing the executable alongside the `testdata/` fixtures, so the fixture

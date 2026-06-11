@@ -14,9 +14,11 @@ routes through the [Makefile](Makefile); run `make help` for the full list.
 ## Everyday loop
 
 ```sh
-make build                 # compile the library + ./bin/prettyview-demo
-make run                   # launch the demo on testdata/openapi.json
-make run FILE=path/to/file # launch on any file
+make build                 # compile the library + both demo binaries into ./bin
+make run-viewer            # read-only viewer demo on testdata/openapi.json
+make run-viewer FILE=path  # viewer on any file  (make run is an alias of run-viewer)
+make run-editor            # editable-input demo (type/paste -> live format)
+make run-editor EDITOR_FILE=path  # editor seeded from a file
 make test                  # full suite
 make test RUN=TestSearch   # filter by test-name regex
 make bench                 # all benchmarks
