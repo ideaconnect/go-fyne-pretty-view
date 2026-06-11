@@ -23,6 +23,43 @@ import (
 // byte-for-byte like a v1 viewer.
 func (pv *PrettyView) Editable() bool { return pv.cfg.editable }
 
+// Caret returns the caret's current display position as (line, col) — a 0-based display
+// line and a rune column within it. For a fresh widget with no caret placed it is (0, 0).
+func (pv *PrettyView) Caret() (line, col int) {
+	return int(pv.sel.focus.line), pv.sel.focus.col
+}
+
+// SetCaret moves the caret to (line, col), clamping col into the line and revealing it,
+// and returns true. It returns false (leaving the caret put) when line is out of
+// [0, TotalLines), mirroring ScrollToLine's out-of-range contract. It collapses any
+// selection. Works in read-only mode too (a navigable caret). Call it on the Fyne
+// goroutine.
+func (pv *PrettyView) SetCaret(line, col int) bool {
+	if pv.doc == nil || line < 0 || line >= pv.doc.TotalLines() {
+		return false
+	}
+	li := int32(line)
+	col = clampInt(col, 0, pv.doc.LineRuneLen(li)) // reuse the keyboard caret's clamp
+	pv.sel.focus = modelPos{line: li, col: col}
+	pv.sel.anchor = pv.sel.focus
+	pv.sel.active = false
+	pv.sel.placed = true
+	pv.coalesceBreak = true
+	if pv.cfg.editable && !pv.editStructured {
+		pv.caretBuf = pv.buf.ByteOffAt(int(li), col) // keep the canonical edit offset in sync
+	}
+	pv.centerOnLine(li, col)
+	pv.refreshSelectionView()
+	return true
+}
+
+// aboveEditCap reports whether the edit buffer has reached the configured MaxEditBytes,
+// above which auto-format-on-pause is suppressed (explicit Reformat still runs).
+func (pv *PrettyView) aboveEditCap() bool {
+	cap := pv.cfg.input.MaxEditBytes
+	return cap > 0 && pv.buf != nil && pv.buf.Len() > cap
+}
+
 // Paste inserts the clipboard text at the caret, replacing any active selection. Line
 // endings are normalized to LF (so a multi-line paste makes real display lines); any
 // remaining control bytes render as safe placeholders in the live projection and as
@@ -135,10 +172,22 @@ func (pv *PrettyView) editInsert(s []byte) {
 	caretBefore := pv.caretOff()
 	at := caretBefore
 	var removed []byte
-	if lo, hi, ok := pv.selectionByteRange(); ok {
-		removed = pv.bufRange(lo, hi)
-		pv.buf.Delete(lo, hi-lo)
-		at = lo
+	selLo, selHi, hasSel := pv.selectionByteRange()
+	// Reject an edit that would grow the buffer past the MaxEditBytes cap (a delete or a
+	// same-size replace is always allowed; only net growth is capped).
+	if c := pv.cfg.input.MaxEditBytes; c > 0 {
+		grow := len(s)
+		if hasSel {
+			grow -= selHi - selLo
+		}
+		if grow > 0 && pv.buf.Len()+grow > c {
+			return
+		}
+	}
+	if hasSel {
+		removed = pv.bufRange(selLo, selHi)
+		pv.buf.Delete(selLo, selHi-selLo)
+		at = selLo
 	}
 	pv.buf.Insert(at, s)
 	pv.recordEdit(editOp{

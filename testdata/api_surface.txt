@@ -43,6 +43,7 @@ prettyview func WithTabWidth(n int) Option
 prettyview func WithTheme(v fyne.ThemeVariant, t Theme) Option
 prettyview func WithUndoLimit(n int) Option
 prettyview func WithWrap(m WrapMode) Option
+prettyview method (*PrettyView) Caret() (line, col int)
 prettyview method (*PrettyView) ClearSearch()
 prettyview method (*PrettyView) ClearSelection()
 prettyview method (*PrettyView) CollapseAll()
@@ -83,6 +84,7 @@ prettyview method (*PrettyView) SearchPrev()
 prettyview method (*PrettyView) SearchStatus() (active, total int, capped bool)
 prettyview method (*PrettyView) SelectAll()
 prettyview method (*PrettyView) SelectedText() string
+prettyview method (*PrettyView) SetCaret(line, col int) bool
 prettyview method (*PrettyView) SetData(src []byte, format Format)
 prettyview method (*PrettyView) SetDefaultCollapseDepth(depth int)
 prettyview method (*PrettyView) SetInputConfig(c InputConfig)
@@ -105,7 +107,7 @@ prettyview method (*PrettyView) Undo()
 prettyview method (*PrettyView) Wrap() WrapMode
 prettyview type AutoFormatMode uint8
 prettyview type Format = model.Format
-prettyview type InputConfig struct { AutoFormat AutoFormatMode; DebounceFor time.Duration }
+prettyview type InputConfig struct { AutoFormat AutoFormatMode; DebounceFor time.Duration; MaxEditBytes int }
 prettyview type Match struct { ColEnd int; ColStart int; Line int }
 prettyview type Option func(*config)
 prettyview type PrettyView struct { embeds widget.BaseWidget }

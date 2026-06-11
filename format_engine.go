@@ -72,7 +72,9 @@ func (pv *PrettyView) scheduleReformat() {
 // editSettled runs once a typing burst settles: reformat (when AutoFormatOnPause) and
 // fire onChanged with the settled buffer text.
 func (pv *PrettyView) editSettled() {
-	if pv.cfg.input.AutoFormat == AutoFormatOnPause {
+	// Above the MaxEditBytes cap, skip the auto reparse (full reparse on every pause is
+	// infeasible for a very large buffer); an explicit Reformat still runs.
+	if pv.cfg.input.AutoFormat == AutoFormatOnPause && !pv.aboveEditCap() {
 		pv.reformatNow()
 	}
 	if pv.onChanged != nil {

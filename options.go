@@ -42,6 +42,13 @@ const (
 type InputConfig struct {
 	DebounceFor time.Duration  // typing-pause delay before an auto-reformat (default 400ms; <=0 = immediate)
 	AutoFormat  AutoFormatMode // when to auto-reformat (default AutoFormatOnPause)
+
+	// MaxEditBytes bounds the edit buffer (0 = no cap, the default). Above it, an edit
+	// that would grow the buffer past the cap is rejected, and auto-format-on-pause is
+	// disabled (an explicit Reformat still works) — so a large document edits without a
+	// full reparse on every pause. It mirrors WithMaxInputBytes and keeps the gap-buffer
+	// memory delta bounded (≈ the cap, on top of the ≈5–7× model of the last reparse).
+	MaxEditBytes int
 }
 
 func defaultInputConfig() InputConfig {
@@ -55,6 +62,9 @@ func (i InputConfig) mergeInto(dst *InputConfig) {
 	}
 	if i.AutoFormat != autoFormatUnset {
 		dst.AutoFormat = i.AutoFormat
+	}
+	if i.MaxEditBytes != 0 {
+		dst.MaxEditBytes = i.MaxEditBytes
 	}
 }
 
