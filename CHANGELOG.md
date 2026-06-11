@@ -8,6 +8,37 @@ API may change between minor versions; breaking changes are called out under
 
 ## [Unreleased]
 
+## [v1.0.0-alpha] — 2026-06-11 — frozen public surface
+
+The exported API of `prettyview` and `fonttheme` is declared stable as of v1.0.0 and
+guarded by `TestExportedSurfaceGolden`; see the README **Stability** section. After
+1.0 a breaking change ships under a new major module path (`.../v2`).
+
+### Changed (breaking)
+- `Match` now uses `int` for all columns (`Line` was `int32`), and
+  `PrettyView.Matches() []Match` returns a snapshot of the current hits.
+- `WithSearchConfig` merges field-by-field over the defaults: a zero field keeps its
+  default, removing the `DebounceFor: 0` zero-value trap. A negative `DebounceFor`
+  disables keystroke coalescing.
+- `DefaultToolbarConfig(win fyne.Window)` takes the window, so it truly enables every
+  control (`nil` omits Open and Ctrl/Cmd+F).
+
+### Added
+- A frozen exported-surface golden test (`testdata/api_surface.txt`) and a
+  **Stability** section in the README and both package docs.
+
+### Fixed
+- Search bar: pressing Enter (find-next) repeatedly now advances through every match
+  (1→2→3→…, wrapping) instead of always snapping back to match #2.
+- Search bar: the leading magnifier renders at button size and padding (aligned with
+  the control row) instead of as a small bare icon.
+
+### Documentation
+- Pinned the `Search` (immediate) vs `SearchDebounced` (coalescing) contract and the
+  `SearchMode` constants; `Source()` notes that its slice aliases the retained buffer.
+
+## [v0.9.0-alpha] — 2026-06-11 — feature-complete + freeze candidate
+
 ### Added
 - `ScrollToLine(line) bool`, `ScrollOffset()`, and `SetScrollOffset(pos)` — a
   format-independent programmatic scroll / go-to-line API and scroll-position
@@ -95,7 +126,9 @@ API may change between minor versions; breaking changes are called out under
   search with reveal-into-folds, optional soft-wrap, and an opt-in toolbar — built to
   a hard memory budget (only viewport-many rows are ever live widgets).
 
-[Unreleased]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v0.5.0-alpha...HEAD
+[Unreleased]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v1.0.0-alpha...HEAD
+[v1.0.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v0.9.0-alpha...v1.0.0-alpha
+[v0.9.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v0.5.0-alpha...v0.9.0-alpha
 [v0.5.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/releases/tag/v0.5.0-alpha
 [v0.4.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/releases/tag/v0.4.0-alpha
 [v0.3.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/releases/tag/v0.3.0-alpha

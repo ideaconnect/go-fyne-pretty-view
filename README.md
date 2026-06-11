@@ -25,6 +25,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - [Key methods](#key-methods)
 - [Theming](#theming)
 - [Threading](#threading)
+- [Stability](#stability)
 - [Demo](#demo)
 - [Design and documentation](#design-and-documentation)
 - [Contributing](#contributing)
@@ -162,9 +163,9 @@ pv := prettyview.New(
     prettyview.WithIndentStep(16),                      // pixels per nesting level
     prettyview.WithTabWidth(4),
     prettyview.WithLineNumbers(),                        // opt-in line-number gutter
-    // WithSearchConfig replaces the search config wholesale — set DebounceFor
-    // explicitly, or keystroke search is not coalesced (it scans on every keystroke).
-    prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000, DebounceFor: 150 * time.Millisecond}),
+    // WithSearchConfig merges field-by-field: a zero field keeps its default
+    // (DebounceFor stays 150ms). Pass a negative DebounceFor to disable coalescing.
+    prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000}),
 )
 ```
 
@@ -200,7 +201,8 @@ myFind.OnChanged        = func(s string) { pv.SearchDebounced(prettyview.SearchQ
 myExpandButton.OnTapped = pv.ExpandAll
 ```
 
-`prettyview.DefaultToolbarConfig()` returns a config with every control enabled.
+`prettyview.DefaultToolbarConfig(win)` returns a config with every control enabled
+(pass your `fyne.Window` so Open and Ctrl/Cmd+F work, or `nil` to omit those two).
 À-la-carte constructors let you place individual built-ins anywhere:
 `prettyview.NewSearchBar(pv)`, `prettyview.NewFormatSelect(pv)`,
 `prettyview.NewFoldButtons(pv)`, `prettyview.NewWrapToggle(pv)`. To keep host
@@ -316,6 +318,18 @@ go func() {
 
 The widget holds no locks by design; its one internal background task — the search
 debounce — already marshals back onto the Fyne goroutine.
+
+## Stability
+
+The module is **pre-1.0 (v0.x, alpha)**. The exported API of `prettyview` and
+`fonttheme` may change between minor versions; every breaking change is recorded under
+**Changed**/**Removed** in [CHANGELOG.md](CHANGELOG.md).
+
+As of **v1.0.0** the exported surface is frozen under [semantic import
+versioning](https://go.dev/ref/mod#major-version-suffixes): additions ship as v1.x, and
+any breaking change ships under a new major module path (`.../v2`) — never as a v1.x
+bump. The frozen surface is pinned by `TestExportedSurfaceGolden`
+(`testdata/api_surface.txt`), so an accidental change to a public signature fails CI.
 
 ## Demo
 

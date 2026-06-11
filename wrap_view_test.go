@@ -194,7 +194,7 @@ func TestMatchHighlightOnContinuationRow(t *testing.T) {
 	}
 	mt := pv.search.matches[0]
 	var dst []int32
-	dst = pv.doc.WrapBreaks(mt.Line, dst[:0])
+	dst = pv.doc.WrapBreaks(int32(mt.Line), dst[:0])
 	if len(dst) < 3 {
 		t.Fatal("match line did not wrap")
 	}
@@ -205,7 +205,7 @@ func TestMatchHighlightOnContinuationRow(t *testing.T) {
 	if sub == 0 {
 		t.Fatal("match landed on the first row; fixture too short to test continuation")
 	}
-	wantY := pv.met.RowY(int(pv.doc.FirstVisualRowOfLine(mt.Line)) + sub)
+	wantY := pv.met.RowY(int(pv.doc.FirstVisualRowOfLine(int32(mt.Line))) + sub)
 	found := false
 	for _, rc := range pv.r.matchRects {
 		if rc.Visible() {

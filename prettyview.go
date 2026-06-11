@@ -32,6 +32,13 @@
 // runtime. The only work that runs off that goroutine is the search-debounce timer
 // (time.AfterFunc); it marshals its scan back via fyne.Do and drops superseded
 // scans via a generation counter, so it never touches widget state concurrently.
+//
+// # Stability
+//
+// Pre-1.0 (v0.x) the exported API may change between minor versions (see CHANGELOG.md).
+// As of v1.0.0 the surface is frozen under semantic import versioning: additions ship
+// as v1.x and any breaking change ships under a new major module path (.../v2). The
+// frozen surface is pinned by TestExportedSurfaceGolden.
 package prettyview
 
 import (
@@ -156,8 +163,9 @@ func (pv *PrettyView) Reparse(format Format) {
 	pv.SetData(pv.doc.Src, format)
 }
 
-// Source returns the bytes of the current document (the originally supplied
-// input), or nil.
+// Source returns the bytes of the current document (the originally supplied input),
+// or nil. The returned slice ALIASES the document's retained input buffer; treat it as
+// read-only and copy before mutating, or you corrupt the model the viewer renders from.
 func (pv *PrettyView) Source() []byte {
 	if pv.doc == nil {
 		return nil

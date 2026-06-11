@@ -32,7 +32,7 @@ func TestSearchPlain(t *testing.T) {
 	}
 	// Verify the first match slices back to the needle.
 	m := pv.search.matches[0]
-	runes := []rune(pv.doc.DisplayString(m.Line))
+	runes := []rune(pv.doc.DisplayString(int32(m.Line)))
 	if got := string(runes[m.ColStart:m.ColEnd]); got != "alpha" {
 		t.Errorf("match text = %q, want %q", got, "alpha")
 	}
@@ -153,17 +153,62 @@ func TestSearchRegexLiteralPrefixPrefilter(t *testing.T) {
 	}
 }
 
-// TestSearchDebouncedExported guards the public SearchDebounced wrapper: with
-// DebounceFor <= 0 it is immediate (equivalent to Search), so the matches are present
-// synchronously.
+// TestSearchDebouncedExported guards the public SearchDebounced wrapper: with a
+// negative DebounceFor debouncing is disabled (equivalent to Search), so the matches
+// are present synchronously.
 func TestSearchDebouncedExported(t *testing.T) {
-	// With DebounceFor 0 the debounced path is immediate (equivalent to Search), so the
-	// matches are present synchronously without pumping the event loop.
+	// A negative DebounceFor disables debouncing (under the merge semantics a zero would
+	// keep the 150ms default), so SearchDebounced is immediate — matches are present
+	// without pumping the event loop.
 	pv := NewWithData([]byte(`{"a":"x","b":"x"}`), FormatJSON,
-		WithSearchConfig(SearchConfig{DebounceFor: 0, MinQueryLen: 1}))
+		WithSearchConfig(SearchConfig{DebounceFor: -1, MinQueryLen: 1}))
 	pv.SearchDebounced(SearchQuery{Text: "x"})
 	if _, total, _ := pv.SearchStatus(); total != 2 {
-		t.Errorf("SearchDebounced (DebounceFor 0) total = %d, want 2 (immediate)", total)
+		t.Errorf("SearchDebounced (DebounceFor -1) total = %d, want 2 (immediate)", total)
+	}
+}
+
+// TestWithSearchConfigMerge locks the #29 merge semantics: a zero field keeps its
+// default (no zero-value trap), a non-zero field overrides, and a negative DebounceFor
+// disables debouncing.
+func TestWithSearchConfigMerge(t *testing.T) {
+	// Only MaxMatches set: DebounceFor and MinQueryLen keep their defaults.
+	pv := NewWithData([]byte(`{}`), FormatJSON, WithSearchConfig(SearchConfig{MaxMatches: 42}))
+	if got := pv.cfg.search; got.MaxMatches != 42 || got.DebounceFor != 150*time.Millisecond || got.MinQueryLen != 1 {
+		t.Errorf("merge = %+v, want MaxMatches 42 with default DebounceFor 150ms / MinQueryLen 1", got)
+	}
+	// A negative DebounceFor survives the merge (disables debounce).
+	pv2 := NewWithData([]byte(`{}`), FormatJSON, WithSearchConfig(SearchConfig{DebounceFor: -1}))
+	if got := pv2.cfg.search.DebounceFor; got != -1 {
+		t.Errorf("negative DebounceFor = %v, want -1 (preserved)", got)
+	}
+}
+
+// TestMatchesAccessor locks the #28 decision: Matches() returns the current hits with
+// all-int columns, as an independent copy, and nil when there is no active search.
+func TestMatchesAccessor(t *testing.T) {
+	pv := docPV(`{"a":"x","b":"x","c":"y"}`, FormatJSON)
+	pv.Search(SearchQuery{Text: "x"})
+
+	ms := pv.Matches()
+	if _, total, _ := pv.SearchStatus(); len(ms) != total || total != 2 {
+		t.Fatalf("Matches() len = %d, SearchStatus total = %d, want 2", len(ms), total)
+	}
+	// Columns are int and slice back to the needle.
+	m := ms[0]
+	runes := []rune(pv.doc.DisplayString(int32(m.Line)))
+	if got := string(runes[m.ColStart:m.ColEnd]); got != "x" {
+		t.Errorf("Matches()[0] text = %q, want x", got)
+	}
+	// The returned slice is a copy — mutating it must not affect the viewer.
+	ms[0].Line = 9999
+	if pv.Matches()[0].Line == 9999 {
+		t.Error("Matches() returned a live slice; want a copy")
+	}
+	// No active search -> nil.
+	pv.ClearSearch()
+	if pv.Matches() != nil {
+		t.Error("Matches() after ClearSearch should be nil")
 	}
 }
 
@@ -274,7 +319,7 @@ func TestSearchMultibyteColumns(t *testing.T) {
 		t.Fatalf("matches = %d, want 1", len(pv.search.matches))
 	}
 	m := pv.search.matches[0]
-	runes := []rune(pv.doc.DisplayString(m.Line))
+	runes := []rune(pv.doc.DisplayString(int32(m.Line)))
 	if got := string(runes[m.ColStart:m.ColEnd]); got != "wörld" {
 		t.Errorf("multibyte match = %q, want %q (rune columns wrong)", got, "wörld")
 	}

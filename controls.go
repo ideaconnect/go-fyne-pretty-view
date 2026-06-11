@@ -39,13 +39,14 @@ type ToolbarConfig struct {
 	OnOpen             func()      // overrides the built-in Open behavior, if set
 }
 
-// DefaultToolbarConfig enables every control. Note that two of them still need more
-// than the flag: the Open button requires a Window (for the built-in dialog) or an
-// OnOpen handler, and Ctrl/Cmd+F search-focus requires a Window — set Window on the
-// returned config (e.g. cfg := DefaultToolbarConfig(); cfg.Window = w) or those two
-// are silently omitted. (Taking the Window as a parameter is a deferred v1.0 change.)
-func DefaultToolbarConfig() ToolbarConfig {
-	return ToolbarConfig{ShowOpen: true, ShowFormat: true, ShowExpandCollapse: true, ShowWrap: true, ShowSearch: true}
+// DefaultToolbarConfig enables every control bound to win: the Open button (its
+// built-in file dialog and Ctrl/Cmd+F search-focus both need a Window). Pass nil to
+// omit those two (or set OnOpen yourself afterward to drive Open without a Window).
+func DefaultToolbarConfig(win fyne.Window) ToolbarConfig {
+	return ToolbarConfig{
+		ShowOpen: true, ShowFormat: true, ShowExpandCollapse: true,
+		ShowWrap: true, ShowSearch: true, Window: win,
+	}
 }
 
 // NewToolbar builds an optional control bar bound to pv from cfg. Disabled
@@ -89,6 +90,17 @@ func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 func iconBtn(icon fyne.Resource, tapped func()) *widget.Button {
 	b := widget.NewButtonWithIcon("", icon, tapped)
 	b.Importance = widget.LowImportance
+	return b
+}
+
+// iconLabel renders an icon with the SAME size and padding as iconBtn but inert: it is
+// a disabled low-importance button, so it reads as a button-shaped affordance (aligned
+// in the control row) without being clickable. Used for the search bar's leading
+// magnifier glyph, which is a label, not an action.
+func iconLabel(icon fyne.Resource) *widget.Button {
+	b := widget.NewButtonWithIcon("", icon, func() {})
+	b.Importance = widget.LowImportance
+	b.Disable()
 	return b
 }
 
@@ -240,20 +252,24 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 	}
 	entry.OnChanged = func(string) { pv.searchDebounced(query()) }
 	entry.OnSubmitted = func(string) {
-		// Enter applies immediately, bypassing the debounce. If the query is already
-		// applied (the debounced scan ran), Enter means find-next, so advance. But on
-		// a fresh query that beat the debounce, Search reveals match #1 — don't jump
-		// straight past it to #2; only advance when the text is unchanged.
-		advance := pv.search.query.Text == entry.Text
-		pv.Search(query())
-		if advance {
+		// If the box's query is already the applied one, Enter means find-next, so just
+		// advance — re-running Search would reset the active match to #1 (so every Enter
+		// would snap back to #2). Otherwise Enter beat the debounce (or the query/toggles
+		// changed): apply it, which reveals match #1 without jumping past it.
+		if pv.search.query == query() {
 			pv.SearchNext()
+			return
 		}
+		pv.Search(query())
 	}
 	entry.onPrev = func() {
-		if pv.search.query.Text != entry.Text {
-			pv.Search(query())
+		// Same contract for Shift+Enter: step backward on the applied query, only
+		// re-Search (revealing #1, then wrapping to the last) when the query changed.
+		if pv.search.query == query() {
+			pv.SearchPrev()
+			return
 		}
+		pv.Search(query())
 		pv.SearchPrev()
 	}
 	entry.onEscape = func() {
@@ -296,7 +312,7 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 
 	// The entry expands (Border center); the counter, toggles and nav buttons sit in
 	// one HBox so the inter-control gaps are all one padding wide.
-	return container.NewBorder(nil, nil, widget.NewIcon(iconSearch()),
+	return container.NewBorder(nil, nil, iconLabel(iconSearch()),
 		container.NewHBox(container.NewCenter(count), caseBtn, regexBtn, prev, next), entry)
 }
 

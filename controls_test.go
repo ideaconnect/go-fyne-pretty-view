@@ -192,6 +192,44 @@ func TestSearchBarEnterStopsOnFirstMatch(t *testing.T) {
 	}
 }
 
+// TestSearchBarEnterAdvancesPastSecond guards the find-next regression where every
+// Enter re-ran Search and snapped the active match back to #2. Repeated Enter on the
+// applied query must walk 1->2->3->4->5 and wrap, never stick at #2. (The older test
+// above only checked the first two presses, which the bug also produced.)
+func TestSearchBarEnterAdvancesPastSecond(t *testing.T) {
+	test.NewApp()
+	pv := docPV(`["x","x","x","x","x"]`, FormatJSON)
+	entry := findSearchEntry(NewSearchBar(pv))
+	if entry == nil {
+		t.Fatal("no searchEntry in search bar")
+	}
+
+	entry.Text = "x"
+	entry.OnSubmitted(entry.Text) // fresh query -> reveals #1, must not skip ahead
+	if a, total, _ := pv.SearchStatus(); total != 5 || a != 1 {
+		t.Fatalf("fresh-query Enter: active=%d total=%d, want 1/5", a, total)
+	}
+
+	var seq []int
+	for i := 0; i < 5; i++ {
+		entry.OnSubmitted(entry.Text) // each Enter = find-next
+		a, _, _ := pv.SearchStatus()
+		seq = append(seq, a)
+	}
+	want := []int{2, 3, 4, 5, 1} // advance through every match, then wrap
+	for i := range want {
+		if seq[i] != want[i] {
+			t.Fatalf("Enter sequence = %v, want %v (find-next stuck — the regression)", seq, want)
+		}
+	}
+
+	// Shift+Enter steps backward on the applied query.
+	entry.onPrev()
+	if a, _, _ := pv.SearchStatus(); a != 5 {
+		t.Errorf("Shift+Enter after wrap: active=%d, want 5 (step back from #1)", a)
+	}
+}
+
 func TestReparse(t *testing.T) {
 	pv := docPV(`{"a":1}`, FormatJSON)
 	if pv.Format() != FormatJSON {
@@ -257,12 +295,27 @@ func TestToolbarConfigOmitsControls(t *testing.T) {
 	if NewToolbar(pv, ToolbarConfig{ShowSearch: true}) == nil {
 		t.Error("search-only toolbar is nil")
 	}
-	// Everything (no window, so Open is omitted but the rest build).
-	if NewToolbar(pv, DefaultToolbarConfig()) == nil {
+	// Everything (nil window, so Open is omitted but the rest build).
+	if NewToolbar(pv, DefaultToolbarConfig(nil)) == nil {
 		t.Error("default toolbar is nil")
 	}
 	// The à-la-carte pieces build too.
 	if NewFoldButtons(pv) == nil || NewSearchBar(pv) == nil {
 		t.Error("individual control constructors returned nil")
+	}
+}
+
+// TestDefaultToolbarConfigWindow locks the #30 contract: DefaultToolbarConfig(win)
+// carries the window (so Open + Ctrl/Cmd+F are real), and nil omits it.
+func TestDefaultToolbarConfigWindow(t *testing.T) {
+	test.NewApp()
+	w := test.NewWindow(nil)
+	defer w.Close()
+
+	if cfg := DefaultToolbarConfig(w); cfg.Window != w || !cfg.ShowOpen || !cfg.ShowSearch {
+		t.Errorf("DefaultToolbarConfig(win) = %+v, want Window set with every Show* flag", cfg)
+	}
+	if cfg := DefaultToolbarConfig(nil); cfg.Window != nil {
+		t.Error("DefaultToolbarConfig(nil) should leave Window nil")
 	}
 }

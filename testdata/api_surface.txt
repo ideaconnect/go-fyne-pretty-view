@@ -1,0 +1,102 @@
+fonttheme func New(base fyne.Theme, opts ...Option) fyne.Theme
+fonttheme func WithFonts(f Fonts) Option
+fonttheme type Fonts struct { Bold fyne.Resource; BoldItalic fyne.Resource; Italic fyne.Resource; Mono fyne.Resource; MonoBold fyne.Resource; Regular fyne.Resource }
+fonttheme type Option func(*Fonts)
+fonttheme var MonoBold
+fonttheme var MonoRegular
+fonttheme var SansBold
+fonttheme var SansBoldItalic
+fonttheme var SansItalic
+fonttheme var SansRegular
+prettyview const FormatAuto = model.FormatAuto
+prettyview const FormatHTML = model.FormatHTML
+prettyview const FormatJSON = model.FormatJSON
+prettyview const FormatJSONC = model.FormatJSONC
+prettyview const FormatRaw = model.FormatRaw
+prettyview const FormatXML = model.FormatXML
+prettyview const SearchPlain SearchMode = iota
+prettyview const SearchRegex
+prettyview const WrapNone WrapMode = iota
+prettyview const WrapWord
+prettyview func DefaultToolbarConfig(win fyne.Window) ToolbarConfig
+prettyview func New(opts ...Option) *PrettyView
+prettyview func NewFoldButtons(pv *PrettyView) fyne.CanvasObject
+prettyview func NewFormatSelect(pv *PrettyView) fyne.CanvasObject
+prettyview func NewSearchBar(pv *PrettyView) fyne.CanvasObject
+prettyview func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject
+prettyview func NewWithData(src []byte, format Format, opts ...Option) *PrettyView
+prettyview func NewWrapToggle(pv *PrettyView) fyne.CanvasObject
+prettyview func ShowOpenDialog(pv *PrettyView, win fyne.Window)
+prettyview func WithDefaultCollapseDepth(d int) Option
+prettyview func WithFormat(f Format) Option
+prettyview func WithIndentStep(px float32) Option
+prettyview func WithLineNumbers() Option
+prettyview func WithMaxInputBytes(n int) Option
+prettyview func WithSearchConfig(s SearchConfig) Option
+prettyview func WithSyntaxColors(v fyne.ThemeVariant, s SyntaxColors) Option
+prettyview func WithTabWidth(n int) Option
+prettyview func WithTheme(v fyne.ThemeVariant, t Theme) Option
+prettyview func WithWrap(m WrapMode) Option
+prettyview method (*PrettyView) ClearSearch()
+prettyview method (*PrettyView) ClearSelection()
+prettyview method (*PrettyView) CollapseAll()
+prettyview method (*PrettyView) CollapseToDepth(depth int)
+prettyview method (*PrettyView) CopySelection()
+prettyview method (*PrettyView) CopySubtree(byteOffset int) bool
+prettyview method (*PrettyView) CreateRenderer() fyne.WidgetRenderer
+prettyview method (*PrettyView) Cursor() desktop.Cursor
+prettyview method (*PrettyView) DragEnd()
+prettyview method (*PrettyView) Dragged(ev *fyne.DragEvent)
+prettyview method (*PrettyView) ExpandAll()
+prettyview method (*PrettyView) ExpandTo(off int) bool
+prettyview method (*PrettyView) ExpandToDepth(depth int)
+prettyview method (*PrettyView) FocusGained()
+prettyview method (*PrettyView) FocusLost()
+prettyview method (*PrettyView) Format() Format
+prettyview method (*PrettyView) KeyDown(key *fyne.KeyEvent)
+prettyview method (*PrettyView) KeyUp(key *fyne.KeyEvent)
+prettyview method (*PrettyView) Matches() []Match
+prettyview method (*PrettyView) MouseDown(ev *desktop.MouseEvent)
+prettyview method (*PrettyView) MouseIn(*desktop.MouseEvent)
+prettyview method (*PrettyView) MouseMoved(ev *desktop.MouseEvent)
+prettyview method (*PrettyView) MouseOut()
+prettyview method (*PrettyView) MouseUp(*desktop.MouseEvent)
+prettyview method (*PrettyView) Reparse(format Format)
+prettyview method (*PrettyView) ScrollOffset() fyne.Position
+prettyview method (*PrettyView) ScrollToLine(line int) bool
+prettyview method (*PrettyView) Search(q SearchQuery)
+prettyview method (*PrettyView) SearchDebounced(q SearchQuery)
+prettyview method (*PrettyView) SearchError() error
+prettyview method (*PrettyView) SearchNext()
+prettyview method (*PrettyView) SearchPrev()
+prettyview method (*PrettyView) SearchStatus() (active, total int, capped bool)
+prettyview method (*PrettyView) SelectAll()
+prettyview method (*PrettyView) SelectedText() string
+prettyview method (*PrettyView) SetData(src []byte, format Format)
+prettyview method (*PrettyView) SetDefaultCollapseDepth(depth int)
+prettyview method (*PrettyView) SetOnDataChanged(fn func())
+prettyview method (*PrettyView) SetOnSearchChanged(fn func())
+prettyview method (*PrettyView) SetOnSearchRequested(fn func())
+prettyview method (*PrettyView) SetScrollOffset(p fyne.Position)
+prettyview method (*PrettyView) SetSyntaxColors(variant fyne.ThemeVariant, c SyntaxColors)
+prettyview method (*PrettyView) SetText(s string)
+prettyview method (*PrettyView) SetTheme(variant fyne.ThemeVariant, t Theme)
+prettyview method (*PrettyView) SetWrap(mode WrapMode)
+prettyview method (*PrettyView) Source() []byte
+prettyview method (*PrettyView) Tapped(e *fyne.PointEvent)
+prettyview method (*PrettyView) TappedSecondary(e *fyne.PointEvent)
+prettyview method (*PrettyView) TypedKey(ev *fyne.KeyEvent)
+prettyview method (*PrettyView) TypedRune(rune)
+prettyview method (*PrettyView) TypedShortcut(s fyne.Shortcut)
+prettyview method (*PrettyView) Wrap() WrapMode
+prettyview type Format = model.Format
+prettyview type Match struct { ColEnd int; ColStart int; Line int }
+prettyview type Option func(*config)
+prettyview type PrettyView struct { embeds widget.BaseWidget }
+prettyview type SearchConfig struct { DebounceFor time.Duration; MaxMatches int; MinQueryLen int }
+prettyview type SearchMode uint8
+prettyview type SearchQuery struct { CaseSensitive bool; Mode SearchMode; Text string }
+prettyview type SyntaxColors struct { Attr color.Color; Bool color.Color; Comment color.Color; Key color.Color; Null color.Color; Number color.Color; Punct color.Color; String color.Color; Tag color.Color }
+prettyview type Theme struct { ActiveMatch color.Color; Attr color.Color; Bool color.Color; Comment color.Color; Foreground color.Color; IndentGuide color.Color; Key color.Color; Match color.Color; Null color.Color; Number color.Color; Punct color.Color; Selection color.Color; String color.Color; Summary color.Color; Tag color.Color }
+prettyview type ToolbarConfig struct { OnOpen func(); ShowExpandCollapse bool; ShowFormat bool; ShowOpen bool; ShowSearch bool; ShowWrap bool; Window fyne.Window }
+prettyview type WrapMode uint8
