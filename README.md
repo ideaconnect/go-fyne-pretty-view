@@ -204,6 +204,9 @@ import fynetooltip "github.com/dweymouth/fyne-tooltip"
 w.SetContent(fynetooltip.AddWindowToolTipLayer(content, w.Canvas()))
 ```
 
+Note: `fyne-tooltip` is a direct dependency of this module, so it is pulled into every
+consumer's build even if you never construct a toolbar.
+
 ```go
 // (b) Or omit the toolbar and wire your own controls to the public API. Use
 // SearchDebounced (not Search) for per-keystroke input so a burst coalesces into one
