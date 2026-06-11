@@ -70,6 +70,7 @@ prettyview method (*PrettyView) MouseIn(*desktop.MouseEvent)
 prettyview method (*PrettyView) MouseMoved(ev *desktop.MouseEvent)
 prettyview method (*PrettyView) MouseOut()
 prettyview method (*PrettyView) MouseUp(*desktop.MouseEvent)
+prettyview method (*PrettyView) ParseStatus() ParseStatus
 prettyview method (*PrettyView) Paste()
 prettyview method (*PrettyView) Redo()
 prettyview method (*PrettyView) Reformat()
@@ -92,6 +93,7 @@ prettyview method (*PrettyView) SetOnChanged(fn func(string))
 prettyview method (*PrettyView) SetOnDataChanged(fn func())
 prettyview method (*PrettyView) SetOnSearchChanged(fn func())
 prettyview method (*PrettyView) SetOnSearchRequested(fn func())
+prettyview method (*PrettyView) SetOnValidationChanged(fn func(ParseStatus))
 prettyview method (*PrettyView) SetScrollOffset(p fyne.Position)
 prettyview method (*PrettyView) SetSyntaxColors(variant fyne.ThemeVariant, c SyntaxColors)
 prettyview method (*PrettyView) SetText(s string)
@@ -110,6 +112,7 @@ prettyview type Format = model.Format
 prettyview type InputConfig struct { AutoFormat AutoFormatMode; DebounceFor time.Duration; MaxEditBytes int }
 prettyview type Match struct { ColEnd int; ColStart int; Line int }
 prettyview type Option func(*config)
+prettyview type ParseStatus struct { ErrorLine int; OK bool }
 prettyview type PrettyView struct { embeds widget.BaseWidget }
 prettyview type SearchConfig struct { DebounceFor time.Duration; MaxMatches int; MinQueryLen int }
 prettyview type SearchMode uint8

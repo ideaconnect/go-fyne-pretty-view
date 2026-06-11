@@ -118,6 +118,7 @@ func (pv *PrettyView) reformatNow() {
 		pv.sel.anchor = pv.sel.focus
 		pv.sel.active = false
 	}
+	pv.setParseStatus(parseStatusOf(nd)) // validity of the structured parse (#45); fires OnValidationChanged on a flip
 	pv.applyGutter()
 	pv.ClearSearch() // matches from the pre-reformat projection are stale
 	pv.Refresh()

@@ -88,6 +88,10 @@ type PrettyView struct {
 	hist          editHistory
 	coalesceBreak bool // set after nav/undo/redo/reformat so the next insert starts a fresh undo unit
 
+	// live parse-status feedback (#45): the validity of the last structured reformat.
+	parseStatus  ParseStatus
+	onValidation func(ParseStatus)
+
 	// view state, owned by the Fyne goroutine
 	r          *prettyViewRenderer
 	met        geometry.Metrics
@@ -95,6 +99,7 @@ type PrettyView struct {
 	guideColor color.Color
 	selColor   color.Color
 	caretColor color.Color
+	errorColor color.Color
 	viewOffX   float32 // current horizontal scroll offset (content space)
 	viewW      float32 // current viewport width
 
@@ -137,6 +142,7 @@ type PrettyView struct {
 // New constructs an empty PrettyView, applying zero or more Options.
 func New(opts ...Option) *PrettyView {
 	pv := &PrettyView{cfg: defaultConfig()}
+	pv.parseStatus = ParseStatus{OK: true, ErrorLine: -1} // an empty doc is valid
 	for _, o := range opts {
 		o(&pv.cfg)
 	}

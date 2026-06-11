@@ -127,9 +127,15 @@ func (rr *rowRenderer) build() {
 	}
 
 	// Line-number gutter (opt-in): the 1-based logical line number, right-aligned in
-	// [0,gutterW), on the line's first visual row only; continuation rows stay blank.
+	// [0,gutterW), on the line's first visual row only; continuation rows stay blank. A
+	// recovered-error marker line tints its number with the theme error color — an
+	// unobtrusive gutter marker that rides this culled per-visible-row text (#45).
 	if m.GutterWidth() > 0 && r.sub == 0 {
-		rr.layoutLineNumber(int(r.line)+1, m, pv.palette[model.RoleMuted])
+		numColor := pv.palette[model.RoleMuted]
+		if pv.errorColor != nil && pv.lineIsError(r.line) {
+			numColor = pv.errorColor
+		}
+		rr.layoutLineNumber(int(r.line)+1, m, numColor)
 	} else {
 		rr.lineNumHide()
 	}

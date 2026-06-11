@@ -398,7 +398,8 @@ func (pv *PrettyView) recomputeMetrics() {
 	pv.selColor = t.Selection
 	pv.matchColor = t.Match
 	pv.activeMatchColor = t.ActiveMatch
-	pv.caretColor = t.Foreground // a solid, theme-following caret bar
+	pv.caretColor = t.Foreground                              // a solid, theme-following caret bar
+	pv.errorColor = themeColor(theme.ColorNameError, variant) // gutter marker on recovered-error lines
 
 	pv.lastTextSize, pv.lastVariant, pv.metricsReady = ts, variant, true
 }
