@@ -45,15 +45,12 @@ func (pv *PrettyView) SetCaret(line, col int) bool {
 	pv.sel.active = false
 	pv.sel.placed = true
 	pv.coalesceBreak = true
-	if pv.cfg.editable && !pv.editStructured {
-		pv.caretBuf = pv.buf.ByteOffAt(int(li), col) // keep the canonical edit offset in sync
-	}
 	pv.centerOnLine(li, col)
 	pv.refreshSelectionView()
 	return true
 }
 
-// aboveEditCap reports whether the edit buffer has reached the configured MaxEditBytes,
+// aboveEditCap reports whether the edit buffer has exceeded the configured MaxEditBytes,
 // above which auto-format-on-pause is suppressed (explicit Reformat still runs).
 func (pv *PrettyView) aboveEditCap() bool {
 	cap := pv.cfg.input.MaxEditBytes
@@ -126,15 +123,19 @@ func (pv *PrettyView) editKey(ev *fyne.KeyEvent) bool {
 }
 
 // caretOff is the caret's byte offset in the buffer. An unplaced caret is offset 0.
-// While the structured (reformatted) projection is shown, the caret's (line, col) is in
-// structured space and does not map 1:1 to the buffer, so the stable caretBuf is used;
-// in the raw projection the offset is read directly from sel.focus.
+// In the raw projection the buffer (line, col) maps 1:1, so the offset is read directly;
+// in the structured projection the caret is in display coordinates, so it is mapped back
+// through the document's source ranges (SourceOffsetAt). Either way it reflects the LIVE
+// sel.focus — including a click or arrow move made in the structured view.
 func (pv *PrettyView) caretOff() int {
 	if !pv.sel.placed {
 		return 0
 	}
 	if pv.editStructured {
-		return pv.caretBuf
+		if pv.sel.focus == pv.caretBufPos {
+			return pv.caretBuf // exact offset from the reformat; the caret has not moved since
+		}
+		return pv.doc.SourceOffsetAt(pv.sel.focus.line, pv.sel.focus.col) // moved -> derive from the display
 	}
 	return pv.buf.ByteOffAt(int(pv.sel.focus.line), pv.sel.focus.col)
 }
@@ -150,13 +151,21 @@ func (pv *PrettyView) setCaretOff(off int) {
 	pv.sel.grab = grabNone
 }
 
-// selectionByteRange returns the active selection as a [lo, hi) buffer byte range.
+// selectionByteRange returns the active selection as a [lo, hi) buffer byte range. Both
+// endpoints are mapped in the CURRENT projection (raw 1:1, or structured via source
+// ranges), so it must be read BEFORE ensureRawForEdit collapses the selection.
 func (pv *PrettyView) selectionByteRange() (lo, hi int, ok bool) {
 	if !pv.sel.active {
 		return 0, 0, false
 	}
-	a := pv.buf.ByteOffAt(int(pv.sel.anchor.line), pv.sel.anchor.col)
-	b := pv.buf.ByteOffAt(int(pv.sel.focus.line), pv.sel.focus.col)
+	var a, b int
+	if pv.editStructured {
+		a = pv.doc.SourceOffsetAt(pv.sel.anchor.line, pv.sel.anchor.col)
+		b = pv.doc.SourceOffsetAt(pv.sel.focus.line, pv.sel.focus.col)
+	} else {
+		a = pv.buf.ByteOffAt(int(pv.sel.anchor.line), pv.sel.anchor.col)
+		b = pv.buf.ByteOffAt(int(pv.sel.focus.line), pv.sel.focus.col)
+	}
 	if a > b {
 		a, b = b, a
 	}
@@ -168,10 +177,10 @@ func (pv *PrettyView) editInsert(s []byte) {
 	if !pv.cfg.editable || pv.buf == nil || len(s) == 0 {
 		return
 	}
-	pv.ensureRawForEdit()
+	// Capture the caret and selection in the CURRENT projection BEFORE ensureRawForEdit
+	// reverts to raw (which collapses the selection). The buffer bytes do not change
+	// across the revert, so these byte offsets stay valid.
 	caretBefore := pv.caretOff()
-	at := caretBefore
-	var removed []byte
 	selLo, selHi, hasSel := pv.selectionByteRange()
 	// Reject an edit that would grow the buffer past the MaxEditBytes cap (a delete or a
 	// same-size replace is always allowed; only net growth is capped).
@@ -184,6 +193,9 @@ func (pv *PrettyView) editInsert(s []byte) {
 			return
 		}
 	}
+	pv.ensureRawForEdit()
+	at := caretBefore
+	var removed []byte
 	if hasSel {
 		removed = pv.bufRange(selLo, selHi)
 		pv.buf.Delete(selLo, selHi-selLo)
@@ -210,14 +222,16 @@ func (pv *PrettyView) editDelete(forward bool) {
 	if !pv.cfg.editable || pv.buf == nil {
 		return
 	}
-	pv.ensureRawForEdit()
+	// Capture caret + selection BEFORE ensureRawForEdit collapses the selection.
 	caretBefore := pv.caretOff()
-	if lo, hi, ok := pv.selectionByteRange(); ok {
-		removed := pv.bufRange(lo, hi)
-		pv.buf.Delete(lo, hi-lo)
-		pv.recordEdit(editOp{at: lo, removed: removed, caretBefore: caretBefore, caretAfter: lo})
+	selLo, selHi, hasSel := pv.selectionByteRange()
+	pv.ensureRawForEdit()
+	if hasSel {
+		removed := pv.bufRange(selLo, selHi)
+		pv.buf.Delete(selLo, selHi-selLo)
+		pv.recordEdit(editOp{at: selLo, removed: removed, caretBefore: caretBefore, caretAfter: selLo})
 		pv.reprojectRaw()
-		pv.setCaretOff(lo)
+		pv.setCaretOff(selLo)
 		pv.afterEdit()
 		return
 	}

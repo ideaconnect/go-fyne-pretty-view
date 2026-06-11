@@ -15,8 +15,9 @@ import (
 // the reformat, so the caret's byte offset is stable across the raw<->structured swap.
 
 // SetInputConfig updates the edit-mode formatting knobs after construction, merging
-// non-zero fields over the current config (the field-merge WithSearchConfig uses).
-// No-op for a read-only widget. Call it on the Fyne goroutine.
+// non-zero fields over the current config (the field-merge WithSearchConfig uses). It
+// has no observable effect on a read-only widget, which never consults the input config.
+// Call it on the Fyne goroutine.
 func (pv *PrettyView) SetInputConfig(c InputConfig) { c.mergeInto(&pv.cfg.input) }
 
 // SetOnChanged registers a callback invoked (debounced, after the edited text settles)
@@ -95,8 +96,8 @@ func (pv *PrettyView) reformatNow() {
 	if pv.editStructured && len(snapshot) == pv.lastFmtLen && hash64(snapshot) == pv.lastFmtHash {
 		return // already showing the structured form of these exact bytes (idempotent guard)
 	}
-	pv.caretBuf = pv.caretOff() // exact offset from the current (raw or structured) caret
-	pv.coalesceBreak = true     // a reformat ends the current typing run for undo
+	off := pv.caretOff()    // exact caret byte offset in the current (raw or structured) projection
+	pv.coalesceBreak = true // a reformat ends the current typing run for undo
 	nd := parse.Parse(snapshot, pv.cfg.format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
 	pv.lastFmtLen, pv.lastFmtHash = len(snapshot), hash64(snapshot)
 
@@ -106,17 +107,22 @@ func (pv *PrettyView) reformatNow() {
 		// the caret needs.
 		pv.reprojectRaw()
 		pv.editStructured = false
-		pv.placeCaretFromBuf()
+		pv.setCaretOff(off)
 	} else {
 		pv.doc = nd
 		pv.editStructured = true
 		// Anchor the caret across the reformat: the buffer bytes did not move, so the
-		// caret's stable byte offset maps straight to a rune-precise structured position
-		// (#41). A shape-changing edit lands the caret at the new token covering its byte.
-		line, col := pv.doc.LineColAtSourceOffset(pv.caretBuf)
+		// caret's byte offset maps straight to a rune-precise structured position (#41).
+		// A shape-changing edit lands the caret at the new token covering its byte.
+		line, col := pv.doc.LineColAtSourceOffset(off)
 		pv.sel.focus = modelPos{line: line, col: col}
 		pv.sel.anchor = pv.sel.focus
 		pv.sel.active = false
+		pv.sel.placed = true
+		// Remember the exact offset and the position it maps to, so an immediate edit is
+		// byte-exact despite the display<->source round-trip being lossy at synthesized
+		// separators; a later click/arrow changes sel.focus and invalidates this.
+		pv.caretBuf, pv.caretBufPos = off, pv.sel.focus
 	}
 	pv.setParseStatus(parseStatusOf(nd)) // validity of the structured parse (#45); fires OnValidationChanged on a flip
 	pv.applyGutter()
@@ -125,25 +131,17 @@ func (pv *PrettyView) reformatNow() {
 }
 
 // ensureRawForEdit reverts a structured preview to the raw edit projection before an
-// edit or caret move, re-placing the caret from its stable byte offset. All editing
-// then happens in the raw space, where the caret is an exact buffer position.
+// edit or caret move, re-placing the caret at the same buffer byte offset (resolved from
+// the live structured position first). All editing then happens in the raw space, where
+// the caret is an exact buffer position.
 func (pv *PrettyView) ensureRawForEdit() {
 	if !pv.editStructured {
 		return
 	}
+	off := pv.caretOff() // structured (line, col) -> buffer offset, while still structured
 	pv.reprojectRaw()
 	pv.editStructured = false
-	pv.placeCaretFromBuf()
-}
-
-// placeCaretFromBuf re-derives the caret (line, col) from caretBuf in the raw
-// projection, where display lines map 1:1 to buffer lines.
-func (pv *PrettyView) placeCaretFromBuf() {
-	line, col := pv.buf.LineColAt(pv.caretBuf)
-	pv.sel.focus = modelPos{line: int32(line), col: col}
-	pv.sel.anchor = pv.sel.focus
-	pv.sel.active = false
-	pv.sel.placed = true
+	pv.setCaretOff(off)
 }
 
 // stopEditTimer cancels and clears any pending debounced reformat. Best-effort, like

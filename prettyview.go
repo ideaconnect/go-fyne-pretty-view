@@ -75,12 +75,17 @@ type PrettyView struct {
 	buf *model.TextBuffer
 
 	// live-format engine (#40). editStructured is true when the displayed doc is the
-	// structured (pretty) reformat rather than the raw edit projection; caretBuf is the
-	// caret's stable byte offset, used to re-place it across the raw<->structured swap.
+	// structured (pretty) reformat rather than the raw edit projection. The caret's
+	// buffer offset is derived live from sel.focus (raw 1:1, or structured via
+	// SourceOffsetAt). caretBuf holds the EXACT offset the reformat placed the caret at,
+	// valid only while sel.focus still equals caretBufPos — so an immediate edit after a
+	// reformat is byte-exact, but a click/arrow (which changes sel.focus) falls back to
+	// the display-derived offset. Never a stale cache.
 	editTimer      *time.Timer
 	editGen        int
 	editStructured bool
 	caretBuf       int
+	caretBufPos    modelPos
 	lastFmtLen     int // idempotent-reformat guard: byte length + hash of the last reparse
 	lastFmtHash    uint64
 	onChanged      func(string) // fired (debounced) after the edited text settles
@@ -234,6 +239,8 @@ func (pv *PrettyView) Source() []byte {
 // structured, pretty-printed (depth-indented) form once a reformat has run, or the raw
 // text while typing. It is the editor-facing convenience getter, distinct from the raw
 // Source bytes (which are what the user literally typed). Folding does not truncate it.
+// Note: while typing, control bytes render as a placeholder rune here; for the literal
+// bytes (including controls) use Source.
 func (pv *PrettyView) Text() string {
 	if pv.doc == nil {
 		return ""

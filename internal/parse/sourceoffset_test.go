@@ -50,3 +50,24 @@ func TestLineColAtSourceOffset(t *testing.T) {
 		t.Errorf("col %d in %q does not land at the \"22\" token (got %q)", col, lt, string(runes[col:]))
 	}
 }
+
+// TestSourceOffsetAtRoundTrip checks the structured (line,col) -> Src offset map and its
+// round-trip with LineColAtSourceOffset, including the synthesized close-brace line.
+func TestSourceOffsetAtRoundTrip(t *testing.T) {
+	src := []byte(`{"a":1,"bb":22}`)
+	d := Parse(src, FormatJSON, 0)
+
+	// The "bb" key's first byte round-trips: offset -> (line,col) -> offset.
+	off := bytes.Index(src, []byte(`"bb"`))
+	line, col := d.LineColAtSourceOffset(off)
+	if got := d.SourceOffsetAt(line, col); got != off {
+		t.Errorf("round-trip SourceOffsetAt(LineColAtSourceOffset(%d)) = %d, want %d", off, got, off)
+	}
+
+	// The close-brace line (synthesized, no source segment) anchors at the container end,
+	// not its start — so a select-to-`}` reaches the buffer end, not offset 0.
+	closeLine := int32(d.TotalLines() - 1)
+	if got := d.SourceOffsetAt(closeLine, d.LineRuneLen(closeLine)); got < off {
+		t.Errorf("close-line SourceOffsetAt = %d, want >= the \"bb\" offset %d (near buffer end)", got, off)
+	}
+}

@@ -86,6 +86,53 @@ func (d *Document) LineColAtSourceOffset(off int) (line int32, col int) {
 	return line, runesBefore // past the last source token on the line -> end of its text
 }
 
+// SourceOffsetAt maps a display (line, col) to a byte offset into Src — the inverse of
+// LineColAtSourceOffset. It walks the line's segments: a col inside a source-backed
+// segment returns the exact byte; a col inside a synthesized (Aux) segment, or past the
+// last source token, clamps to the nearest source boundary, so the result is always a
+// valid Src offset. This maps a structured-projection caret/selection back to the edit
+// buffer (the buffer is the Src of the structured document).
+func (d *Document) SourceOffsetAt(line int32, col int) int {
+	if int(line) < 0 || int(line) >= len(d.Lines) {
+		return 0
+	}
+	runesBefore := 0
+	srcAnchor := -1 // last source byte boundary seen on this line
+	for _, s := range d.LineSegs(line) {
+		n := utf8.RuneCount(d.SegBytes(s))
+		if s.Buf == BufSrc {
+			if col <= runesBefore {
+				return int(s.Start)
+			}
+			if col < runesBefore+n {
+				src := d.Src[s.Start:s.End]
+				bo := 0
+				for k := 0; k < col-runesBefore; k++ {
+					_, sz := utf8.DecodeRune(src[bo:])
+					bo += sz
+				}
+				return int(s.Start) + bo
+			}
+			srcAnchor = int(s.End)
+		} else if col < runesBefore+n && srcAnchor >= 0 {
+			return srcAnchor // caret inside a synthesized segment -> preceding source boundary
+		}
+		runesBefore += n
+	}
+	if srcAnchor >= 0 {
+		return srcAnchor // past the last source token -> end of its bytes
+	}
+	// Synthesized-only line (e.g. a close brace): anchor at the owning node's end if this
+	// is its close line (so a select-to-`}` reaches the container's end), else its start.
+	if o := d.Lines[line].Owner; o != NoNode && int(o) < len(d.Nodes) {
+		if d.Nodes[o].CloseLine == line {
+			return int(d.Nodes[o].SrcEnd)
+		}
+		return int(d.Nodes[o].SrcStart)
+	}
+	return 0
+}
+
 // Fold collapses node; Unfold expands it; Toggle flips it.
 func (d *Document) Fold(node NodeID)   { d.fold.fold(d, node) }
 func (d *Document) Unfold(node NodeID) { d.fold.unfold(d, node) }
