@@ -18,6 +18,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	fynetooltip "github.com/dweymouth/fyne-tooltip"
 
 	prettyview "github.com/ideaconnect/go-fyne-pretty-view"
 	"github.com/ideaconnect/go-fyne-pretty-view/fonttheme"
@@ -38,7 +39,9 @@ func main() {
 	a.Settings().SetTheme(fonttheme.New(theme.DefaultTheme()))
 	w := a.NewWindow("prettyview demo")
 	w.Resize(fyne.NewSize(1000, 720))
-	w.SetContent(buildUI(w, startPath()))
+	// Wrap the content in a tooltip layer (fyne-tooltip) so the toolbar/search bar's
+	// icon-only buttons show hover labels — Fyne core has no tooltip support.
+	w.SetContent(fynetooltip.AddWindowToolTipLayer(buildUI(w, startPath()), w.Canvas()))
 	w.ShowAndRun()
 }
 

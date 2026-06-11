@@ -1,12 +1,23 @@
 # Changelog
 
 All notable changes to this project are documented here. The format is based on
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project aims to
-follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Pre-1.0 the public
-API may change between minor versions; breaking changes are called out under
-**Changed**/**Removed**.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). As of v1.0.0 the exported
+surface is frozen: additions ship as v1.x; any breaking change ships under a new major
+module path (`.../v2`) and is called out under **Changed**/**Removed**.
 
 ## [Unreleased]
+
+## [v1.1.0-alpha] — 2026-06-11
+
+### Added
+- The built-in toolbar and search-bar icon controls now carry **hover tooltips** (via
+  [fyne-tooltip](https://github.com/dweymouth/fyne-tooltip)) — e.g. *Find next*,
+  *Previous match*, *Case-sensitive*, *Regular expression*, *Open file…*, *Expand all*,
+  *Collapse all*, *Toggle soft-wrap*. Tooltips render when the host wraps its window in
+  `fynetooltip.AddWindowToolTipLayer(content, canvas)` (the demo does this); they are
+  absent, not an error, without it. Additive and backward-compatible (the control
+  constructors still return `fyne.CanvasObject`).
 
 ## [v1.0.0-alpha] — 2026-06-11 — frozen public surface
 
@@ -126,7 +137,8 @@ guarded by `TestExportedSurfaceGolden`; see the README **Stability** section. Af
   search with reveal-into-folds, optional soft-wrap, and an opt-in toolbar — built to
   a hard memory budget (only viewport-many rows are ever live widgets).
 
-[Unreleased]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v1.0.0-alpha...HEAD
+[Unreleased]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v1.1.0-alpha...HEAD
+[v1.1.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v1.0.0-alpha...v1.1.0-alpha
 [v1.0.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v0.9.0-alpha...v1.0.0-alpha
 [v0.9.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v0.5.0-alpha...v0.9.0-alpha
 [v0.5.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/releases/tag/v0.5.0-alpha

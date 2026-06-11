@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 
+	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
+
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
@@ -55,7 +57,7 @@ func DefaultToolbarConfig(win fyne.Window) ToolbarConfig {
 func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 	left := container.NewHBox()
 	if cfg.ShowOpen && (cfg.OnOpen != nil || cfg.Window != nil) {
-		left.Add(iconBtn(iconFolder(), func() {
+		left.Add(iconBtn(iconFolder(), "Open file…", func() {
 			if cfg.OnOpen != nil {
 				cfg.OnOpen()
 				return
@@ -86,10 +88,15 @@ func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 	return left
 }
 
-// iconBtn is a compact, flat (low-importance) icon-only button.
-func iconBtn(icon fyne.Resource, tapped func()) *widget.Button {
-	b := widget.NewButtonWithIcon("", icon, tapped)
+// iconBtn is a compact, flat (low-importance) icon-only button with a hover tooltip
+// (tip) — icon-only buttons need a label affordance, and Fyne core has no tooltips, so
+// this uses the fyne-tooltip add-on. The tooltip only renders if the host wraps its
+// window content in fynetooltip.AddWindowToolTipLayer (see the README); otherwise it is
+// simply absent.
+func iconBtn(icon fyne.Resource, tip string, tapped func()) *ttwidget.Button {
+	b := ttwidget.NewButtonWithIcon("", icon, tapped)
 	b.Importance = widget.LowImportance
+	b.SetToolTip(tip)
 	return b
 }
 
@@ -97,9 +104,10 @@ func iconBtn(icon fyne.Resource, tapped func()) *widget.Button {
 // a disabled low-importance button, so it reads as a button-shaped affordance (aligned
 // in the control row) without being clickable. Used for the search bar's leading
 // magnifier glyph, which is a label, not an action.
-func iconLabel(icon fyne.Resource) *widget.Button {
-	b := widget.NewButtonWithIcon("", icon, func() {})
+func iconLabel(icon fyne.Resource, tip string) *ttwidget.Button {
+	b := ttwidget.NewButtonWithIcon("", icon, func() {})
 	b.Importance = widget.LowImportance
+	b.SetToolTip(tip)
 	b.Disable()
 	return b
 }
@@ -107,8 +115,8 @@ func iconLabel(icon fyne.Resource) *widget.Button {
 // NewFoldButtons returns an expand-all / collapse-all icon pair bound to pv.
 func NewFoldButtons(pv *PrettyView) fyne.CanvasObject {
 	return container.NewHBox(
-		iconBtn(iconExpand(), pv.ExpandAll),
-		iconBtn(iconCollapse(), pv.CollapseAll),
+		iconBtn(iconExpand(), "Expand all", pv.ExpandAll),
+		iconBtn(iconCollapse(), "Collapse all", pv.CollapseAll),
 	)
 }
 
@@ -116,8 +124,8 @@ func NewFoldButtons(pv *PrettyView) fyne.CanvasObject {
 // soft-wrap (WrapWord) and horizontal scroll (WrapNone), and is highlighted
 // (HighImportance) while wrapping is on so the state is visible.
 func NewWrapToggle(pv *PrettyView) fyne.CanvasObject {
-	var btn *widget.Button
-	btn = iconBtn(iconWrapText(), func() {
+	var btn *ttwidget.Button
+	btn = iconBtn(iconWrapText(), "Toggle soft-wrap", func() {
 		if pv.Wrap() == WrapWord {
 			pv.SetWrap(WrapNone)
 		} else {
@@ -287,8 +295,8 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 		}
 		return widget.LowImportance
 	}
-	var caseBtn, regexBtn *widget.Button
-	caseBtn = widget.NewButton("Aa", func() {
+	var caseBtn, regexBtn *ttwidget.Button
+	caseBtn = ttwidget.NewButton("Aa", func() {
 		caseSensitive = !caseSensitive
 		caseBtn.Importance = toggleImportance(caseSensitive)
 		caseBtn.Refresh()
@@ -297,7 +305,8 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 		}
 	})
 	caseBtn.Importance = widget.LowImportance
-	regexBtn = widget.NewButton(".*", func() {
+	caseBtn.SetToolTip("Case-sensitive")
+	regexBtn = ttwidget.NewButton(".*", func() {
 		useRegex = !useRegex
 		regexBtn.Importance = toggleImportance(useRegex)
 		regexBtn.Refresh()
@@ -306,13 +315,14 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 		}
 	})
 	regexBtn.Importance = widget.LowImportance
+	regexBtn.SetToolTip("Regular expression")
 
-	prev := iconBtn(iconArrowUp(), pv.SearchPrev)
-	next := iconBtn(iconArrowDown(), pv.SearchNext)
+	prev := iconBtn(iconArrowUp(), "Previous match", pv.SearchPrev)
+	next := iconBtn(iconArrowDown(), "Find next", pv.SearchNext)
 
 	// The entry expands (Border center); the counter, toggles and nav buttons sit in
 	// one HBox so the inter-control gaps are all one padding wide.
-	return container.NewBorder(nil, nil, iconLabel(iconSearch()),
+	return container.NewBorder(nil, nil, iconLabel(iconSearch(), "Search"),
 		container.NewHBox(container.NewCenter(count), caseBtn, regexBtn, prev, next), entry)
 }
 
