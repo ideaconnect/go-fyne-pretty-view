@@ -474,6 +474,37 @@ func TestJSONStringEscapes(t *testing.T) {
 	}
 }
 
+// TestXMLHTMLSourceOffsets verifies element nodes now carry a real [SrcStart,SrcEnd)
+// span into the source (previously 0,0), so CopySubtree/ExpandTo work by byte offset.
+func TestXMLHTMLSourceOffsets(t *testing.T) {
+	for _, c := range []struct {
+		name, src string
+		format    Format
+	}{
+		{"xml", `<root><a>x</a></root>`, FormatXML},
+		{"html", `<div><p>hi</p></div>`, FormatHTML},
+	} {
+		d := Parse([]byte(c.src), c.format, 0)
+		found := false
+		for id := 1; id < len(d.Nodes); id++ {
+			n := d.Nodes[id]
+			if n.Kind != model.KindElement || n.SrcEnd <= n.SrcStart {
+				continue
+			}
+			found = true
+			if int(n.SrcEnd) > len(c.src) {
+				t.Fatalf("%s: node %d SrcEnd %d past source length %d", c.name, id, n.SrcEnd, len(c.src))
+			}
+			if span := c.src[n.SrcStart:n.SrcEnd]; !strings.HasPrefix(span, "<") || !strings.HasSuffix(span, ">") {
+				t.Errorf("%s: node %d span %q is not a <...> region", c.name, id, span)
+			}
+		}
+		if !found {
+			t.Errorf("%s: no element node carries a source span (SrcEnd>SrcStart)", c.name)
+		}
+	}
+}
+
 func TestRawFallback(t *testing.T) {
 	d := Parse([]byte("just some\nplain text\nlines"), FormatAuto, 0)
 	if d.Format != FormatRaw {

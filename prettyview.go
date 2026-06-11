@@ -80,6 +80,7 @@ type PrettyView struct {
 	sel          selection
 	focused      bool
 	overTriangle bool
+	shiftHeld    bool // tracked via KeyDown/KeyUp; Shift+arrows extend the keyboard selection
 
 	// search state
 	search            searchState
@@ -205,6 +206,26 @@ func (pv *PrettyView) CollapseAll() {
 	}
 }
 
+// CollapseToDepth collapses every container at nesting depth >= depth (top level is
+// depth 0), leaving shallower containers as they are, and refreshes. ExpandToDepth
+// expands every container at depth < depth. The two compose — e.g. ExpandToDepth(d)
+// then CollapseToDepth(d) shows the tree exactly down to depth d. Call on the Fyne
+// goroutine.
+func (pv *PrettyView) CollapseToDepth(depth int) {
+	if pv.doc != nil {
+		pv.doc.CollapseToDepth(depth)
+		pv.Refresh()
+	}
+}
+
+// ExpandToDepth expands every container at nesting depth < depth (see CollapseToDepth).
+func (pv *PrettyView) ExpandToDepth(depth int) {
+	if pv.doc != nil {
+		pv.doc.ExpandToDepth(depth)
+		pv.Refresh()
+	}
+}
+
 // SetDefaultCollapseDepth sets the auto-collapse depth applied on subsequent
 // SetData calls (0 disables).
 func (pv *PrettyView) SetDefaultCollapseDepth(depth int) {
@@ -215,10 +236,10 @@ func (pv *PrettyView) SetDefaultCollapseDepth(depth int) {
 }
 
 // ExpandTo expands every collapsed ancestor of the node owning byte offset off and
-// scrolls it into view, reporting whether such a node was found. Source byte
-// offsets are populated for JSON/JSONC only; XML and HTML carry no per-node source
-// span (their tokenizers don't expose one), so on those formats no node matches an
-// arbitrary offset and ExpandTo returns false without scrolling.
+// scrolls it into view, reporting whether such a node was found. Source byte offsets
+// are populated for every structured format (JSON/JSONC/XML/HTML), so this resolves a
+// node on each; an out-of-range offset returns false without scrolling. See
+// ScrollToLine for a line-index alternative.
 func (pv *PrettyView) ExpandTo(off int) bool {
 	if pv.doc == nil {
 		return false
@@ -232,6 +253,41 @@ func (pv *PrettyView) ExpandTo(off int) bool {
 	pv.refreshContent()
 	pv.centerOnLine(line, 0)
 	return true
+}
+
+// ScrollToLine reveals the given display line (expanding any collapsed ancestors) and
+// scrolls it to the center of the viewport, reporting whether the index is in range.
+// Unlike ExpandTo it takes a display-line index in [0, TotalLines), so it works for
+// every format. Call it on the Fyne goroutine.
+func (pv *PrettyView) ScrollToLine(line int) bool {
+	if pv.doc == nil || line < 0 || line >= pv.doc.TotalLines() {
+		return false
+	}
+	li := int32(line)
+	pv.doc.RevealLine(li)
+	pv.refreshContent()
+	pv.centerOnLine(li, 0)
+	return true
+}
+
+// ScrollOffset returns the current content-space scroll offset (the viewport's
+// top-left). Pair it with SetScrollOffset to save and restore scroll position across
+// a reload or a layout change. Reports the zero position before the widget is shown.
+func (pv *PrettyView) ScrollOffset() fyne.Position {
+	if pv.r == nil {
+		return fyne.Position{}
+	}
+	return pv.r.scroll.Offset
+}
+
+// SetScrollOffset scrolls so p (content space) is the viewport's top-left, clamped to
+// the valid range — e.g. to restore a previously saved ScrollOffset. No-op before the
+// widget is shown. Call it on the Fyne goroutine.
+func (pv *PrettyView) SetScrollOffset(p fyne.Position) {
+	if pv.r == nil {
+		return
+	}
+	pv.r.scrollToOffset(p)
 }
 
 // SetWrap switches long-line handling between WrapNone (horizontal scroll) and

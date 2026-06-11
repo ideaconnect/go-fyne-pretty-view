@@ -228,6 +228,7 @@ func (pv *PrettyView) MouseMoved(ev *desktop.MouseEvent) {
 func (pv *PrettyView) FocusGained() { pv.focused = true; pv.refreshSelectionView() }
 func (pv *PrettyView) FocusLost() {
 	pv.focused = false
+	pv.shiftHeld = false // a Shift released off-widget must not stick
 	if pv.r != nil {
 		pv.r.dragArmed = false
 	}
@@ -238,6 +239,20 @@ func (pv *PrettyView) TypedRune(rune) {}
 // TypedKey handles Escape (clear selection) and keyboard scrolling/navigation:
 // Up/Down scroll one row, PageUp/PageDown one viewport, Home/End jump to the top/
 // bottom. A multi-megabyte viewer should be navigable without the mouse.
+// KeyDown / KeyUp track the Shift modifier (fyne.KeyEvent carries none), so TypedKey
+// can tell Shift+arrow (extend the keyboard selection) from a plain arrow (scroll).
+func (pv *PrettyView) KeyDown(key *fyne.KeyEvent) {
+	if key.Name == desktop.KeyShiftLeft || key.Name == desktop.KeyShiftRight {
+		pv.shiftHeld = true
+	}
+}
+
+func (pv *PrettyView) KeyUp(key *fyne.KeyEvent) {
+	if key.Name == desktop.KeyShiftLeft || key.Name == desktop.KeyShiftRight {
+		pv.shiftHeld = false
+	}
+}
+
 func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 	if pv.r == nil {
 		if ev.Name == fyne.KeyEscape {
@@ -246,13 +261,38 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 		return
 	}
 	vpH := pv.r.scroll.Size().Height
+
+	// Shift+arrow / Shift+Home/End extend the keyboard selection from the caret.
+	if pv.shiftHeld {
+		switch ev.Name {
+		case fyne.KeyDown:
+			pv.keyExtend(1, keepCol, false, false)
+			return
+		case fyne.KeyUp:
+			pv.keyExtend(-1, keepCol, false, false)
+			return
+		case fyne.KeyHome:
+			pv.keyExtend(0, 0, true, false)
+			return
+		case fyne.KeyEnd:
+			pv.keyExtend(0, 0, false, true)
+			return
+		}
+	}
+
 	switch ev.Name {
 	case fyne.KeyEscape:
 		pv.ClearSelection()
+	case fyne.KeyReturn, fyne.KeyEnter:
+		pv.keyToggleFold() // toggle the fold on the caret line, if it is a fold head
 	case fyne.KeyDown:
 		pv.r.scrollBy(0, pv.met.RowH)
 	case fyne.KeyUp:
 		pv.r.scrollBy(0, -pv.met.RowH)
+	case fyne.KeyLeft:
+		pv.r.scrollBy(-4*pv.met.CharWidth, 0)
+	case fyne.KeyRight:
+		pv.r.scrollBy(4*pv.met.CharWidth, 0)
 	case fyne.KeyPageDown, fyne.KeySpace:
 		pv.r.scrollBy(0, vpH)
 	case fyne.KeyPageUp:
@@ -262,6 +302,86 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 	case fyne.KeyEnd:
 		cs := pv.contentSize()
 		pv.r.scrollToOffset(fyne.NewPos(pv.r.scroll.Offset.X, max(0, cs.Height-vpH)))
+	}
+}
+
+// keepCol is the sentinel for keyExtend meaning "preserve the focus column".
+const keepCol = -1
+
+// subRowOfCol returns the sub-row index whose [breaks[k],breaks[k+1]) span holds col.
+// breaks is the WrapBreaks slice [0, …, lineLen]; under WrapNone it is [0, lineLen],
+// so the result is always 0.
+func subRowOfCol(breaks []int32, col int) int {
+	for k := 0; k+1 < len(breaks); k++ {
+		if int32(col) < breaks[k+1] {
+			return k
+		}
+	}
+	if len(breaks) >= 2 {
+		return len(breaks) - 2
+	}
+	return 0
+}
+
+// keyExtend moves the keyboard caret (the selection focus) by dRows visible rows
+// and/or to a column, keeping the anchor, so a Shift+arrow extends the selection.
+// The first move establishes a caret at the top visible line if none exists.
+func (pv *PrettyView) keyExtend(dRows, col int, toLineStart, toLineEnd bool) {
+	if pv.doc == nil || pv.doc.TotalVisibleRows() == 0 {
+		return
+	}
+	if !pv.sel.placed {
+		li := pv.doc.LineAtRow(int32(max(pv.r.firstRow, 0)))
+		pv.sel.anchor = modelPos{line: li, col: 0}
+		pv.sel.focus = pv.sel.anchor
+		pv.sel.placed = true
+	}
+	f := pv.sel.focus
+	vl := pv.doc.VisibleLine(f.line)
+	if dRows != 0 {
+		// Baseline is the caret's CURRENT visual row — the line's first row plus the
+		// sub-row holding f.col — so repeated moves advance under soft-wrap instead of
+		// snapping back to the line's first sub-row. Under WrapNone every line is one
+		// row (breaks == [0, lineLen]) and this reduces to RowOfLine(vl)+dRows.
+		breaks := pv.doc.WrapBreaks(vl, nil)
+		sub := subRowOfCol(breaks, f.col)
+		visualCol := f.col - int(breaks[sub]) // horizontal offset within the sub-row
+		row := clampInt(int(pv.doc.RowOfLine(vl))+sub+dRows, 0, int(pv.doc.TotalVisibleRows())-1)
+		nl, nsub := pv.doc.LineAndSubRowAtRow(int32(row))
+		f.line, vl = nl, nl
+		nbreaks := pv.doc.WrapBreaks(nl, nil)
+		if int(nsub) > len(nbreaks)-2 {
+			nsub = int32(len(nbreaks) - 2)
+		}
+		// Preserve the horizontal position, clamped into the destination sub-row.
+		f.col = clampInt(int(nbreaks[nsub])+visualCol, int(nbreaks[nsub]), int(nbreaks[nsub+1]))
+	}
+	switch {
+	case toLineStart:
+		f.col = 0
+	case toLineEnd:
+		f.col = pv.doc.LineRuneLen(vl)
+	case col != keepCol:
+		f.col = clampInt(col, 0, pv.doc.LineRuneLen(vl))
+	}
+	pv.sel.focus = f
+	pv.sel.active = pv.sel.anchor != pv.sel.focus
+	pv.sel.grab = grabNone
+	pv.centerOnLine(vl, f.col) // keep the moving caret in view
+	pv.refreshSelectionView()
+}
+
+// keyToggleFold toggles the fold on the caret's line when it is a fold head.
+func (pv *PrettyView) keyToggleFold() {
+	if pv.doc == nil || !pv.sel.placed {
+		return
+	}
+	li := pv.sel.focus.line
+	if int(li) < 0 || int(li) >= len(pv.doc.Lines) {
+		return
+	}
+	if node := pv.doc.Lines[li].Fold; node != model.NoNode {
+		pv.toggleFold(node)
 	}
 }
 
@@ -320,11 +440,12 @@ func (pv *PrettyView) CopySelection() {
 }
 
 // CopySubtree copies the displayed text of the node owning byteOffset (its whole
-// {…}/[…] span, regardless of fold state) to the clipboard, reporting whether a
-// node was found and copied. Source byte offsets are populated for JSON/JSONC only;
-// XML and HTML nodes carry no source span, so CopySubtree returns false for them
-// (copying an XML/HTML subtree by offset is not yet supported). The copied text is
-// the viewer's pretty-printed rendering of the subtree, not the original bytes.
+// {…}/[…]/<tag>…</tag> span, regardless of fold state) to the clipboard, reporting
+// whether a node was found and copied. Source byte offsets are populated for every
+// structured format (JSON/JSONC/XML/HTML); an out-of-range offset returns false. The
+// copied text is the viewer's pretty-printed rendering of the subtree, not the
+// original bytes. (The right-click "Copy subtree" menu item does the same without an
+// offset, for any format.)
 func (pv *PrettyView) CopySubtree(byteOffset int) bool {
 	node := pv.nodeAtByteOffset(byteOffset)
 	if node == model.NoNode {

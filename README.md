@@ -42,7 +42,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - **Copy a whole section** (subtree) to the clipboard, regardless of fold state.
 - **Search** with plain or regular-expression matching, case sensitivity, match navigation, and **auto-reveal into folded nodes**.
 - **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally — selection, search, and copy still operate on whole logical lines.
-- **Keyboard navigation**: arrows, `PageUp`/`PageDown`, `Home`/`End`, `Esc` to clear the selection, `Ctrl/Cmd+F` to focus search.
+- **Keyboard navigation**: arrows scroll (all four), `Space`/`PageDown` & `PageUp` page, `Home`/`End` jump to top/bottom; **`Shift`+arrows / `Shift`+`Home`/`End` extend a selection** from the caret; **`Enter` toggles the fold** on the caret's line; `Esc` clears the selection; `Ctrl/Cmd+F` focuses search.
 - **Optional, à-la-carte controls**: a built-in toolbar (Open, format, expand/collapse, wrap, search) you can enable control-by-control — or drive everything from your own widgets via the public API.
 
 ## Why it stays small
@@ -75,6 +75,11 @@ go get github.com/ideaconnect/go-fyne-pretty-view
 
 Requires Go 1.26.4+ and the usual Fyne build dependencies (a C compiler and the
 OpenGL/X11 headers on Linux).
+
+**Fyne compatibility.** Built and tested against **Fyne v2.7.x** (the version pinned
+in [go.mod](go.mod)). Newer Fyne v2 minor releases are expected to work; each Fyne
+bump arrives as its own reviewable PR (it is excluded from the batched dependency
+group) and is validated before release. Security reporting is in [SECURITY.md](SECURITY.md).
 
 ## Quick start
 
@@ -116,13 +121,14 @@ matching runtime setters; the on-screen chrome is **entirely opt-in**.
 | Initial collapse depth | Fully expanded (`0`) | `WithDefaultCollapseDepth(d)` at build, or `SetDefaultCollapseDepth(d)` at runtime. |
 | Free-text selection & copy | On | Always on; `SelectAll()`, `SelectedText()`, `CopySelection()`, `ClearSelection()`, `Ctrl/Cmd+A`, `Ctrl/Cmd+C`. |
 | Right-click context menu | On | Always on (Copy / Select all). |
-| Copy a subtree | On demand | `CopySubtree(byteOffset) bool` (JSON/JSONC only; copies the pretty-printed subtree). |
+| Copy a subtree | On demand | `CopySubtree(byteOffset) bool` (any format; copies the pretty-printed subtree). Also a right-click menu item. |
 | Search | On demand | `Search(SearchQuery{Text, Mode, CaseSensitive})`, `SearchNext()`, `SearchPrev()`, `ClearSearch()`, `SearchStatus()`. Tune with `WithSearchConfig(...)`. |
 | Soft word-wrap | Off (`WrapNone`) | `WithWrap(WrapWord)` at build, or `SetWrap(WrapWord)` / `SetWrap(WrapNone)` at runtime; `Wrap()` reads it. |
 | Tab display width | `4` | `WithTabWidth(n)`. |
 | Indent step (px/level) | `16` | `WithIndentStep(px)`. |
+| Line-number gutter | Off | `WithLineNumbers()` (1-based logical line numbers, drawn from the model — no per-line widgets). |
 | Theme / colors | Track the host Fyne theme | `WithTheme` / `WithSyntaxColors` at build; `SetTheme` / `SetSyntaxColors` at runtime. |
-| Keyboard navigation | On | Always on (arrows, `PageUp`/`PageDown`, `Home`/`End`, `Esc`). |
+| Keyboard navigation | On | Always on: arrows scroll, `Space`/`PageUp`/`PageDown`, `Home`/`End`; `Shift`+arrows extend the selection; `Enter` toggles the caret line's fold; `Esc` clears. |
 
 `SearchQuery.Mode` is `SearchPlain` (default) or `SearchRegex`; matches are capped
 by `SearchConfig.MaxMatches` (10 000 by default) and revealed even inside folded
@@ -155,6 +161,7 @@ pv := prettyview.New(
     prettyview.WithDefaultCollapseDepth(3),             // collapse containers at depth 3 and deeper on load
     prettyview.WithIndentStep(16),                      // pixels per nesting level
     prettyview.WithTabWidth(4),
+    prettyview.WithLineNumbers(),                        // opt-in line-number gutter
     // WithSearchConfig replaces the search config wholesale — set DebounceFor
     // explicitly, or keystroke search is not coalesced (it scans on every keystroke).
     prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000, DebounceFor: 150 * time.Millisecond}),
@@ -213,9 +220,9 @@ search box, e.g. on `Ctrl/Cmd+F`).
 | `SetData(src, format)` / `SetText(s)` | load content |
 | `Reparse(format)` / `Source()` / `Format()` | re-parse the current bytes / read them back / current format |
 | `ExpandAll()` / `CollapseAll()` / `SetDefaultCollapseDepth(d)` | fold control |
-| `ExpandTo(byteOffset) bool` | reveal & scroll to a node (JSON/JSONC only; returns false on XML/HTML, which lack source offsets) |
+| `ExpandTo(byteOffset) bool` / `ScrollToLine(line) bool` | reveal & scroll to a node by source offset (any structured format) or to a display line (any format) |
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
-| `CopySelection()` / `CopySubtree(byteOffset) bool` | clipboard (CopySubtree is JSON/JSONC only and copies the pretty-printed subtree; returns false on XML/HTML) |
+| `CopySelection()` / `CopySubtree(byteOffset) bool` | clipboard (CopySubtree copies the pretty-printed subtree for any format) |
 | `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` | search |
 | `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
@@ -336,6 +343,7 @@ and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 | File | For whom / what |
 |---|---|
 | [README.md](README.md) | This overview: features, install, usage, API. |
+| [CHANGELOG.md](CHANGELOG.md) | Notable changes per release (Keep a Changelog). |
 | [STRUCTURE.md](STRUCTURE.md) | The codebase map — every file, the layering, the mental model. |
 | [WORKFLOWS.md](WORKFLOWS.md) | How to build, run, test, benchmark, and extend (parsers, colors). |
 | [docs/DESIGN.md](docs/DESIGN.md) | The authoritative architecture + adversarial risk analysis. |

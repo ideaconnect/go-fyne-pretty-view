@@ -346,6 +346,32 @@ func (fi *foldIndex) expandAll(d *Document) {
 	fi.rebuild(d)
 }
 
+// setDepth bulk-sets fold state by nesting depth and rebuilds the projection if
+// anything changed. With collapse=true it collapses every foldable node at depth >=
+// depth; with collapse=false it expands every foldable node at depth < depth. Other
+// nodes are left untouched, so CollapseToDepth and ExpandToDepth compose.
+func (fi *foldIndex) setDepth(d *Document, depth int, collapse bool) {
+	changed := false
+	for id := range d.Nodes {
+		nid := NodeID(id)
+		if !foldable(d, nid) {
+			continue
+		}
+		dp := int(d.Nodes[id].Depth)
+		switch {
+		case collapse && dp >= depth && !fi.collapsed.get(nid):
+			fi.collapsed.set(nid)
+			changed = true
+		case !collapse && dp < depth && fi.collapsed.get(nid):
+			fi.collapsed.clear(nid)
+			changed = true
+		}
+	}
+	if changed {
+		fi.rebuild(d)
+	}
+}
+
 // revealLine expands every collapsed ancestor that hides line, making it visible.
 // Returns true if anything changed. It unfolds incrementally (O(touched lines)
 // per ancestor) rather than rebuilding the whole projection.

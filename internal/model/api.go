@@ -38,6 +38,12 @@ func (d *Document) RevealLine(line int32) bool { return d.fold.revealLine(d, lin
 func (d *Document) ExpandAll()   { d.fold.expandAll(d) }
 func (d *Document) CollapseAll() { d.fold.collapseAll(d) }
 
+// CollapseToDepth collapses every foldable node at nesting depth >= depth (leaving
+// shallower nodes' state untouched); ExpandToDepth expands every foldable node at
+// depth < depth. Top level is depth 0; the two compose.
+func (d *Document) CollapseToDepth(depth int) { d.fold.setDepth(d, depth, true) }
+func (d *Document) ExpandToDepth(depth int)   { d.fold.setDepth(d, depth, false) }
+
 // Collapsed reports whether node is collapsed.
 func (d *Document) Collapsed(node NodeID) bool { return d.fold.collapsed.get(node) }
 

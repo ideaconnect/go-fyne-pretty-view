@@ -2,6 +2,7 @@ package prettyview
 
 import (
 	"image/color"
+	"strconv"
 	"sync/atomic"
 	"unicode/utf8"
 
@@ -75,6 +76,7 @@ type rowRenderer struct {
 	row      *rowWidget
 	guides   []*canvas.Line
 	triangle *canvas.Text
+	gutter   *canvas.Text // line number (opt-in gutter), or hidden
 	texts    []*canvas.Text
 	objects  []fyne.CanvasObject
 }
@@ -104,6 +106,7 @@ func (rr *rowRenderer) build() {
 	if r.line < 0 || pv.doc == nil || int(r.line) >= len(pv.doc.Lines) {
 		rr.hideFrom(0)
 		rr.triangleHide()
+		rr.lineNumHide()
 		rr.hideGuides(0)
 		return
 	}
@@ -121,6 +124,14 @@ func (rr *rowRenderer) build() {
 		rr.layoutTriangle(depth, m, collapsed, pv.palette[model.RoleMuted])
 	} else {
 		rr.triangleHide()
+	}
+
+	// Line-number gutter (opt-in): the 1-based logical line number, right-aligned in
+	// [0,gutterW), on the line's first visual row only; continuation rows stay blank.
+	if m.GutterWidth() > 0 && r.sub == 0 {
+		rr.layoutLineNumber(int(r.line)+1, m, pv.palette[model.RoleMuted])
+	} else {
+		rr.lineNumHide()
 	}
 
 	// Determine the column window this row renders. Under soft-wrap (startCol >= 0)
@@ -234,6 +245,9 @@ func (rr *rowRenderer) build() {
 	if rr.triangle != nil && rr.triangle.Visible() {
 		rr.objects = append(rr.objects, rr.triangle)
 	}
+	if rr.gutter != nil && rr.gutter.Visible() {
+		rr.objects = append(rr.objects, rr.gutter)
+	}
 	for i := 0; i < ti; i++ {
 		rr.objects = append(rr.objects, rr.texts[i])
 	}
@@ -275,6 +289,32 @@ func (rr *rowRenderer) layoutTriangle(depth uint8, m geometry.Metrics, collapsed
 func (rr *rowRenderer) triangleHide() {
 	if rr.triangle != nil {
 		rr.triangle.Hide()
+	}
+}
+
+// layoutLineNumber draws num right-aligned in the gutter [0,gutterW) with a one-cell
+// right margin, so the column of numbers lines up at its right edge.
+func (rr *rowRenderer) layoutLineNumber(num int, m geometry.Metrics, c color.Color) {
+	if rr.gutter == nil {
+		rr.gutter = canvas.NewText("", c)
+		rr.gutter.TextStyle = fyne.TextStyle{Monospace: true}
+	}
+	s := strconv.Itoa(num)
+	rr.gutter.Text = s
+	rr.gutter.TextSize = m.TextSize
+	rr.gutter.Color = c
+	x := m.GutterWidth() - m.CharWidth - float32(len(s))*m.CharWidth
+	if x < 0 {
+		x = 0
+	}
+	rr.gutter.Move(fyne.NewPos(x, m.TextY()))
+	rr.gutter.Resize(rr.gutter.MinSize())
+	rr.gutter.Show()
+}
+
+func (rr *rowRenderer) lineNumHide() {
+	if rr.gutter != nil {
+		rr.gutter.Hide()
 	}
 }
 

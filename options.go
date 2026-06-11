@@ -30,7 +30,8 @@ type config struct {
 	collapseDepth int // auto-collapse containers deeper than this on load (0 = never)
 	tabWidth      int
 	indentStep    float32
-	maxInputBytes int // cap on SetData/SetText input; 0 = no cap (the 4 GiB model ceiling)
+	maxInputBytes int  // cap on SetData/SetText input; 0 = no cap (the 4 GiB model ceiling)
+	lineNumbers   bool // render an opt-in line-number gutter
 	themeOverride map[fyne.ThemeVariant]Theme
 }
 
@@ -107,6 +108,14 @@ func WithMaxInputBytes(n int) Option {
 			c.maxInputBytes = n
 		}
 	}
+}
+
+// WithLineNumbers renders a line-number gutter to the left of the content. Numbers
+// are the logical display-line indices (1-based) drawn from the struct-of-arrays
+// model, so no extra widgets are created per line and the virtualization invariant
+// holds; wrap-continuation rows leave the gutter blank. Off by default.
+func WithLineNumbers() Option {
+	return func(c *config) { c.lineNumbers = true }
 }
 
 // WithIndentStep sets the pixels of indentation per nesting level.

@@ -117,11 +117,18 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # A checksum manifest so downloaders can verify each zip's integrity
+      # (sha256sum -c SHA256SUMS).
+      - name: Generate SHA256SUMS
+        run: (cd dist && sha256sum *.zip > SHA256SUMS)
+
       - name: Create / update the release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: dist/*.zip
+          files: |
+            dist/*.zip
+            dist/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true
           # Tags with a pre-release suffix (e.g. v1.2.3-rc1) are marked pre-release.

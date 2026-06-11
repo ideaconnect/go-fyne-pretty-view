@@ -54,7 +54,21 @@ type Metrics struct {
 	leftPad      float32
 	triangleSlot float32
 	indentStep   float32
+	gutterW      float32 // line-number gutter width (0 = off); shifts the text origin right
 }
+
+// SetGutterWidth sets the line-number gutter width. It widens TextOriginX (and
+// therefore every column/triangle/hit-test position uniformly), so the one
+// coordinate convention stays intact; 0 disables the gutter.
+func (m *Metrics) SetGutterWidth(w float32) {
+	if w < 0 {
+		w = 0
+	}
+	m.gutterW = roundf(w)
+}
+
+// GutterWidth reports the line-number gutter width (0 when off).
+func (m Metrics) GutterWidth() float32 { return m.gutterW }
 
 func roundf(x float32) float32 { return float32(math.Round(float64(x))) }
 
@@ -88,8 +102,9 @@ func NewMetrics(charWidth, glyphH, indentStep float32) Metrics {
 func (m Metrics) TextY() float32 { return roundf((m.RowH - m.textH) / 2) }
 
 // TextOriginX is the content-space x where a line's text begins at the given depth.
+// The line-number gutter (if any) sits to the left of everything, in [0, gutterW).
 func (m Metrics) TextOriginX(depth uint8) float32 {
-	return m.leftPad + m.triangleSlot + float32(depth)*m.indentStep
+	return m.gutterW + m.leftPad + m.triangleSlot + float32(depth)*m.indentStep
 }
 
 // TriangleX is the left edge of the fold-triangle gutter for a depth.
