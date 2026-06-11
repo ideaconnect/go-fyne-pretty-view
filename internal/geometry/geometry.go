@@ -35,7 +35,7 @@ package geometry
 import (
 	"math"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // Metrics holds the measured cell layout. RowH is rounded to a whole pixel, but

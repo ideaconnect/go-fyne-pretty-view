@@ -1,6 +1,6 @@
 package prettyview
 
-import "github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+import "github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 
 // Format selects (or, with FormatAuto, detects) the input grammar. It is an alias
 // of the model package's type so the document model and the public API share one

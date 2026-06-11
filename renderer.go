@@ -9,7 +9,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
 )
 
 // applyGutter sizes the line-number gutter from the document's line count (so the
@@ -44,7 +44,10 @@ type prettyViewRenderer struct {
 
 	selLayer   *fyne.Container // lowest z: selection rectangles
 	matchLayer *fyne.Container // search-match rectangles
+	caretLayer *fyne.Container // edit-mode caret, under the text (like widget.Entry)
 	rowLayer   *fyne.Container // highest z: row text
+
+	caretRect *canvas.Rectangle // the single edit caret (one rect, not a per-line widget)
 
 	rowPool sync.Pool
 	live    map[int]*rowWidget // visible row index -> widget
@@ -88,8 +91,9 @@ func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 
 	r.selLayer = container.NewWithoutLayout()
 	r.matchLayer = container.NewWithoutLayout()
+	r.caretLayer = container.NewWithoutLayout()
 	r.rowLayer = container.NewWithoutLayout()
-	r.content = container.New(&contentLayout{pv: pv}, r.selLayer, r.matchLayer, r.rowLayer)
+	r.content = container.New(&contentLayout{pv: pv}, r.selLayer, r.matchLayer, r.caretLayer, r.rowLayer)
 
 	r.scroll = container.NewScroll(r.content)
 	r.scroll.Direction = container.ScrollBoth
@@ -107,6 +111,7 @@ func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 func (r *prettyViewRenderer) Destroy() {
 	r.pv.destroyed.Store(true)
 	r.pv.stopSearchTimer()
+	r.pv.stopEditTimer()
 }
 func (r *prettyViewRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{r.scroll} }
 func (r *prettyViewRenderer) MinSize() fyne.Size           { return fyne.NewSize(120, 80) }
@@ -166,6 +171,7 @@ func (r *prettyViewRenderer) reflow() {
 		r.firstRow, r.lastRow = 0, -1
 		r.applyRects(r.selLayer, &r.selRects, &r.selObjs, 0)
 		r.applyRects(r.matchLayer, &r.matchRects, &r.matchObjs, 0)
+		r.rebuildCaret()
 		return
 	}
 
@@ -244,7 +250,41 @@ func (r *prettyViewRenderer) reflow() {
 
 	r.rebuildSelection(first, last)
 	r.rebuildMatches(first, last)
+	r.rebuildCaret()
 }
+
+// rebuildCaret positions (or hides) the single edit-mode caret. The caret is one
+// canvas.Rectangle at the focus cell's content-space origin — the same CellOrigin the
+// selection uses, so the one coordinate convention is unchanged and invariant 1 (only
+// visible rows are widgets) is untouched: this is one rect, never a per-line object.
+// It shows only for a focused, placed caret in an editable widget.
+func (r *prettyViewRenderer) rebuildCaret() {
+	pv := r.pv
+	show := pv.cfg.editable && pv.focused && pv.sel.placed && pv.doc != nil &&
+		int(pv.sel.focus.line) >= 0 && int(pv.sel.focus.line) < pv.doc.TotalLines()
+	if !show {
+		if r.caretRect != nil {
+			r.caretRect.Hide()
+		}
+		r.caretLayer.Objects = nil
+		r.caretLayer.Refresh()
+		return
+	}
+	x, y := geometry.CellOrigin(pv.doc, pv.met, pv.sel.focus.line, pv.sel.focus.col)
+	if r.caretRect == nil {
+		r.caretRect = canvas.NewRectangle(pv.caretColor)
+	} else {
+		r.caretRect.FillColor = pv.caretColor
+	}
+	r.caretRect.Resize(fyne.NewSize(caretWidth, pv.met.RowH))
+	r.caretRect.Move(fyne.NewPos(x, y))
+	r.caretRect.Show()
+	r.caretLayer.Objects = []fyne.CanvasObject{r.caretRect}
+	r.caretLayer.Refresh()
+}
+
+// caretWidth is the on-screen width of the edit caret in pixels.
+const caretWidth = float32(1.5)
 
 // liveObjects returns the live rows as a CanvasObject slice, reusing one backing
 // array across reflows. The slice is published as rowLayer.Objects, so it is not
@@ -358,6 +398,8 @@ func (pv *PrettyView) recomputeMetrics() {
 	pv.selColor = t.Selection
 	pv.matchColor = t.Match
 	pv.activeMatchColor = t.ActiveMatch
+	pv.caretColor = t.Foreground                              // a solid, theme-following caret bar
+	pv.errorColor = themeColor(theme.ColorNameError, variant) // gutter marker on recovered-error lines
 
 	pv.lastTextSize, pv.lastVariant, pv.metricsReady = ts, variant, true
 }

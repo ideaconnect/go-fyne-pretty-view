@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // xmlParser parses XML via encoding/xml's tokenizer. Because the tokenizer does

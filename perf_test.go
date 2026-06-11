@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/parse"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/parse"
 
 	"fyne.io/fyne/v2"
 )

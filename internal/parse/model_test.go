@@ -6,7 +6,7 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // renderDoc reproduces the document as the viewer would show it fully expanded:

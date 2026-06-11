@@ -8,6 +8,9 @@ fonttheme var SansBold
 fonttheme var SansBoldItalic
 fonttheme var SansItalic
 fonttheme var SansRegular
+prettyview const AutoFormatOff
+prettyview const AutoFormatOnBlur
+prettyview const AutoFormatOnPause
 prettyview const FormatAuto = model.FormatAuto
 prettyview const FormatHTML = model.FormatHTML
 prettyview const FormatJSON = model.FormatJSON
@@ -28,15 +31,19 @@ prettyview func NewWithData(src []byte, format Format, opts ...Option) *PrettyVi
 prettyview func NewWrapToggle(pv *PrettyView) fyne.CanvasObject
 prettyview func ShowOpenDialog(pv *PrettyView, win fyne.Window)
 prettyview func WithDefaultCollapseDepth(d int) Option
+prettyview func WithEditable() Option
 prettyview func WithFormat(f Format) Option
 prettyview func WithIndentStep(px float32) Option
+prettyview func WithInputConfig(c InputConfig) Option
 prettyview func WithLineNumbers() Option
 prettyview func WithMaxInputBytes(n int) Option
 prettyview func WithSearchConfig(s SearchConfig) Option
 prettyview func WithSyntaxColors(v fyne.ThemeVariant, s SyntaxColors) Option
 prettyview func WithTabWidth(n int) Option
 prettyview func WithTheme(v fyne.ThemeVariant, t Theme) Option
+prettyview func WithUndoLimit(n int) Option
 prettyview func WithWrap(m WrapMode) Option
+prettyview method (*PrettyView) Caret() (line, col int)
 prettyview method (*PrettyView) ClearSearch()
 prettyview method (*PrettyView) ClearSelection()
 prettyview method (*PrettyView) CollapseAll()
@@ -45,8 +52,10 @@ prettyview method (*PrettyView) CopySelection()
 prettyview method (*PrettyView) CopySubtree(byteOffset int) bool
 prettyview method (*PrettyView) CreateRenderer() fyne.WidgetRenderer
 prettyview method (*PrettyView) Cursor() desktop.Cursor
+prettyview method (*PrettyView) Cut()
 prettyview method (*PrettyView) DragEnd()
 prettyview method (*PrettyView) Dragged(ev *fyne.DragEvent)
+prettyview method (*PrettyView) Editable() bool
 prettyview method (*PrettyView) ExpandAll()
 prettyview method (*PrettyView) ExpandTo(off int) bool
 prettyview method (*PrettyView) ExpandToDepth(depth int)
@@ -61,6 +70,10 @@ prettyview method (*PrettyView) MouseIn(*desktop.MouseEvent)
 prettyview method (*PrettyView) MouseMoved(ev *desktop.MouseEvent)
 prettyview method (*PrettyView) MouseOut()
 prettyview method (*PrettyView) MouseUp(*desktop.MouseEvent)
+prettyview method (*PrettyView) ParseStatus() ParseStatus
+prettyview method (*PrettyView) Paste()
+prettyview method (*PrettyView) Redo()
+prettyview method (*PrettyView) Reformat()
 prettyview method (*PrettyView) Reparse(format Format)
 prettyview method (*PrettyView) ScrollOffset() fyne.Position
 prettyview method (*PrettyView) ScrollToLine(line int) bool
@@ -72,11 +85,15 @@ prettyview method (*PrettyView) SearchPrev()
 prettyview method (*PrettyView) SearchStatus() (active, total int, capped bool)
 prettyview method (*PrettyView) SelectAll()
 prettyview method (*PrettyView) SelectedText() string
+prettyview method (*PrettyView) SetCaret(line, col int) bool
 prettyview method (*PrettyView) SetData(src []byte, format Format)
 prettyview method (*PrettyView) SetDefaultCollapseDepth(depth int)
+prettyview method (*PrettyView) SetInputConfig(c InputConfig)
+prettyview method (*PrettyView) SetOnChanged(fn func(string))
 prettyview method (*PrettyView) SetOnDataChanged(fn func())
 prettyview method (*PrettyView) SetOnSearchChanged(fn func())
 prettyview method (*PrettyView) SetOnSearchRequested(fn func())
+prettyview method (*PrettyView) SetOnValidationChanged(fn func(ParseStatus))
 prettyview method (*PrettyView) SetScrollOffset(p fyne.Position)
 prettyview method (*PrettyView) SetSyntaxColors(variant fyne.ThemeVariant, c SyntaxColors)
 prettyview method (*PrettyView) SetText(s string)
@@ -85,13 +102,18 @@ prettyview method (*PrettyView) SetWrap(mode WrapMode)
 prettyview method (*PrettyView) Source() []byte
 prettyview method (*PrettyView) Tapped(e *fyne.PointEvent)
 prettyview method (*PrettyView) TappedSecondary(e *fyne.PointEvent)
+prettyview method (*PrettyView) Text() string
 prettyview method (*PrettyView) TypedKey(ev *fyne.KeyEvent)
-prettyview method (*PrettyView) TypedRune(rune)
+prettyview method (*PrettyView) TypedRune(r rune)
 prettyview method (*PrettyView) TypedShortcut(s fyne.Shortcut)
+prettyview method (*PrettyView) Undo()
 prettyview method (*PrettyView) Wrap() WrapMode
+prettyview type AutoFormatMode uint8
 prettyview type Format = model.Format
+prettyview type InputConfig struct { AutoFormat AutoFormatMode; DebounceFor time.Duration; MaxEditBytes int }
 prettyview type Match struct { ColEnd int; ColStart int; Line int }
 prettyview type Option func(*config)
+prettyview type ParseStatus struct { ErrorLine int; OK bool }
 prettyview type PrettyView struct { embeds widget.BaseWidget }
 prettyview type SearchConfig struct { DebounceFor time.Duration; MaxMatches int; MinQueryLen int }
 prettyview type SearchMode uint8

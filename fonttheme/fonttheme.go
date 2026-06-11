@@ -9,7 +9,7 @@
 //	import (
 //		"fyne.io/fyne/v2/app"
 //		"fyne.io/fyne/v2/theme"
-//		"github.com/ideaconnect/go-fyne-pretty-view/fonttheme"
+//		"github.com/ideaconnect/go-fyne-pretty-view/v2/fonttheme"
 //	)
 //
 //	a := app.New()

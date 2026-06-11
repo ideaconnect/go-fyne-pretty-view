@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // findFoldHead returns the first foldable node whose head line begins with the

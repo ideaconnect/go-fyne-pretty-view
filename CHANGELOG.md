@@ -8,6 +8,38 @@ module path (`.../v2`) and is called out under **Changed**/**Removed**.
 
 ## [Unreleased]
 
+## [v2.0.0-alpha] — 2026-06-11 — editable input + live formatting
+
+v2 makes the same widget an **opt-in light editor**: a host can let a user type or paste
+data and watch it pretty-format live. Read-only hosts migrate by changing only the import
+path — see [MIGRATION.md](MIGRATION.md). The exported surface is re-frozen as the **/v2**
+surface (`TestExportedSurfaceGolden`); a future breaking change ships under `.../v3`.
+
+### Changed (breaking)
+- **Module path** bumped to `github.com/ideaconnect/go-fyne-pretty-view/v2` (Go semantic
+  import versioning). This is the only breaking change: **no v1 symbol was renamed or had
+  its semantics changed.** Read-only ergonomics (`New`, `NewWithData`, `SetData`/`SetText`,
+  `Source`, `Reparse`, `Format`, all `With*`) are preserved with v1 semantics.
+
+### Added
+- **Edit mode (opt-in, construction-time):** `WithEditable()` + `Editable() bool`. The
+  input-vs-output purpose is fixed at construction — there is no `SetEditable` and no
+  chrome toggle (a host-only runtime flip is deferred, see issue #54). A rendered caret,
+  character input, Enter/arrows/Home/End, and selection editing.
+- **Live formatting:** `InputConfig{ DebounceFor, AutoFormat, MaxEditBytes }` +
+  `AutoFormatMode` (`AutoFormatOff`/`AutoFormatOnPause`/`AutoFormatOnBlur`),
+  `WithInputConfig`/`SetInputConfig`, and `Reformat()`. On a debounced pause (or an
+  explicit `Reformat`) the buffer is re-parsed into the structured, syntax-colored view;
+  the caret is anchored across the reformat by its byte offset.
+- **`Text() string`** — the document as displayed (pretty), distinct from the raw
+  `Source()` bytes; `Source()`/`Reparse` read the live edit buffer in edit mode.
+- **Caret API:** `Caret() (line, col int)`, `SetCaret(line, col int) bool`.
+- **Undo/redo:** `Undo()`, `Redo()`, `WithUndoLimit(n)` (word-coalesced, bounded).
+- **Clipboard:** `Cut()`, `Paste()` (control-byte-safe, one undo unit).
+- **Validation feedback:** `ParseStatus{ OK, ErrorLine }`, `ParseStatus()`,
+  `SetOnValidationChanged`, and an error-tinted gutter marker.
+- **`SetOnChanged(func(string))`** — fired (debounced) after the edited text settles.
+
 ## [v1.1.0-alpha] — 2026-06-11
 
 ### Added

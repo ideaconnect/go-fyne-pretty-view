@@ -11,16 +11,19 @@ import (
 	"testing"
 )
 
-// TestExportedSurfaceGolden freezes the public API. It enumerates every exported
-// identifier of prettyview and fonttheme (via go/parser — no go/packages, no x/tools
-// dependency, and no type-checking, so it never imports internal/ Fyne packages) and
-// compares a normalized signature listing to testdata/api_surface.txt. Any addition,
-// removal, rename, or signature change fails until the golden is regenerated:
+// TestExportedSurfaceGolden freezes the public API of the /v2 module. It enumerates
+// every exported identifier of prettyview and fonttheme (via go/parser — no go/packages,
+// no x/tools dependency, and no type-checking, so it never imports internal/ Fyne
+// packages) and compares a normalized signature listing to testdata/api_surface.txt.
+// Any addition, removal, rename, or signature change fails until the golden is
+// regenerated:
 //
 //	UPDATE_API_SURFACE=1 go test -run TestExportedSurfaceGolden .
 //
-// Post-1.0 a diff here means a breaking change — it must ship under a new major module
-// path (…/v2), not as a v1.x bump. See the Stability section in the README.
+// During v2.0.0 development the surface is still settling, so this golden is re-baselined
+// as v2 symbols land. Once v2.0.0 ships, a diff here means a breaking change — it must
+// ship under the next major module path (…/v3), not as a v2.x bump. See the Stability
+// section in the README.
 func TestExportedSurfaceGolden(t *testing.T) {
 	var lines []string
 	lines = append(lines, exportedSurface(t, ".", "prettyview")...)

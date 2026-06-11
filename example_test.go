@@ -3,7 +3,7 @@ package prettyview_test
 import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
-	prettyview "github.com/ideaconnect/go-fyne-pretty-view"
+	prettyview "github.com/ideaconnect/go-fyne-pretty-view/v2"
 )
 
 // ExampleNew builds a viewer, loads JSON with auto-detection, adds the optional

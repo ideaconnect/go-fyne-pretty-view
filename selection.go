@@ -6,8 +6,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // modelPos is a position in the document: a stable display-line index and a rune
@@ -232,9 +232,20 @@ func (pv *PrettyView) FocusLost() {
 	if pv.r != nil {
 		pv.r.dragArmed = false
 	}
+	if pv.cfg.editable && pv.cfg.input.AutoFormat == AutoFormatOnBlur {
+		pv.reformatNow() // reformat-on-blur (#40)
+	}
 	pv.refreshSelectionView()
 }
-func (pv *PrettyView) TypedRune(rune) {}
+
+// TypedRune inserts a typed character at the caret when the widget is editable
+// (replacing any active selection); it is a no-op for a read-only viewer, exactly
+// as in v1.
+func (pv *PrettyView) TypedRune(r rune) {
+	if pv.cfg.editable {
+		pv.editInsert([]byte(string(r)))
+	}
+}
 
 // TypedKey handles Escape (clear selection) and keyboard scrolling/navigation:
 // Up/Down scroll one row, PageUp/PageDown one viewport, Home/End jump to the top/
@@ -278,6 +289,14 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 			pv.keyExtend(0, 0, false, true)
 			return
 		}
+	}
+
+	// Edit mode claims the printable/navigation/deletion keys (arrows move the caret,
+	// Enter inserts a newline, Backspace/Delete edit) before the read-only handlers, so
+	// none of v1's Enter=fold / arrow=scroll meanings collide with typing. Keys it does
+	// not claim (Escape, PageUp/Down) fall through to the read-only behavior below.
+	if pv.cfg.editable && pv.editKey(ev) {
+		return
 	}
 
 	switch ev.Name {
@@ -391,6 +410,14 @@ func (pv *PrettyView) TypedShortcut(s fyne.Shortcut) {
 		pv.CopySelection()
 	case *fyne.ShortcutSelectAll:
 		pv.SelectAll()
+	case *fyne.ShortcutUndo:
+		pv.Undo() // no-op unless editable
+	case *fyne.ShortcutRedo:
+		pv.Redo() // no-op unless editable
+	case *fyne.ShortcutPaste:
+		pv.Paste() // no-op unless editable
+	case *fyne.ShortcutCut:
+		pv.Cut() // copy-only (no-op) unless editable
 	case *desktop.CustomShortcut:
 		if sc.KeyName == fyne.KeyF && sc.Modifier == fyne.KeyModifierShortcutDefault && pv.onSearchRequested != nil {
 			pv.onSearchRequested()
@@ -638,6 +665,7 @@ func (pv *PrettyView) refreshSelectionView() {
 		return
 	}
 	pv.r.rebuildSelection(pv.r.firstRow, pv.r.lastRow)
+	pv.r.rebuildCaret() // focus/caret moves repaint without a full reflow
 }
 
 func near(a, b fyne.Position) bool {

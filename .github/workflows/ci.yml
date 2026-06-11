@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, struct]
+    # main is the v2 line; v1-maintenance carries v1 critical/security fixes; the v2
+    # feature branch runs full CI pre-merge. PRs from any branch are covered below.
+    branches: [main, struct, feature-v2.0.0, v1-maintenance]
   pull_request:
   workflow_dispatch:
 

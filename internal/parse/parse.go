@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/ideaconnect/go-fyne-pretty-view/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 // Format and its constants live in the model package (Document records its
@@ -192,6 +192,22 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 	if err := safeParse(p, src, b); err != nil {
 		return parseRaw(src, collapseDepth, tw)
 	}
+	return b.Finish()
+}
+
+// ParseEditable builds the edit-mode raw projection of src for v2 edit mode: one
+// display line per physical line, WITH a trailing empty line after a final newline (and
+// a single empty line for empty input), so the caret always has a line to occupy. It
+// does not strip a BOM or otherwise rewrite bytes, so display line/column offsets map
+// 1:1 onto the edit buffer's bytes (the caret math depends on that alignment). See
+// docs/DESIGN.md §12.
+func ParseEditable(src []byte, collapseDepth, tabWidth int) *model.Document {
+	_ = tabWidth // edit mode renders each grid-hostile byte (incl. tab) as one placeholder rune, not an expansion
+	if uint64(len(src)) > math.MaxUint32 {
+		src = src[:int(uint64(math.MaxUint32))] // dead in practice (edit input is bounded), keeps offsets sane
+	}
+	b := model.NewBuilder(src, FormatRaw, collapseDepth)
+	_ = editRawParser{}.Parse(src, b)
 	return b.Finish()
 }
 

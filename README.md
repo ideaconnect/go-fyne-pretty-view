@@ -71,11 +71,12 @@ rasterize a ~1 GB bitmap for the line).
 ## Install
 
 ```sh
-go get github.com/ideaconnect/go-fyne-pretty-view
+go get github.com/ideaconnect/go-fyne-pretty-view/v2
 ```
 
 Requires Go 1.26.4+ and the usual Fyne build dependencies (a C compiler and the
-OpenGL/X11 headers on Linux).
+OpenGL/X11 headers on Linux). Upgrading from v1? It is a one-line import-path change —
+see [MIGRATION.md](MIGRATION.md).
 
 **Fyne compatibility.** Built and tested against **Fyne v2.7.x** (the version pinned
 in [go.mod](go.mod)). Newer Fyne v2 minor releases are expected to work; each Fyne
@@ -87,7 +88,7 @@ group) and is validated before release. Security reporting is in [SECURITY.md](S
 ```go
 import (
     "fyne.io/fyne/v2/app"
-    prettyview "github.com/ideaconnect/go-fyne-pretty-view"
+    prettyview "github.com/ideaconnect/go-fyne-pretty-view/v2"
 )
 
 func main() {
@@ -340,10 +341,15 @@ The module is **pre-1.0 (v0.x, alpha)**. The exported API of `prettyview` and
 **Changed**/**Removed** in [CHANGELOG.md](CHANGELOG.md).
 
 As of **v1.0.0** the exported surface is frozen under [semantic import
-versioning](https://go.dev/ref/mod#major-version-suffixes): additions ship as v1.x, and
-any breaking change ships under a new major module path (`.../v2`) — never as a v1.x
-bump. The frozen surface is pinned by `TestExportedSurfaceGolden`
-(`testdata/api_surface.txt`), so an accidental change to a public signature fails CI.
+versioning](https://go.dev/ref/mod#major-version-suffixes): additions ship as a minor, and
+any breaking change ships under a new major module path — never as a minor bump. The
+frozen surface is pinned by `TestExportedSurfaceGolden` (`testdata/api_surface.txt`), so an
+accidental change to a public signature fails CI.
+
+**v2** (`.../go-fyne-pretty-view/v2`) adds opt-in editing + live formatting; it is
+additive over v1 (no v1 symbol renamed or changed) except the module path. Read-only
+hosts upgrade by changing only the import path — see [MIGRATION.md](MIGRATION.md). v1 is
+frozen and receives critical/security fixes only.
 
 ## Demo
 

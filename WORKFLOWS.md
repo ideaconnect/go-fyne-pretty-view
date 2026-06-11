@@ -101,10 +101,22 @@ git tag vX.Y.Z && git push --tags
 Pushing a `vX.Y.Z` tag also triggers the **release** workflow
 ([.github/workflows/release.yml](.github/workflows/release.yml)): it builds the
 demo for Linux/Windows/macOS, zips each binary together with the `testdata/`
-fixtures, and attaches the zips to a GitHub Release with auto-generated notes. A
-tag with a pre-release suffix (e.g. `v1.2.3-rc1`) is marked as a pre-release; you
-can also re-run it manually from the Actions tab (workflow_dispatch) against an
-existing tag.
+fixtures, and attaches the zips to a GitHub Release with auto-generated notes. The
+zip filenames embed the tag (e.g. `prettyview-demo-linux-amd64-v2.0.0-alpha.zip`),
+so v1.x and v2.x release assets never collide. A tag with a pre-release suffix (e.g.
+`v2.0.0-alpha`) is marked as a pre-release; you can also re-run it manually from the
+Actions tab (workflow_dispatch) against an existing tag.
+
+### v1 / v2 branch & tag policy
+
+The module is on the **`/v2` major** (`module …/go-fyne-pretty-view/v2`). Features land
+on the v2 line (`main`, via the `feature-v2.0.0` branch pre-merge) and tag `v2.x.y`. v1
+is frozen: critical/security fixes land on the **`v1-maintenance`** branch and tag
+`v1.x.y`. Both branches run the **same CI** (gofmt + vet + `-race` + cross-package
+coverage + govulncheck) — they are in `ci.yml`'s `branches:` list, and PRs from any
+branch are covered by the `pull_request` trigger. `TestModulePathIsV2` guards the `/v2`
+path in CI.
 
 Follow semver; the public API is everything exported from package `prettyview`
-(see [README.md](README.md) for the surface).
+(see [README.md](README.md) for the surface), frozen as the `/v2` surface by
+`TestExportedSurfaceGolden`.

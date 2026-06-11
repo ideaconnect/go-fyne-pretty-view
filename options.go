@@ -22,6 +22,52 @@ func defaultSearchConfig() SearchConfig {
 	}
 }
 
+// AutoFormatMode controls when an editable widget re-parses its edit buffer into the
+// structured, pretty-printed projection (see WithEditable, Reformat). It only affects
+// editable widgets.
+type AutoFormatMode uint8
+
+const (
+	// autoFormatUnset is the zero value; in a config merge it means "keep the current
+	// value", so a partially-filled InputConfig never clobbers the default mode.
+	autoFormatUnset   AutoFormatMode = iota
+	AutoFormatOff                    // never auto-reformat; only an explicit Reformat() does
+	AutoFormatOnPause                // reformat after a typing pause (the default)
+	AutoFormatOnBlur                 // reformat when the widget loses focus
+)
+
+// InputConfig tunes edit-mode live formatting. Like SearchConfig it merges field by
+// field, so setting one field keeps the defaults for the rest (a zero field means
+// "keep the default"). It only affects editable widgets (see WithEditable).
+type InputConfig struct {
+	DebounceFor time.Duration  // typing-pause delay before an auto-reformat (default 400ms; <=0 = immediate)
+	AutoFormat  AutoFormatMode // when to auto-reformat (default AutoFormatOnPause)
+
+	// MaxEditBytes bounds the edit buffer (0 = no cap, the default). Above it, an edit
+	// that would grow the buffer past the cap is rejected, and auto-format-on-pause is
+	// disabled (an explicit Reformat still works) — so a large document edits without a
+	// full reparse on every pause. It mirrors WithMaxInputBytes and keeps the gap-buffer
+	// memory delta bounded (≈ the cap, on top of the ≈5–7× model of the last reparse).
+	MaxEditBytes int
+}
+
+func defaultInputConfig() InputConfig {
+	return InputConfig{DebounceFor: 400 * time.Millisecond, AutoFormat: AutoFormatOnPause}
+}
+
+// mergeInto copies the non-zero fields of i over dst (the field-merge SearchConfig uses).
+func (i InputConfig) mergeInto(dst *InputConfig) {
+	if i.DebounceFor != 0 {
+		dst.DebounceFor = i.DebounceFor
+	}
+	if i.AutoFormat != autoFormatUnset {
+		dst.AutoFormat = i.AutoFormat
+	}
+	if i.MaxEditBytes != 0 {
+		dst.MaxEditBytes = i.MaxEditBytes
+	}
+}
+
 // config holds all construction-time settings. It is populated by Options.
 type config struct {
 	format        Format
@@ -30,8 +76,11 @@ type config struct {
 	collapseDepth int // auto-collapse containers deeper than this on load (0 = never)
 	tabWidth      int
 	indentStep    float32
-	maxInputBytes int  // cap on SetData/SetText input; 0 = no cap (the 4 GiB model ceiling)
-	lineNumbers   bool // render an opt-in line-number gutter
+	maxInputBytes int         // cap on SetData/SetText input; 0 = no cap (the 4 GiB model ceiling)
+	lineNumbers   bool        // render an opt-in line-number gutter
+	editable      bool        // construct as an editor (input) rather than a read-only viewer
+	input         InputConfig // edit-mode live-formatting knobs (only used when editable)
+	undoLimit     int         // cap on undo history entries (default 200)
 	themeOverride map[fyne.ThemeVariant]Theme
 }
 
@@ -54,6 +103,8 @@ func defaultConfig() config {
 		collapseDepth: 0,
 		tabWidth:      4,
 		indentStep:    16,
+		input:         defaultInputConfig(),
+		undoLimit:     200,
 	}
 }
 
@@ -134,6 +185,39 @@ func WithMaxInputBytes(n int) Option {
 // holds; wrap-continuation rows leave the gutter blank. Off by default.
 func WithLineNumbers() Option {
 	return func(c *config) { c.lineNumbers = true }
+}
+
+// WithEditable constructs the widget as an editor (input) rather than the default
+// read-only viewer (output): the host can let a user type or paste data and edit it
+// in place. The input-vs-output purpose is fixed at construction and CANNOT be changed
+// afterwards — there is deliberately no SetEditable and the widget renders no view/edit
+// toggle in its chrome ("its purpose, input or output, should be defined, not user
+// changeable"; see docs/DESIGN.md §12.3). Read Editable to query the constructed mode;
+// a host-only runtime flip is a deferred future feature. Off by default, so a read-only
+// widget behaves byte-for-byte like a v1 viewer.
+func WithEditable() Option {
+	return func(c *config) { c.editable = true }
+}
+
+// WithUndoLimit caps the number of undo history entries an editable widget keeps
+// (default 200); past the cap the oldest entry is evicted, bounding memory. A run of
+// single-rune inserts coalesces into one entry (typing a word is one undo). n <= 0 is
+// ignored (keeps the default). Only meaningful with WithEditable.
+func WithUndoLimit(n int) Option {
+	return func(c *config) {
+		if n > 0 {
+			c.undoLimit = n
+		}
+	}
+}
+
+// WithInputConfig sets the edit-mode live-formatting knobs (debounce delay and
+// auto-format mode). Fields merge over the defaults like WithSearchConfig: a zero field
+// keeps its default (DebounceFor 400ms, AutoFormat OnPause). Only meaningful together
+// with WithEditable. See SetInputConfig to change them after construction, Reformat for
+// an explicit reformat, and SetOnChanged for a settled-text callback.
+func WithInputConfig(c InputConfig) Option {
+	return func(cfg *config) { c.mergeInto(&cfg.input) }
 }
 
 // WithIndentStep sets the pixels of indentation per nesting level.
