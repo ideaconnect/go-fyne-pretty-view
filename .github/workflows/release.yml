@@ -82,7 +82,8 @@ jobs:
           cp icons/fontawesome/LICENSE.txt "dist/${{ matrix.artifact }}/licenses/FontAwesome-LICENSE.txt"
           cp fonttheme/fonts/JetBrainsMono/OFL.txt "dist/${{ matrix.artifact }}/licenses/JetBrainsMono-OFL.txt"
           cp fonttheme/fonts/Inter/LICENSE.txt "dist/${{ matrix.artifact }}/licenses/Inter-LICENSE.txt"
-          (cd dist && zip -r "${{ matrix.artifact }}.zip" "${{ matrix.artifact }}")
+          # Tag-stamp the zip name so v1.x and v2.x release assets never collide.
+          (cd dist && zip -r "${{ matrix.artifact }}-${{ github.event.inputs.tag || github.ref_name }}.zip" "${{ matrix.artifact }}")
 
       - name: Package release zip (Windows)
         if: runner.os == 'Windows'
@@ -95,13 +96,14 @@ jobs:
           Copy-Item icons/fontawesome/LICENSE.txt "dist/${{ matrix.artifact }}/licenses/FontAwesome-LICENSE.txt"
           Copy-Item fonttheme/fonts/JetBrainsMono/OFL.txt "dist/${{ matrix.artifact }}/licenses/JetBrainsMono-OFL.txt"
           Copy-Item fonttheme/fonts/Inter/LICENSE.txt "dist/${{ matrix.artifact }}/licenses/Inter-LICENSE.txt"
-          Compress-Archive -Path "dist/${{ matrix.artifact }}" -DestinationPath "dist/${{ matrix.artifact }}.zip"
+          # Tag-stamp the zip name so v1.x and v2.x release assets never collide.
+          Compress-Archive -Path "dist/${{ matrix.artifact }}" -DestinationPath "dist/${{ matrix.artifact }}-${{ github.event.inputs.tag || github.ref_name }}.zip"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}.zip
+          path: dist/${{ matrix.artifact }}-${{ github.event.inputs.tag || github.ref_name }}.zip
           if-no-files-found: error
 
   release:
