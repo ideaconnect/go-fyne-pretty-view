@@ -126,6 +126,7 @@ matching runtime setters; the on-screen chrome is **entirely opt-in**.
 | Soft word-wrap | Off (`WrapNone`) | `WithWrap(WrapWord)` at build, or `SetWrap(WrapWord)` / `SetWrap(WrapNone)` at runtime; `Wrap()` reads it. |
 | Tab display width | `4` | `WithTabWidth(n)`. |
 | Indent step (px/level) | `16` | `WithIndentStep(px)`. |
+| Line-number gutter | Off | `WithLineNumbers()` (1-based logical line numbers, drawn from the model — no per-line widgets). |
 | Theme / colors | Track the host Fyne theme | `WithTheme` / `WithSyntaxColors` at build; `SetTheme` / `SetSyntaxColors` at runtime. |
 | Keyboard navigation | On | Always on: arrows scroll, `Space`/`PageUp`/`PageDown`, `Home`/`End`; `Shift`+arrows extend the selection; `Enter` toggles the caret line's fold; `Esc` clears. |
 
@@ -160,6 +161,7 @@ pv := prettyview.New(
     prettyview.WithDefaultCollapseDepth(3),             // collapse containers at depth 3 and deeper on load
     prettyview.WithIndentStep(16),                      // pixels per nesting level
     prettyview.WithTabWidth(4),
+    prettyview.WithLineNumbers(),                        // opt-in line-number gutter
     // WithSearchConfig replaces the search config wholesale — set DebounceFor
     // explicitly, or keystroke search is not coalesced (it scans on every keystroke).
     prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000, DebounceFor: 150 * time.Millisecond}),

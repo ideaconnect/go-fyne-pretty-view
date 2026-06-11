@@ -12,6 +12,33 @@ func testMetrics() Metrics {
 	return NewMetrics(9, 18, 16)
 }
 
+// TestGutterShiftsOrigin: the line-number gutter widens TextOriginX uniformly, so
+// every derived coordinate (ColX, TriangleX, hit-test) shifts by the same amount —
+// the one coordinate convention stays intact. Off (width 0) by default.
+func TestGutterShiftsOrigin(t *testing.T) {
+	m := testMetrics()
+	if m.GutterWidth() != 0 {
+		t.Fatalf("default gutter width = %v, want 0", m.GutterWidth())
+	}
+	x0 := m.TextOriginX(0)
+
+	m.SetGutterWidth(40)
+	if got := m.GutterWidth(); got != 40 {
+		t.Errorf("GutterWidth = %v, want 40", got)
+	}
+	if got := m.TextOriginX(0); got != x0+40 {
+		t.Errorf("TextOriginX with gutter = %v, want %v", got, x0+40)
+	}
+	if got := m.ColX(0, 5); got != x0+40+5*m.CharWidth {
+		t.Errorf("ColX did not shift with the gutter: %v", got)
+	}
+	// A negative width is clamped to 0 (gutter off).
+	m.SetGutterWidth(-10)
+	if m.GutterWidth() != 0 {
+		t.Errorf("negative gutter width = %v, want clamped to 0", m.GutterWidth())
+	}
+}
+
 func loadDoc(t *testing.T, name string) *model.Document {
 	t.Helper()
 	src, err := os.ReadFile("../../testdata/" + name)

@@ -2,6 +2,7 @@ package prettyview
 
 import (
 	"math"
+	"strconv"
 	"sync"
 
 	"fyne.io/fyne/v2"
@@ -10,6 +11,26 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"github.com/ideaconnect/go-fyne-pretty-view/internal/geometry"
 )
+
+// applyGutter sizes the line-number gutter from the document's line count (so the
+// widest number fits), when WithLineNumbers is enabled; 0 disables it. Cheap enough
+// to run on every metrics pass, since the digit count can change with the document
+// even when the measured cell does not.
+func (pv *PrettyView) applyGutter() {
+	if !pv.cfg.lineNumbers {
+		pv.met.SetGutterWidth(0)
+		return
+	}
+	n := 1
+	if pv.doc != nil {
+		n = pv.doc.TotalLines()
+	}
+	if n < 1 {
+		n = 1
+	}
+	digits := len(strconv.Itoa(n))
+	pv.met.SetGutterWidth(float32(digits+2) * pv.met.CharWidth) // a cell of margin each side
+}
 
 // prettyViewRenderer implements the manual visible-window virtualization. It owns
 // a container.Scroll over a contentBox that is sized to the full document extent
@@ -313,7 +334,8 @@ func (pv *PrettyView) recomputeMetrics() {
 		ts = theme.DefaultTheme().Size(theme.SizeNameText)
 	}
 	if pv.metricsReady && ts == pv.lastTextSize && variant == pv.lastVariant {
-		return // measured cell + palette unchanged — skip MeasureText and the palette alloc
+		pv.applyGutter() // the digit count can change with the document even when the cell does not
+		return           // measured cell + palette unchanged — skip MeasureText and the palette alloc
 	}
 
 	// Measuring text needs a live app/driver. Built before an app exists (e.g.
@@ -328,6 +350,7 @@ func (pv *PrettyView) recomputeMetrics() {
 	}
 	pv.met = geometry.NewMetrics(cw, glyphH, pv.cfg.indentStep)
 	pv.met.TextSize = ts
+	pv.applyGutter()
 
 	t := pv.resolveTheme(variant)
 	pv.palette = t.palette()
