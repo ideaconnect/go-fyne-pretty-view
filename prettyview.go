@@ -205,6 +205,26 @@ func (pv *PrettyView) CollapseAll() {
 	}
 }
 
+// CollapseToDepth collapses every container at nesting depth >= depth (top level is
+// depth 0), leaving shallower containers as they are, and refreshes. ExpandToDepth
+// expands every container at depth < depth. The two compose — e.g. ExpandToDepth(d)
+// then CollapseToDepth(d) shows the tree exactly down to depth d. Call on the Fyne
+// goroutine.
+func (pv *PrettyView) CollapseToDepth(depth int) {
+	if pv.doc != nil {
+		pv.doc.CollapseToDepth(depth)
+		pv.Refresh()
+	}
+}
+
+// ExpandToDepth expands every container at nesting depth < depth (see CollapseToDepth).
+func (pv *PrettyView) ExpandToDepth(depth int) {
+	if pv.doc != nil {
+		pv.doc.ExpandToDepth(depth)
+		pv.Refresh()
+	}
+}
+
 // SetDefaultCollapseDepth sets the auto-collapse depth applied on subsequent
 // SetData calls (0 disables).
 func (pv *PrettyView) SetDefaultCollapseDepth(depth int) {
