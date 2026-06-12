@@ -108,3 +108,60 @@ func TestSearchRequestedFocus(t *testing.T) {
 		pv.onSearchRequested() // -> focusObject(entry)
 	}
 }
+
+// countingReader counts the bytes pulled through it, to prove a read is bounded.
+type countingReader struct {
+	io.Reader
+	n int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	m, err := c.Reader.Read(p)
+	c.n += m
+	return m, err
+}
+
+// TestReadCappedBoundsTheRead is the regression for #73: the bundled loader must never read
+// an oversized file whole into memory. readCapped bounds the read to cap+1 bytes and flags
+// the overflow; under the cap (and with no cap) it returns the full content.
+func TestReadCappedBoundsTheRead(t *testing.T) {
+	const cap = 1024
+	cr := &countingReader{Reader: strings.NewReader(strings.Repeat("a", cap*100))} // 100x over cap
+	data, tooLarge, err := readCapped(cr, cap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tooLarge {
+		t.Error("an over-cap input must be flagged tooLarge")
+	}
+	if len(data) > cap {
+		t.Errorf("readCapped returned %d bytes, want <= cap %d", len(data), cap)
+	}
+	if cr.n > cap+1 {
+		t.Errorf("readCapped pulled %d bytes from the reader, want <= cap+1 (%d) — the whole file must not be read", cr.n, cap+1)
+	}
+	if d, tl, _ := readCapped(strings.NewReader("hello"), cap); tl || string(d) != "hello" {
+		t.Errorf("under-cap read = %q tooLarge=%v, want \"hello\" false", d, tl)
+	}
+	if d, tl, _ := readCapped(strings.NewReader("abc"), 0); tl || string(d) != "abc" {
+		t.Errorf("no-cap read = %q tooLarge=%v, want \"abc\" false", d, tl)
+	}
+}
+
+// TestOpenDialogRefusesOversizeFile checks loadFromReader surfaces a "too large" dialog and
+// does NOT load when the picked file exceeds WithMaxInputBytes (#73).
+func TestOpenDialogRefusesOversizeFile(t *testing.T) {
+	test.NewApp()
+	pv := New(WithMaxInputBytes(8))
+	win := test.NewWindow(pv)
+	defer win.Close()
+
+	rc := memReadCloser{Reader: strings.NewReader(`{"key":"way over the eight-byte cap"}`), uri: storage.NewFileURI("/big.json")}
+	loadFromReader(pv, win, rc, nil)
+	if len(win.Canvas().Overlays().List()) == 0 {
+		t.Error("an over-cap file must surface a 'too large' dialog")
+	}
+	if pv.Format() == FormatJSON {
+		t.Error("an over-cap file must be refused, not loaded")
+	}
+}
