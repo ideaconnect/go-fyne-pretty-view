@@ -27,23 +27,17 @@ type srcSpan struct {
 // remapCaretOffset relies on.
 func serializePretty(d *model.Document) (out []byte, spans []srcSpan) {
 	out = make([]byte, 0, len(d.Src)+len(d.Src)/4+16)
+	// Same pretty-line routine as Text/copy-subtree (model.AppendPrettyLine), indented by
+	// absolute depth and newline-joined, plus a span callback that records each source-backed
+	// segment's old→new byte range for the caret remap.
 	for li := 0; li < len(d.Lines); li++ {
 		if li > 0 {
 			out = append(out, '\n')
 		}
-		for k := 0; k < int(d.Lines[li].Depth)*reformatIndentUnit; k++ {
-			out = append(out, ' ')
-		}
-		for _, s := range d.LineSegs(int32(li)) {
-			if s.Buf == model.BufSrc {
-				spans = append(spans, srcSpan{
-					oldStart: int(s.Start),
-					oldEnd:   int(s.End),
-					newStart: len(out),
-				})
-			}
-			out = append(out, d.SegBytes(s)...)
-		}
+		out = d.AppendPrettyLine(int32(li), int(d.Lines[li].Depth)*reformatIndentUnit, out,
+			func(srcStart, srcEnd uint32, outStart int) {
+				spans = append(spans, srcSpan{oldStart: int(srcStart), oldEnd: int(srcEnd), newStart: outStart})
+			})
 	}
 	return out, spans
 }
@@ -61,13 +55,13 @@ func remapCaretOffset(spans []srcSpan, oldOff, newLen int) int {
 	for i, s := range spans {
 		switch {
 		case oldOff < s.oldStart: // before this token (only reachable at i == 0)
-			return clampInt(s.newStart, 0, newLen)
+			return clamp(s.newStart, 0, newLen)
 		case oldOff < s.oldEnd: // inside this token: exact
-			return clampInt(s.newStart+(oldOff-s.oldStart), 0, newLen)
+			return clamp(s.newStart+(oldOff-s.oldStart), 0, newLen)
 		case i+1 >= len(spans) || oldOff < spans[i+1].oldStart: // at/after end, before the next
-			return clampInt(s.newStart+(s.oldEnd-s.oldStart), 0, newLen)
+			return clamp(s.newStart+(s.oldEnd-s.oldStart), 0, newLen)
 		}
 	}
 	last := spans[len(spans)-1]
-	return clampInt(last.newStart+(last.oldEnd-last.oldStart), 0, newLen)
+	return clamp(last.newStart+(last.oldEnd-last.oldStart), 0, newLen)
 }

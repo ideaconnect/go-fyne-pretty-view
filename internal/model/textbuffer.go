@@ -172,12 +172,5 @@ func (b *TextBuffer) decodeRune(i int) (r rune, size int) {
 	return r, size
 }
 
-func clampOff(off, n int) int {
-	if off < 0 {
-		return 0
-	}
-	if off > n {
-		return n
-	}
-	return off
-}
+// clampOff confines a byte offset to [0, n] (Go 1.26 min/max builtins).
+func clampOff(off, n int) int { return min(max(off, 0), n) }

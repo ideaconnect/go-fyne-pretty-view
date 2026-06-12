@@ -48,6 +48,33 @@ func TestEditableDefaultsReadOnly(t *testing.T) {
 	}
 }
 
+// TestEditableTabIsOnePlaceholderCell locks the WithTabWidth carve-out documented on the
+// option and in the README: in editable mode a tab is a single placeholder cell so display
+// runes == buffer runes (the caret stays an exact (line, col)) — regardless of the
+// configured tab width, and unlike the read-only viewer, which expands a tab to tabWidth
+// columns.
+func TestEditableTabIsOnePlaceholderCell(t *testing.T) {
+	src := []byte("{\n\t\"a\": 1\n}") // line 1 is "\t\"a\": 1": tab + 6 visible runes = 7 cells
+	const tabLine, wantRunes = 1, 7
+	for _, tw := range []int{2, 8} {
+		test.NewApp()
+		pv := New(WithEditable(), WithTabWidth(tw), WithInputConfig(InputConfig{AutoFormat: AutoFormatOff}))
+		pv.SetData(src, FormatJSON)
+		win := test.NewWindow(pv)
+		win.Resize(fyne.NewSize(400, 200))
+		pv.Refresh()
+
+		if got := pv.doc.LineRuneLen(tabLine); got != wantRunes {
+			t.Errorf("tabWidth=%d: line rune len = %d, want %d (a tab must stay one cell, not expand)", tw, got, wantRunes)
+		}
+		// Display runes must equal the line's cell count: the 1:1 invariant the caret rides on.
+		if got := len([]rune(pv.doc.DisplayString(tabLine))); got != wantRunes {
+			t.Errorf("tabWidth=%d: display runes = %d, want %d", tw, got, wantRunes)
+		}
+		win.Close()
+	}
+}
+
 func TestWithEditableSnapshotsBufferAtBuild(t *testing.T) {
 	test.NewApp()
 	if pv := New(); pv.buf != nil {

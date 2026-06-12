@@ -412,11 +412,11 @@ func TestClearSearchStopsPendingTimer(t *testing.T) {
 	defer win.Close()
 
 	pv.searchDebounced(SearchQuery{Text: "a"})
-	if pv.searchTimer == nil {
+	if pv.searchDeb.timer == nil {
 		t.Fatal("debounce should arm a timer")
 	}
 	pv.ClearSearch()
-	if pv.searchTimer != nil {
+	if pv.searchDeb.timer != nil {
 		t.Error("ClearSearch must stop and clear the pending debounce timer")
 	}
 }
@@ -431,14 +431,14 @@ func TestDestroyStopsPendingTimer(t *testing.T) {
 	defer win.Close()
 
 	pv.searchDebounced(SearchQuery{Text: "a"})
-	if pv.searchTimer == nil {
+	if pv.searchDeb.timer == nil {
 		t.Fatal("debounce should arm a timer")
 	}
 	pv.r.Destroy()
 	if !pv.destroyed.Load() {
 		t.Error("Destroy must set the destroyed guard flag")
 	}
-	if pv.searchTimer != nil {
+	if pv.searchDeb.timer != nil {
 		t.Error("Destroy must stop the pending debounce timer")
 	}
 }
@@ -454,20 +454,20 @@ func TestSearchGenerationInvalidatesStaleScan(t *testing.T) {
 	win := test.NewWindow(pv)
 	defer win.Close()
 
-	g0 := pv.searchGen
+	g0 := pv.searchDeb.gen
 	pv.searchDebounced(SearchQuery{Text: "a"})
-	if pv.searchGen == g0 {
+	if pv.searchDeb.gen == g0 {
 		t.Error("searchDebounced must bump the search generation to supersede earlier scans")
 	}
-	g1 := pv.searchGen
+	g1 := pv.searchDeb.gen
 	pv.ClearSearch()
-	if pv.searchGen == g1 {
+	if pv.searchDeb.gen == g1 {
 		t.Error("ClearSearch must bump the search generation to invalidate a queued scan")
 	}
 	// SetData goes through ClearSearch, so it bumps too.
-	g2 := pv.searchGen
+	g2 := pv.searchDeb.gen
 	pv.SetData([]byte(`{"b":2}`), FormatJSON)
-	if pv.searchGen == g2 {
+	if pv.searchDeb.gen == g2 {
 		t.Error("SetData (via ClearSearch) must bump the search generation")
 	}
 }
@@ -485,17 +485,17 @@ func TestSearchSupersedesPendingDebounce(t *testing.T) {
 	defer win.Close()
 
 	pv.searchDebounced(SearchQuery{Text: "alpha"})
-	if pv.searchTimer == nil {
+	if pv.searchDeb.timer == nil {
 		t.Fatal("debounce should arm a timer")
 	}
-	gen := pv.searchGen
+	gen := pv.searchDeb.gen
 	pv.Search(SearchQuery{Text: "alpha"})
-	if pv.searchTimer != nil {
+	if pv.searchDeb.timer != nil {
 		t.Error("a synchronous Search must stop the pending debounce timer")
 	}
-	if pv.searchGen <= gen {
+	if pv.searchDeb.gen <= gen {
 		t.Errorf("a synchronous Search must bump searchGen (was %d, now %d) to invalidate a queued scan",
-			gen, pv.searchGen)
+			gen, pv.searchDeb.gen)
 	}
 }
 

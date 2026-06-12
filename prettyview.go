@@ -43,7 +43,6 @@ package prettyview
 
 import (
 	"image/color"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -76,10 +75,9 @@ type PrettyView struct {
 
 	// live-format engine. The displayed doc is always the colorized-raw projection of buf,
 	// so the caret is an exact buffer (line, col) — no separate structured display mode.
-	// editTimer/editGen drive the debounced settle (live validity refresh + onChanged); an
-	// explicit Reformat rewrites the buffer bytes to the pretty form (format_engine.go).
-	editTimer *time.Timer
-	editGen   int
+	// editDeb drives the debounced settle (live validity refresh + onChanged); an explicit
+	// Reformat rewrites the buffer bytes to the pretty form (format_engine.go).
+	editDeb   debouncer
 	curFormat Format       // active content format (last SetData/Reparse); drives edit-mode coloring + validity
 	onChanged func(string) // fired (debounced) after the edited text settles, and after Reformat
 
@@ -116,9 +114,8 @@ type PrettyView struct {
 
 	// search state
 	search            searchState
-	searchTimer       *time.Timer // debounce timer for keystroke-driven search
-	searchGen         int         // bumped to invalidate a superseded/already-queued debounced scan
-	destroyed         atomic.Bool // set on renderer teardown; guards the debounce callback
+	searchDeb         debouncer   // debounce engine for keystroke-driven search (see debounce.go)
+	destroyed         atomic.Bool // set on renderer teardown; guards the debounce callbacks
 	matchColor        color.Color
 	activeMatchColor  color.Color
 	onSearchRequested func() // invoked on Ctrl+F (e.g. to focus a search box)
@@ -141,6 +138,10 @@ type PrettyView struct {
 // New constructs an empty PrettyView, applying zero or more Options.
 func New(opts ...Option) *PrettyView {
 	pv := &PrettyView{cfg: defaultConfig()}
+	// Both debounce engines share the one teardown flag, so a Destroy drops every in-flight
+	// timer callback (see debounce.go). pv is heap-allocated, so &pv.destroyed is stable.
+	pv.searchDeb.destroyed = &pv.destroyed
+	pv.editDeb.destroyed = &pv.destroyed
 	pv.parseStatus = ParseStatus{OK: true, ErrorLine: -1} // an empty doc is valid
 	for _, o := range opts {
 		o(&pv.cfg)
@@ -181,8 +182,7 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 		// A programmatic load supersedes any in-flight settle from prior keystrokes: cancel
 		// the timer and bump the generation so an already-queued fyne.Do recognizes itself
 		// as stale and does not fire onChanged/validity against the freshly loaded buffer.
-		pv.stopEditTimer()
-		pv.editGen++
+		pv.editDeb.supersede()
 		// Seed the edit buffer and display its colorized-raw projection: display lines map
 		// 1:1 to buffer lines so the caret stays a trivial buffer position, with live syntax
 		// colors. Prettifying is on demand (Reformat); see format_engine.go.
@@ -244,15 +244,15 @@ func (pv *PrettyView) Text() string {
 	if pv.doc == nil {
 		return ""
 	}
-	var b strings.Builder
+	// One pretty-line routine (model.AppendPrettyLine) backs Text, copy-subtree, and the
+	// Reformat serializer, so the indent convention can't drift. Text indents by absolute
+	// depth and terminates every line (including the last) with a newline.
+	var buf []byte
 	for li := 0; li < pv.doc.TotalLines(); li++ {
-		for d := 0; d < int(pv.doc.Lines[li].Depth); d++ {
-			b.WriteString("  ") // two-space indent per nesting level (the display uses pixel indents)
-		}
-		b.WriteString(pv.doc.LineString(int32(li)))
-		b.WriteByte('\n')
+		buf = pv.doc.AppendPrettyLine(int32(li), int(pv.doc.Lines[li].Depth)*reformatIndentUnit, buf, nil)
+		buf = append(buf, '\n')
 	}
-	return b.String()
+	return string(buf)
 }
 
 // Format reports the format actually used for the current document.
@@ -464,10 +464,10 @@ func (pv *PrettyView) centerOnLine(line int32, col int) {
 	vp := pv.r.scroll.Size()
 	cs := pv.contentSize()
 	cx, cy := geometry.CellOrigin(pv.doc, pv.met, line, col)
-	y := clampf(cy-(vp.Height-pv.met.RowH)/2, 0, max(0, cs.Height-vp.Height))
+	y := clamp(cy-(vp.Height-pv.met.RowH)/2, 0, max(0, cs.Height-vp.Height))
 	x := float32(0)
 	if !pv.doc.WrapActive() {
-		x = clampf(cx-vp.Width/2, 0, max(0, cs.Width-vp.Width))
+		x = clamp(cx-vp.Width/2, 0, max(0, cs.Width-vp.Width))
 	}
 	pv.r.scrollToOffset(fyne.NewPos(x, y))
 }

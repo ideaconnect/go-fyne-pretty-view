@@ -162,7 +162,7 @@ func jsonColorSpans(src []byte, jsonc bool) []colorSpan {
 	for i < len(src) {
 		c := src[i]
 		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v':
+		case isASCIISpace(c):
 			i++
 		case c == '{':
 			add(i, i+1, model.RolePunct)
@@ -196,35 +196,24 @@ func jsonColorSpans(src []byte, jsonc bool) []colorSpan {
 			add(start, i, role)
 		case c == '-' || (c >= '0' && c <= '9'):
 			start := i
-			i = scanJSONNumber(src, i)
+			i = scanNumberExtent(src, i)
 			add(start, i, model.RoleNumber)
-		case matchWord(src, i, "true"):
+		case matchLiteralAt(src, i, "true"):
 			add(i, i+4, model.RoleBool)
 			i += 4
-		case matchWord(src, i, "false"):
+		case matchLiteralAt(src, i, "false"):
 			add(i, i+5, model.RoleBool)
 			i += 5
-		case matchWord(src, i, "null"):
+		case matchLiteralAt(src, i, "null"):
 			add(i, i+4, model.RoleNull)
 			i += 4
 		case jsonc && c == '/' && i+1 < len(src) && src[i+1] == '/':
 			start := i
-			i += 2
-			for i < len(src) && src[i] != '\n' {
-				i++
-			}
+			i = scanLineCommentExtent(src, i)
 			add(start, i, model.RoleComment)
 		case jsonc && c == '/' && i+1 < len(src) && src[i+1] == '*':
 			start := i
-			i += 2
-			for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
-				i++
-			}
-			if i+1 < len(src) {
-				i += 2
-			} else {
-				i = len(src)
-			}
+			i = scanBlockCommentExtent(src, i)
 			add(start, i, model.RoleComment)
 		default:
 			i++ // stray byte mid-edit: leave RolePlain
@@ -255,24 +244,6 @@ func scanJSONString(src []byte, i int) int {
 		}
 	}
 	return i
-}
-
-func scanJSONNumber(src []byte, i int) int {
-	for i < len(src) {
-		c := src[i]
-		if (c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' {
-			i++
-			continue
-		}
-		break
-	}
-	return i
-}
-
-// matchWord reports whether the bytes at i are exactly word (no bounds-checking of the
-// following byte, matching the structured scanner's tolerant literal match).
-func matchWord(src []byte, i int, word string) bool {
-	return i+len(word) <= len(src) && string(src[i:i+len(word)]) == word
 }
 
 // --- XML / HTML colorizer ---------------------------------------------------------------
@@ -337,7 +308,7 @@ func markupColorSpans(src []byte) []colorSpan {
 		add(nameStart, i, model.RoleTag)
 		for i < len(src) && src[i] != '>' {
 			switch c := src[i]; {
-			case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v':
+			case isASCIISpace(c):
 				i++
 			case c == '/':
 				add(i, i+1, model.RolePunct)

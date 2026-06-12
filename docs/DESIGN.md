@@ -80,7 +80,7 @@ github.com/ideaconnect/go-fyne-pretty-view/
 ├── testdata/                    // small.json, openapi.json (~478KB), catalog.xml, page.html, big.json (~7.5MB)
 │
 ├── .github/
-│   ├── workflows/ci.yml         // tests + >90% coverage gate + codecov + cross-platform demo build
+│   ├── workflows/ci.yml         // tests + >95% coverage gate + codecov + cross-platform demo build
 │   └── dependabot.yml           // weekly gomod + github-actions updates
 │
 └── cmd/prettyview-demo/
@@ -954,10 +954,12 @@ Prettifying is **on demand**: `Reformat()` (or, opt-in, `AutoFormatOnPause`/`OnB
 re-parses the buffer and, only for a structured *and valid* parse, **rewrites the buffer
 bytes to the pretty-printed form** (`serializePretty`, depth × 2 spaces, the `Text()`
 convention) and remaps the caret once through the source spans — so the prettified layout
-persists as you keep typing. Raw, invalid, or **JSONC** input is left exactly as typed: a
-rewrite must never delete content, and the structured parser does not yet retain every
-JSONC comment (a comment between a value and its comma/close is dropped), so JSONC reformat
-recolors only until the parser gains full comment retention. The default
+persists as you keep typing. Only raw or **invalid** input is left exactly as typed (a
+rewrite must never delete content). **JSONC is prettified losslessly:** the structured
+parser now retains every comment as a `KindComment` node — including the formerly-dropped
+inline positions (between a key and its value, trailing a value inside a container), which
+it emits just below their member to keep node `SrcStart` non-decreasing — so
+`serializePretty` round-trips them and the rewrite drops none. The default
 `AutoFormat` is `AutoFormatOff`: typing never reflows the text out from under the user.
 The debounced settle (cloning the search debounce machinery: timer + generation counter +
 `fyne.Do` + `destroyed` guard) refreshes live parse validity and fires `OnChanged`; it

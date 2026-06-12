@@ -14,10 +14,6 @@ func (d *Document) LineAtRow(row int32) int32 { return d.fold.lineAtRow(row) }
 // line spans several visual rows; this returns the FIRST (top) one.
 func (d *Document) RowOfLine(line int32) int32 { return d.fold.rowOfLine(line) }
 
-// FirstVisualRowOfLine is RowOfLine under its wrap-aware name: the top visual row
-// of a (possibly multi-row) display line.
-func (d *Document) FirstVisualRowOfLine(line int32) int32 { return d.fold.rowOfLine(line) }
-
 // LineAndSubRowAtRow maps a visible visual row to its display line and the 0-based
 // sub-row within that line (0 unless the line is soft-wrapped). The renderer uses
 // the sub-row to pick which column slice of the line a given screen row shows.
@@ -104,6 +100,32 @@ func (d *Document) AppendDisplayLine(li int32, buf []byte, restoreTabs bool) []b
 		if restoreTabs && s.Buf == BufAux && s.Role == RolePlain {
 			buf = append(buf, '\t')
 			continue
+		}
+		buf = append(buf, d.SegBytes(s)...)
+	}
+	return buf
+}
+
+// AppendPrettyLine appends line li's pretty serialization to buf and returns the grown
+// slice: `indent` leading spaces, then the line's expanded (fold-independent) segment
+// bytes in order. It writes no trailing newline — callers join lines and choose the indent
+// (absolute Depth for the viewer text and Reformat, or Depth-relative for a copied subtree).
+//
+// For each source-backed (BufSrc) segment it invokes spanCb (when non-nil) with the
+// segment's source [start,end) byte range and the segment's start offset within buf, so a
+// caller rewriting the buffer (Reformat) can remap caret byte offsets. Synthesized (BufAux)
+// segments carry no source range and trigger no callback.
+//
+// This is the single routine behind PrettyView.Text, the copy-subtree text, and the
+// Reformat byte-serializer: the "indent two spaces per depth, then the expanded line text"
+// convention lives here so those three can never drift.
+func (d *Document) AppendPrettyLine(li int32, indent int, buf []byte, spanCb func(srcStart, srcEnd uint32, outStart int)) []byte {
+	for k := 0; k < indent; k++ {
+		buf = append(buf, ' ')
+	}
+	for _, s := range d.LineSegs(li) {
+		if spanCb != nil && s.Buf == BufSrc {
+			spanCb(s.Start, s.End, len(buf))
 		}
 		buf = append(buf, d.SegBytes(s)...)
 	}

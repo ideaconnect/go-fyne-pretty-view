@@ -7,6 +7,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
 func TestSetInputConfigMerges(t *testing.T) {
@@ -83,7 +84,10 @@ func TestOnPauseSettleReformats(t *testing.T) {
 }
 
 func TestResolveFormatPinned(t *testing.T) {
-	// A widget pinned to a format colors with it (resolveFormat's non-Auto branch).
+	// A widget pinned to a format COLORS with it (resolveFormat's non-Auto branch): the
+	// live projection must actually carry JSON roles, not merely report Format()==JSON
+	// (which only echoes the stored config value and would pass even if coloring ignored
+	// the pin).
 	test.NewApp()
 	pv := New(WithEditable(), WithFormat(FormatJSON))
 	win := test.NewWindow(pv)
@@ -95,6 +99,44 @@ func TestResolveFormatPinned(t *testing.T) {
 	typeStr(pv, `{"a":1}`)
 	if pv.Format() != FormatJSON {
 		t.Errorf("pinned format = %v, want JSON", pv.Format())
+	}
+	if r, ok := liveRoleOf(pv, `"a"`); !ok || r != model.RoleKey {
+		t.Errorf("a JSON-pinned editor must color the object key as RoleKey, got %v (ok=%v)", r, ok)
+	}
+}
+
+// liveRoleOf returns the color role of the first live-projection segment whose bytes
+// equal text — the model-level evidence that the colorizer ran for this format.
+func liveRoleOf(pv *PrettyView, text string) (model.ColorRole, bool) {
+	for li := 0; li < pv.doc.TotalLines(); li++ {
+		for _, s := range pv.doc.LineSegs(int32(li)) {
+			if string(pv.doc.SegBytes(s)) == text {
+				return s.Role, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// TestDefaultEditableAutoFormatOff pins user-requirement #1 ("disable completely the
+// auto-format every X seconds"): an editable widget built with NO InputConfig defaults to
+// AutoFormatOff, and a typing-pause settle in that mode never reflows the buffer.
+func TestDefaultEditableAutoFormatOff(t *testing.T) {
+	test.NewApp()
+	pv := New(WithEditable()) // no InputConfig: take the defaults
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(400, 300))
+	pv.Refresh()
+	pv.FocusGained()
+
+	if pv.cfg.input.AutoFormat != AutoFormatOff {
+		t.Errorf("default editable AutoFormat = %v, want AutoFormatOff", pv.cfg.input.AutoFormat)
+	}
+	typeStr(pv, `{"a":1,"b":2}`)
+	pv.editSettled() // the typing-pause settle; in the default (Off) mode it must NOT reflow
+	if strings.Contains(string(pv.buf.Bytes()), "\n") {
+		t.Errorf("a settle in the default (Off) mode reflowed the buffer: %q", pv.buf.Bytes())
 	}
 }
 
@@ -117,20 +159,37 @@ func TestEditModeHonorsExplicitFormat(t *testing.T) {
 	}
 }
 
-// TestReformatJSONCPreservesComments guards against a buffer rewrite deleting JSONC
-// comments the parser treats as trivia: in JSONC mode Reformat recolors but never rewrites.
+// TestReformatJSONCPreservesComments verifies the LOSSLESS JSONC prettify (issue #60):
+// Reformat rewrites a minified/irregular JSONC buffer to the indented form AND keeps every
+// comment — leading a key, between a key and its value, trailing a value, and inside a
+// nested object — and a second Reformat is idempotent.
 func TestReformatJSONCPreservesComments(t *testing.T) {
 	pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
 	defer win.Close()
 
-	const src = "{\n  \"a\": 1 // keep me\n}"
+	const src = "{// head\n\"a\": /*mid*/ 1,\n\"b\": 2, // tail\n\"c\": {/*deep*/ \"x\": 3}\n}"
 	pv.SetData([]byte(src), FormatJSONC)
 	pv.Reformat()
-	if got := string(pv.Source()); got != src {
-		t.Errorf("JSONC Reformat must not rewrite the buffer (comment-loss risk):\n got  %q\n want %q", got, src)
+
+	got := string(pv.Source())
+	if got == src {
+		t.Fatalf("JSONC Reformat must rewrite the buffer to the pretty form, got it unchanged:\n%q", got)
+	}
+	if !strings.Contains(got, "\n  ") {
+		t.Errorf("Reformat should indent the buffer:\n%q", got)
+	}
+	for _, c := range []string{"// head", "/*mid*/", "// tail", "/*deep*/"} {
+		if !strings.Contains(got, c) {
+			t.Errorf("Reformat dropped JSONC comment %q:\n%s", c, got)
+		}
 	}
 	if pv.Format() != FormatJSONC {
 		t.Errorf("Format() = %v, want FormatJSONC", pv.Format())
+	}
+	// Idempotent: a second Reformat changes nothing (the buffer is already pretty).
+	pv.Reformat()
+	if got2 := string(pv.Source()); got2 != got {
+		t.Errorf("second Reformat must be a no-op:\n got  %q\n want %q", got2, got)
 	}
 }
 
@@ -157,15 +216,15 @@ func TestSetDataCancelsPendingSettle(t *testing.T) {
 
 	pv.SetOnChanged(func(string) {}) // makes a typing settle observable, so it arms a timer
 	typeStr(pv, "a")
-	if pv.editTimer == nil {
+	if pv.editDeb.timer == nil {
 		t.Fatal("typing with an onChanged listener should arm a settle timer")
 	}
-	gen := pv.editGen
+	gen := pv.editDeb.gen
 	pv.SetData([]byte("new"), FormatAuto)
-	if pv.editTimer != nil {
+	if pv.editDeb.timer != nil {
 		t.Error("SetData must cancel a pending settle timer")
 	}
-	if pv.editGen <= gen {
+	if pv.editDeb.gen <= gen {
 		t.Error("SetData must bump editGen to invalidate an already-queued settle")
 	}
 }

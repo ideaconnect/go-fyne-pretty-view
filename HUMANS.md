@@ -43,13 +43,15 @@ The *why* behind the design — and the trade-offs considered — is in
 
 ## Contributing
 
-1. Read [AGENTS.md](AGENTS.md)'s "Non-negotiable invariants". The whole point of
-   the widget is bounded memory; please don't regress it. The tests in
+1. Read [CODE_BIBLE.md](CODE_BIBLE.md) — the binding commandments — and
+   [AGENTS.md](AGENTS.md)'s "Non-negotiable invariants". The whole point of the
+   widget is bounded memory; please don't regress it. The tests in
    `renderer_test.go` and `memory_test.go` will catch you, and that's by design.
-2. Make your change with a test in the same commit. See
+2. Make your change with a teeth-bearing test in the same commit. See
    [WORKFLOWS.md](WORKFLOWS.md) for how to add a parser or a color, and how to
    eyeball the UI headlessly (`make shots`).
-3. Run `make check` (gofmt + `go vet` + `go test -race`) — it must be green.
+3. Run `make check` (gofmt + `go vet` + `go test -race`) — it must be green, and CI
+   enforces **> 95 % coverage**, so keep the suite above the line.
 4. Keep commits focused and the public API stable (semver). Open a PR with a
    short description of the behavior change and any new fixtures.
 

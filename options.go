@@ -157,6 +157,12 @@ func WithDefaultCollapseDepth(d int) Option {
 }
 
 // WithTabWidth sets the display width of a tab character (default 4).
+//
+// This applies to the read-only viewer, where a tab expands to n columns. In editable
+// mode it has no effect: the live colorizer renders every grid-hostile byte (a tab
+// included) as a single placeholder cell so display runes equal buffer runes and the
+// caret stays an exact (line, col) — a tab is therefore one cell in the editor,
+// regardless of n.
 func WithTabWidth(n int) Option {
 	return func(c *config) {
 		if n > 0 {

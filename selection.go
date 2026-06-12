@@ -1,6 +1,7 @@
 package prettyview
 
 import (
+	"cmp"
 	"strings"
 	"time"
 
@@ -32,7 +33,6 @@ func (pv *PrettyView) hitTest(contentX, contentY float32) modelPos {
 type selection struct {
 	anchor, focus modelPos
 	active        bool // there is a non-empty selection
-	dragging      bool
 	placed        bool // a caret/anchor has been established by user interaction
 
 	grab         grabMode
@@ -139,7 +139,6 @@ func (pv *PrettyView) Dragged(ev *fyne.DragEvent) {
 	}
 	pv.applyHit(pos)
 	pv.sel.active = true
-	pv.sel.dragging = true
 	pv.autoscrollEdge(ev.Position)
 	pv.refreshSelectionView()
 }
@@ -167,7 +166,6 @@ func (pv *PrettyView) DragEnd() {
 	if pv.r != nil {
 		pv.r.dragArmed = false
 	}
-	pv.sel.dragging = false
 	if pv.sel.anchor == pv.sel.focus {
 		pv.sel.active = false
 	}
@@ -330,21 +328,6 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 // keepCol is the sentinel for keyExtend meaning "preserve the focus column".
 const keepCol = -1
 
-// subRowOfCol returns the sub-row index whose [breaks[k],breaks[k+1]) span holds col.
-// breaks is the WrapBreaks slice [0, …, lineLen]; under WrapNone it is [0, lineLen],
-// so the result is always 0.
-func subRowOfCol(breaks []int32, col int) int {
-	for k := 0; k+1 < len(breaks); k++ {
-		if int32(col) < breaks[k+1] {
-			return k
-		}
-	}
-	if len(breaks) >= 2 {
-		return len(breaks) - 2
-	}
-	return 0
-}
-
 // keyExtend moves the keyboard caret (the selection focus) by dRows visible rows
 // and/or to a column, keeping the anchor, so a Shift+arrow extends the selection.
 // The first move establishes a caret at the top visible line if none exists.
@@ -366,17 +349,15 @@ func (pv *PrettyView) keyExtend(dRows, col int, toLineStart, toLineEnd bool) {
 		// snapping back to the line's first sub-row. Under WrapNone every line is one
 		// row (breaks == [0, lineLen]) and this reduces to RowOfLine(vl)+dRows.
 		breaks := pv.doc.WrapBreaks(vl, nil)
-		sub := subRowOfCol(breaks, f.col)
+		sub := geometry.SubRowOfCol(breaks, f.col)
 		visualCol := f.col - int(breaks[sub]) // horizontal offset within the sub-row
-		row := clampInt(int(pv.doc.RowOfLine(vl))+sub+dRows, 0, int(pv.doc.TotalVisibleRows())-1)
+		row := clamp(int(pv.doc.RowOfLine(vl))+sub+dRows, 0, int(pv.doc.TotalVisibleRows())-1)
 		nl, nsub := pv.doc.LineAndSubRowAtRow(int32(row))
 		f.line, vl = nl, nl
 		nbreaks := pv.doc.WrapBreaks(nl, nil)
-		if int(nsub) > len(nbreaks)-2 {
-			nsub = int32(len(nbreaks) - 2)
-		}
 		// Preserve the horizontal position, clamped into the destination sub-row.
-		f.col = clampInt(int(nbreaks[nsub])+visualCol, int(nbreaks[nsub]), int(nbreaks[nsub+1]))
+		nStart, nEnd := geometry.SpanOfSub(nbreaks, nsub)
+		f.col = clamp(int(nStart)+visualCol, int(nStart), int(nEnd))
 	}
 	switch {
 	case toLineStart:
@@ -384,7 +365,7 @@ func (pv *PrettyView) keyExtend(dRows, col int, toLineStart, toLineEnd bool) {
 	case toLineEnd:
 		f.col = pv.doc.LineRuneLen(vl)
 	case col != keepCol:
-		f.col = clampInt(col, 0, pv.doc.LineRuneLen(vl))
+		f.col = clamp(col, 0, pv.doc.LineRuneLen(vl))
 	}
 	pv.sel.focus = f
 	pv.sel.active = pv.sel.anchor != pv.sel.focus
@@ -560,10 +541,10 @@ func (pv *PrettyView) selectedText() string {
 		runeLen := pv.doc.LineRuneLen(li)
 		start, end := 0, runeLen
 		if li == a.line {
-			start = clampInt(a.col, 0, runeLen)
+			start = clamp(a.col, 0, runeLen)
 		}
 		if li == b.line {
-			end = clampInt(b.col, 0, runeLen)
+			end = clamp(b.col, 0, runeLen)
 		}
 		if start == 0 && end == runeLen {
 			buf = pv.doc.AppendDisplayLine(li, buf[:0], restoreTabs)
@@ -619,22 +600,24 @@ func (pv *PrettyView) subtreeText(node model.NodeID) string {
 	if n.HeadLine < 0 {
 		return ""
 	}
-	var sb strings.Builder
+	// Shared pretty-line routine (model.AppendPrettyLine), but indented RELATIVE to the
+	// subtree root so a copied subtree starts at column 0; max(0, …) guards a shallower
+	// descendant. Lines are newline-joined (no trailing newline), unlike Text.
+	var buf []byte
 	for li := n.HeadLine; li <= n.CloseLine; li++ {
-		l := &pv.doc.Lines[li]
-		if d := int(l.Depth) - int(n.Depth); d > 0 { // guard: a shallower descendant would panic strings.Repeat
-			sb.WriteString(strings.Repeat("  ", d))
-		}
-		sb.WriteString(pv.doc.LineString(li))
+		indent := max(int(pv.doc.Lines[li].Depth)-int(n.Depth), 0) * reformatIndentUnit
+		buf = pv.doc.AppendPrettyLine(li, indent, buf, nil)
 		if li < n.CloseLine {
-			sb.WriteByte('\n')
+			buf = append(buf, '\n')
 		}
 	}
-	return sb.String()
+	return string(buf)
 }
 
-// nodeAtByteOffset returns the deepest node whose source span contains offset
-// (JSON only; XML/HTML lack offsets and return model.NoNode).
+// nodeAtByteOffset returns the deepest node whose source span contains offset.
+// Every structured format carries source spans — JSON/JSONC and XML/HTML alike —
+// so this resolves a node on all of them (a format with no nodes returns
+// model.NoNode). Only the unstructured raw view has no spans.
 //
 // Nodes are emitted in depth-first preorder, so SrcStart is non-decreasing in id
 // order and a subtree occupies a contiguous id range. We binary-search the last
@@ -676,22 +659,7 @@ func near(a, b fyne.Position) bool {
 	return dx < 4 && dx > -4 && dy < 4 && dy > -4
 }
 
-func clampInt(v, lo, hi int) int {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
-func clampf(v, lo, hi float32) float32 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
+// clamp confines v to [lo, hi] (callers always pass lo <= hi). One generic body replaces
+// the former byte-identical clampInt/clampf; the int and float32 caret/metric math both
+// route through it.
+func clamp[T cmp.Ordered](v, lo, hi T) T { return min(max(v, lo), hi) }

@@ -56,11 +56,24 @@ func TestExportedSurfaceGolden(t *testing.T) {
 func exportedSurface(t *testing.T, dir, pkg string) []string {
 	t.Helper()
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
+	// parser.ParseDir is deprecated; enumerate the non-test .go files ourselves and
+	// ParseFile each. We never type-check, so no go/packages (and no internal/ Fyne
+	// imports) — the frozen-surface guarantee is unchanged.
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("parse %s: %v", dir, err)
+		t.Fatalf("read dir %s: %v", dir, err)
+	}
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, dir+"/"+name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		files = append(files, f)
 	}
 	render := func(n ast.Node) string {
 		var sb strings.Builder
@@ -69,27 +82,25 @@ func exportedSurface(t *testing.T, dir, pkg string) []string {
 	}
 
 	var out []string
-	for _, p := range pkgs {
-		for _, file := range p.Files {
-			for _, decl := range file.Decls {
-				switch d := decl.(type) {
-				case *ast.FuncDecl:
-					if !d.Name.IsExported() {
-						continue
-					}
-					sig := strings.TrimPrefix(render(d.Type), "func")
-					if d.Recv != nil {
-						recv := render(d.Recv.List[0].Type)
-						if !receiverExported(recv) {
-							continue // method on an unexported type
-						}
-						out = append(out, pkg+" method ("+recv+") "+d.Name.Name+sig)
-					} else {
-						out = append(out, pkg+" func "+d.Name.Name+sig)
-					}
-				case *ast.GenDecl:
-					out = append(out, genDeclSurface(pkg, d, render)...)
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			switch d := decl.(type) {
+			case *ast.FuncDecl:
+				if !d.Name.IsExported() {
+					continue
 				}
+				sig := strings.TrimPrefix(render(d.Type), "func")
+				if d.Recv != nil {
+					recv := render(d.Recv.List[0].Type)
+					if !receiverExported(recv) {
+						continue // method on an unexported type
+					}
+					out = append(out, pkg+" method ("+recv+") "+d.Name.Name+sig)
+				} else {
+					out = append(out, pkg+" func "+d.Name.Name+sig)
+				}
+			case *ast.GenDecl:
+				out = append(out, genDeclSurface(pkg, d, render)...)
 			}
 		}
 	}

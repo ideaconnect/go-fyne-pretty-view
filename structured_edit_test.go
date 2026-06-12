@@ -104,11 +104,11 @@ func TestEditDebounceBumpsGeneration(t *testing.T) {
 	pv, win := newEditPV(t, InputConfig{DebounceFor: time.Second, AutoFormat: AutoFormatOnPause})
 	defer win.Close()
 
-	g0 := pv.editGen
+	g0 := pv.editDeb.gen
 	pv.TypedRune('a')
-	g1 := pv.editGen
+	g1 := pv.editDeb.gen
 	pv.TypedRune('b')
-	g2 := pv.editGen
+	g2 := pv.editDeb.gen
 	if !(g1 > g0 && g2 > g1) {
 		t.Errorf("each edit must bump editGen to invalidate a superseded reparse: %d, %d, %d", g0, g1, g2)
 	}

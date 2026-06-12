@@ -64,7 +64,7 @@ func TestEditDebounceCoalescesToOneReparse(t *testing.T) {
 	pv.SetOnChanged(func(string) { settles++ })
 
 	typeStr(pv, `{"a":1}`) // a burst: each keystroke restarts the one-second timer
-	if pv.editTimer == nil {
+	if pv.editDeb.timer == nil {
 		t.Fatal("a burst of edits should leave exactly one armed timer")
 	}
 	if settles != 0 {
@@ -122,14 +122,14 @@ func TestReparseAfterDestroyIsDropped(t *testing.T) {
 	defer win.Close()
 
 	typeStr(pv, "{") // arms the reformat timer
-	if pv.editTimer == nil {
+	if pv.editDeb.timer == nil {
 		t.Fatal("an edit should arm a reformat timer")
 	}
 	pv.r.Destroy()
 	if !pv.destroyed.Load() {
 		t.Error("Destroy must set the destroyed guard")
 	}
-	if pv.editTimer != nil {
+	if pv.editDeb.timer != nil {
 		t.Error("Destroy must stop the pending reformat timer")
 	}
 }

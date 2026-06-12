@@ -33,14 +33,15 @@ func (pv *PrettyView) Caret() (line, col int) {
 // SetCaret moves the caret to (line, col), clamping col into the line and revealing it,
 // and returns true. It returns false (leaving the caret put) when line is out of
 // [0, TotalLines), mirroring ScrollToLine's out-of-range contract. It collapses any
-// selection. Works in read-only mode too (a navigable caret). Call it on the Fyne
-// goroutine.
+// selection. It works in read-only mode too, but only as a logical navigation position
+// (it scrolls/centers the line); no caret bar is drawn — the visible caret is editor-only.
+// Call it on the Fyne goroutine.
 func (pv *PrettyView) SetCaret(line, col int) bool {
 	if pv.doc == nil || line < 0 || line >= pv.doc.TotalLines() {
 		return false
 	}
 	li := int32(line)
-	col = clampInt(col, 0, pv.doc.LineRuneLen(li)) // reuse the keyboard caret's clamp
+	col = clamp(col, 0, pv.doc.LineRuneLen(li)) // reuse the keyboard caret's clamp
 	pv.sel.focus = modelPos{line: li, col: col}
 	pv.sel.anchor = pv.sel.focus
 	pv.sel.active = false
@@ -291,6 +292,17 @@ func (pv *PrettyView) keyMoveCaret(dRows, col int, toLineStart, toLineEnd bool) 
 func (pv *PrettyView) reprojectRaw() {
 	src := pv.buf.Bytes()
 	pv.doc = parse.ParseEditableColored(src, pv.resolveFormat(src), pv.cfg.collapseDepth, pv.cfg.tabWidth)
+}
+
+// rerenderProjection repaints the live colorized-raw projection in place: re-color the
+// buffer, resize the gutter for the (possibly new) line count, and refresh content +
+// selection — without rewriting bytes or moving the caret. It is the shared tail of
+// reformat()'s two no-rewrite branches (raw/JSONC/invalid input, and already-pretty input).
+func (pv *PrettyView) rerenderProjection() {
+	pv.reprojectRaw()
+	pv.applyGutter()
+	pv.refreshContent()
+	pv.refreshSelectionView()
 }
 
 // afterEdit resizes/reflows for the new line count and keeps the caret in view.

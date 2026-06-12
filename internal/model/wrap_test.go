@@ -171,7 +171,7 @@ func TestWrapProjection(t *testing.T) {
 	// 2. visualRow <-> (line, sub) bijection.
 	for r := int32(0); r < d.TotalVisibleRows(); r++ {
 		line, sub := d.LineAndSubRowAtRow(r)
-		if got := d.FirstVisualRowOfLine(line) + sub; got != r {
+		if got := d.RowOfLine(line) + sub; got != r {
 			t.Errorf("row %d -> (line %d, sub %d) -> row %d", r, line, sub, got)
 		}
 		if sub < 0 || sub >= d.RowsOfLine(line) {

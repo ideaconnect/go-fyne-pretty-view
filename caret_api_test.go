@@ -35,6 +35,16 @@ func TestSetCaretRoundTrip(t *testing.T) {
 	if pv.sel.focus != before {
 		t.Error("a failed SetCaret must leave the caret unchanged")
 	}
+
+	// In read-only mode SetCaret is a logical navigation position only: even focused,
+	// no caret bar is drawn (the visible caret is editor-only). This locks the SetCaret
+	// godoc against the earlier "navigable caret" overclaim.
+	pv.FocusGained()
+	pv.SetCaret(2, 1)
+	pv.Refresh()
+	if pv.r.caretRect != nil && pv.r.caretRect.Visible() {
+		t.Error("read-only SetCaret must not render a caret bar")
+	}
 }
 
 func TestMaxEditBytesRejected(t *testing.T) {

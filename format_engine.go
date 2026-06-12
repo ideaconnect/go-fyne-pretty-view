@@ -2,9 +2,7 @@ package prettyview
 
 import (
 	"bytes"
-	"time"
 
-	"fyne.io/fyne/v2"
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/parse"
 )
@@ -30,9 +28,10 @@ func (pv *PrettyView) SetOnChanged(fn func(string)) { pv.onChanged = fn }
 
 // Reformat pretty-prints the edit buffer NOW: it re-parses under the active format and, if
 // the parse is structured and valid, rewrites the buffer to the indented form and remaps
-// the caret to the same token (so the caret "stays in place"). Raw, invalid, or JSONC input
-// is left untouched — only its colors/validity refresh — so a prettify never deletes
-// content (JSONC is exempt because the parser does not yet retain every comment). It runs
+// the caret to the same token (so the caret "stays in place"). Raw or invalid input is left
+// untouched — only its colors/validity refresh — so a prettify never deletes content. JSONC
+// is prettified losslessly: every comment is retained as a node (an inline comment renders
+// on its own line just below its member), so the rewrite preserves them all. It runs
 // regardless of the AutoFormat mode and never panics. No-op for a read-only widget. Call it
 // on the Fyne goroutine.
 func (pv *PrettyView) Reformat() {
@@ -57,27 +56,10 @@ func (pv *PrettyView) scheduleReformat() {
 	if pv.cfg.input.AutoFormat != AutoFormatOnPause && pv.onChanged == nil && pv.onValidation == nil {
 		return // nothing observes a settle
 	}
-	pv.stopEditTimer()
-	// Bump the generation so an earlier timer that already fired and queued its fyne.Do
-	// closure (which Stop can no longer cancel) recognizes itself as stale and skips.
-	pv.editGen++
-	d := pv.cfg.input.DebounceFor
-	if d <= 0 {
-		pv.editSettled()
-		return
-	}
-	gen := pv.editGen
-	pv.editTimer = time.AfterFunc(d, func() {
-		if pv.destroyed.Load() {
-			return
-		}
-		fyne.Do(func() {
-			if pv.destroyed.Load() || gen != pv.editGen {
-				return
-			}
-			pv.editSettled()
-		})
-	})
+	// The shared debouncer cancels any earlier settle, runs editSettled on the Fyne thread
+	// once typing pauses, and drops a settle superseded by a newer edit / SetData or fired
+	// after teardown. See debounce.go.
+	pv.editDeb.schedule(pv.cfg.input.DebounceFor, pv.editSettled)
 }
 
 // editSettled runs once a typing burst settles: refresh live parse validity (or, when
@@ -111,27 +93,20 @@ func (pv *PrettyView) reformat() {
 	status := pv.statusFor(nd, snapshot)
 	pv.setParseStatus(status)
 
-	if nd.Format == FormatRaw || nd.Format == FormatJSONC || !status.OK {
-		// Never rewrite the buffer when it would risk losing content: genuinely raw input,
-		// structured-but-invalid input (prettifying it would corrupt the in-progress text),
-		// or JSONC — whose comments the structured parser only partially retains, so a
-		// rewrite could silently delete them. Refresh colors + gutter only; the bytes and
-		// caret are left exactly as is. (Lossless JSONC reformat awaits full comment
-		// retention in the parser; see docs/DESIGN.md §12.)
-		pv.reprojectRaw()
-		pv.applyGutter()
-		pv.refreshContent()
-		pv.refreshSelectionView()
+	if nd.Format == FormatRaw || !status.OK {
+		// Never rewrite the buffer when it would risk losing content: genuinely raw input, or
+		// structured-but-invalid input (prettifying it would corrupt the in-progress text).
+		// Refresh colors + gutter only; the bytes and caret are left exactly as is. JSONC is
+		// NOT exempt anymore — the parser retains every comment as a node, so serializePretty
+		// round-trips them and the rewrite below is lossless.
+		pv.rerenderProjection()
 		return
 	}
 
 	pretty, spans := serializePretty(nd)
 	if bytes.Equal(pretty, snapshot) {
 		// Already pretty: no buffer change, no caret jump. Refresh colors idempotently.
-		pv.reprojectRaw()
-		pv.applyGutter()
-		pv.refreshContent()
-		pv.refreshSelectionView()
+		pv.rerenderProjection()
 		return
 	}
 
@@ -194,13 +169,4 @@ func (pv *PrettyView) resolveFormat(src []byte) Format {
 		return pv.curFormat
 	}
 	return parse.AutoDetect(src)
-}
-
-// stopEditTimer cancels and clears any pending debounced settle. Best-effort, like
-// stopSearchTimer; must run on the Fyne goroutine.
-func (pv *PrettyView) stopEditTimer() {
-	if pv.editTimer != nil {
-		pv.editTimer.Stop()
-		pv.editTimer = nil
-	}
 }

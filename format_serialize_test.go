@@ -1,6 +1,7 @@
 package prettyview
 
 import (
+	"image/color"
 	"strings"
 	"testing"
 
@@ -22,6 +23,49 @@ func TestSerializePrettyJSON(t *testing.T) {
 	for i := 1; i < len(spans); i++ {
 		if spans[i].oldStart < spans[i-1].oldStart {
 			t.Errorf("spans not ascending at %d: %+v before %+v", i, spans[i-1], spans[i])
+		}
+	}
+}
+
+// TestAppendPrettyLine covers the shared model routine directly: it appends after the
+// existing buffer, emits `indent` leading spaces, and invokes the span callback for
+// source-backed segments with offsets that point into the appended region.
+func TestAppendPrettyLine(t *testing.T) {
+	d := parse.Parse([]byte(`{"a":1}`), parse.FormatJSON, 0) // -> "{" / "  \"a\": 1" / "}"
+	nSpans := 0
+	firstOut := -1
+	buf := d.AppendPrettyLine(1, 4, []byte("X"), func(srcStart, srcEnd uint32, outStart int) {
+		if firstOut < 0 {
+			firstOut = outStart
+		}
+		nSpans++
+	})
+	got := string(buf)
+	if !strings.HasPrefix(got, "X    ") { // pre-existing "X" + 4 indent spaces
+		t.Errorf("AppendPrettyLine must append after buf and indent 4: %q", got)
+	}
+	if !strings.Contains(got, `"a"`) {
+		t.Errorf("AppendPrettyLine dropped the line text: %q", got)
+	}
+	if nSpans == 0 {
+		t.Error("expected at least one BufSrc span callback for the member's tokens")
+	}
+	if firstOut < 5 { // after the "X" + 4 spaces
+		t.Errorf("span outStart %d should point past the indent (>=5)", firstOut)
+	}
+}
+
+// TestPrettyLineConventionConsistency locks the unification (issue #58): Text and
+// serializePretty share one routine, so for any document the Reformat bytes must equal the
+// viewer Text minus its single trailing newline. If the indent/line conventions ever drift,
+// this fails.
+func TestPrettyLineConventionConsistency(t *testing.T) {
+	srcs := []string{`{"a":1,"b":[2,3],"c":{"d":4}}`, `[1,[2,[3,[4]]]]`, `{}`}
+	for _, src := range srcs {
+		pv := NewWithData([]byte(src), FormatJSON)
+		out, _ := serializePretty(pv.doc)
+		if got, want := string(out), strings.TrimSuffix(pv.Text(), "\n"); got != want {
+			t.Errorf("src %q: serializePretty != Text-minus-trailing-newline\n got: %q\nwant: %q", src, got, want)
 		}
 	}
 }
@@ -82,6 +126,40 @@ func TestLiveColorWhileTyping(t *testing.T) {
 	}
 	if !sawNumber {
 		t.Error("the live projection should color the number (RoleNumber) while typing")
+	}
+}
+
+// TestLiveColorPaintsInEditRenderer closes the gap between "the model carries a role" and
+// "the renderer paints it": after typing JSON, the live row's "key" text run must be drawn
+// with palette[RoleKey] — proving real-time highlighting reaches the screen while editing,
+// not just that the projection assigned a role.
+func TestLiveColorPaintsInEditRenderer(t *testing.T) {
+	pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
+	defer win.Close()
+
+	typeStr(pv, `{"key":42}`)
+
+	want := pv.palette[model.RoleKey]
+	if want == pv.palette[model.RolePunct] {
+		t.Skip("theme maps key and punct to the same color; render-color distinction not assertable")
+	}
+	var got color.Color
+	found := false
+	for _, rw := range pv.r.live {
+		if rw.rr == nil {
+			continue
+		}
+		for _, txt := range rw.rr.texts {
+			if txt.Visible() && txt.Text == `"key"` {
+				got, found = txt.Color, true
+			}
+		}
+	}
+	if !found {
+		t.Fatal(`no painted "key" run in the editable view — live highlighting did not render`)
+	}
+	if got != want {
+		t.Errorf("live-typed key painted %v, want palette[RoleKey] %v", got, want)
 	}
 }
 

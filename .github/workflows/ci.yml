@@ -58,13 +58,13 @@ jobs:
           go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
           govulncheck ./...
 
-      - name: Enforce coverage threshold (> 90%)
+      - name: Enforce coverage threshold (> 95%)
         run: |
           total=$(go tool cover -func=coverage.out | awk 'END { gsub("%","",$3); print $3 }')
           echo "Total coverage: ${total}%"
           awk -v c="$total" 'BEGIN {
-            if (c+0 <= 90) { printf "FAIL: coverage %.1f%% is not above 90%%\n", c+0; exit 1 }
-            printf "OK: coverage %.1f%% is above 90%%\n", c+0
+            if (c+0 <= 95) { printf "FAIL: coverage %.1f%% is not above 95%%\n", c+0; exit 1 }
+            printf "OK: coverage %.1f%% is above 95%%\n", c+0
           }'
 
       - name: Upload coverage to Codecov

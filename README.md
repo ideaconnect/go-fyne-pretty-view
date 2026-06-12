@@ -35,7 +35,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 
 ## Features
 
-- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override. (JSONC `//` and `/* */` comments render as their own nodes — visible, searchable, copyable.)
+- **Syntax highlighting** for JSON / JSONC / XML / HTML, with a dark/light palette you can override. (JSONC `//` and `/* */` comments — in every position — render as their own nodes: visible, searchable, copyable, and preserved across a `Reformat`. An inline comment renders on its own line just below its member.)
 - **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
 - **Expand / fold** every container, with a collapse summary on folded nodes (`{ 38 items }`, `[ 3 items ]`, `<tag> 5 children`).
 - **True character-level free-text selection** across rows, with exact-substring copy (`Ctrl/Cmd+C`) and select-all (`Ctrl/Cmd+A`).
@@ -45,6 +45,9 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally — selection, search, and copy still operate on whole logical lines.
 - **Keyboard navigation**: arrows scroll (all four), `Space`/`PageDown` & `PageUp` page, `Home`/`End` jump to top/bottom; **`Shift`+arrows / `Shift`+`Home`/`End` extend a selection** from the caret; **`Enter` toggles the fold** on the caret's line; `Esc` clears the selection; `Ctrl/Cmd+F` focuses search.
 - **Optional, à-la-carte controls**: a built-in toolbar (Open, format, expand/collapse, wrap, search) you can enable control-by-control — or drive everything from your own widgets via the public API.
+- **Optional in-place editing** (v2, opt-in via `WithEditable`): type or paste data with **real-time syntax highlighting as you type**, **prettify on demand** (`Reformat`, caret-preserving), undo/redo, cut/paste, and a live parse-validity status — all under the same memory bound (only viewport-many rows are ever live widgets while editing). See [Editing](#editing-opt-in-v2).
+
+![Folded nodes show collapse summaries (`{ 4 items }`, `[ 1 item ]`); search matches are highlighted; the gutter numbers stay correct across folds](docs/fold-search.png)
 
 ## Why it stays small
 
@@ -126,7 +129,7 @@ matching runtime setters; the on-screen chrome is **entirely opt-in**.
 | Copy a subtree | On demand | `CopySubtree(byteOffset) bool` (any format; copies the pretty-printed subtree). Also a right-click menu item. |
 | Search | On demand | `Search(SearchQuery{Text, Mode, CaseSensitive})`, `SearchNext()`, `SearchPrev()`, `ClearSearch()`, `SearchStatus()`. Tune with `WithSearchConfig(...)`. |
 | Soft word-wrap | Off (`WrapNone`) | `WithWrap(WrapWord)` at build, or `SetWrap(WrapWord)` / `SetWrap(WrapNone)` at runtime; `Wrap()` reads it. |
-| Tab display width | `4` | `WithTabWidth(n)`. |
+| Tab display width | `4` | `WithTabWidth(n)`. Read-only viewer only — in the editor a tab is one placeholder cell (keeps the caret an exact `(line, col)`), regardless of `n`. |
 | Indent step (px/level) | `16` | `WithIndentStep(px)`. |
 | Line-number gutter | Off | `WithLineNumbers()` (1-based logical line numbers, drawn from the model — no per-line widgets). |
 | Theme / colors | Track the host Fyne theme | `WithTheme` / `WithSyntaxColors` at build; `SetTheme` / `SetSyntaxColors` at runtime. |
@@ -135,6 +138,49 @@ matching runtime setters; the on-screen chrome is **entirely opt-in**.
 `SearchQuery.Mode` is `SearchPlain` (default) or `SearchRegex`; matches are capped
 by `SearchConfig.MaxMatches` (10 000 by default) and revealed even inside folded
 nodes.
+
+### Editing (opt-in, v2)
+
+By default the widget is a read-only **viewer**. Construct it with `WithEditable()`
+and the same widget becomes a light in-place **editor** — a rendered caret,
+type/paste, undo/redo — under the same memory bound (only viewport-many rows are
+ever live widgets while you edit). The input-vs-output purpose is fixed at
+construction: there is deliberately no `SetEditable`.
+
+![The editable widget: line-number gutter, live syntax highlighting, and a rendered caret on a pretty-printed JSON buffer](docs/editor.png)
+
+```go
+ed := prettyview.New(
+    prettyview.WithEditable(),
+    prettyview.WithLineNumbers(), // makes the validity gutter marker visible
+)
+ed.SetData(jsonBytes, prettyview.FormatAuto)
+```
+
+| Editing capability | Default | How it behaves / how to change it |
+|---|---|---|
+| Real-time syntax highlighting | On (while editable) | Tokens recolor on **every keystroke** — typing never drops the highlighting and never reflows the text out from under you. |
+| Prettify on demand | `Reformat()` | Pretty-prints the buffer in place and **keeps the caret on the same token**. This is the only thing that reflows the text. |
+| Auto-reformat | **Off** | `WithInputConfig(InputConfig{AutoFormat: …})` / `SetInputConfig(...)`: `AutoFormatOff` (default — prettify only on `Reformat`), `AutoFormatOnPause` (after a typing pause), or `AutoFormatOnBlur` (on focus loss). `DebounceFor` tunes the pause (400 ms). |
+| Live parse validity | On | `ParseStatus()` (`OK` + `ErrorLine`) and `SetOnValidationChanged(fn)`; the error line is flagged in the gutter. `SetOnChanged(fn)` delivers the settled text. |
+| Undo / redo | On | `Undo()` / `Redo()` (and `Ctrl/Cmd+Z` / `Ctrl/Cmd+Shift+Z`); a typed word coalesces into one step. Cap the history with `WithUndoLimit(n)` (200 default). |
+| Cut / copy / paste | On | `Cut()` / `CopySelection()` / `Paste()` (and the standard `Ctrl/Cmd+X/C/V`); pasted control bytes render as visible placeholders, never raw. |
+| Caret control | On | `Caret()` / `SetCaret(line, col)`; `Source()` returns the live buffer bytes (the pretty bytes after a `Reformat`), `Text()` the displayed text. |
+| Edit-buffer cap | Off | `InputConfig.MaxEditBytes` (set via `WithInputConfig`/`SetInputConfig`): an edit that would grow the buffer past the cap is rejected and auto-reformat-on-pause is suppressed (an explicit `Reformat` still runs), keeping the gap-buffer delta bounded. `WithMaxInputBytes(n)` is a *separate* knob that truncates `SetData`/`SetText` input — it does **not** cap live edits. |
+
+As you type, the buffer is colored in place and **never reflowed** — it stays exactly
+as entered (minified here) until you ask for `Reformat` (which produces the
+pretty, multi-line form shown above):
+
+![The same editor mid-edit: a minified line, colored live as typed, with the caret — no reflow until Reformat](docs/editor-live.png)
+
+Everything in the [viewer table](#viewer-behavior) above (search, fold, wrap,
+theming, the toolbar) still applies to an editor. **JSON, JSONC, XML and HTML** get
+structured prettifying on `Reformat`; **JSONC is prettified losslessly** — every
+comment is retained as a node, so the rewrite never drops one (an inline comment
+moves to its own line just below its member). Anything else — or malformed input —
+stays raw and is never rewritten. Like every other method, editor calls must run on
+the Fyne goroutine (see [Threading](#threading)).
 
 ### Built-in controls (all opt-in)
 
@@ -167,6 +213,14 @@ pv := prettyview.New(
     // WithSearchConfig merges field-by-field: a zero field keeps its default
     // (DebounceFor stays 150ms). Pass a negative DebounceFor to disable coalescing.
     prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000}),
+
+    // Editing (v2, opt-in) — see the Editing section. Only meaningful together.
+    prettyview.WithEditable(),                           // construct as an editor, not a viewer
+    prettyview.WithInputConfig(prettyview.InputConfig{   // merges field-by-field like WithSearchConfig
+        AutoFormat: prettyview.AutoFormatOnPause,        // default AutoFormatOff (prettify only on Reformat)
+    }),
+    prettyview.WithUndoLimit(200),                       // cap undo history (editable only)
+    prettyview.WithMaxInputBytes(1 << 20),               // truncate SetData/SetText input (edit-buffer cap is InputConfig.MaxEditBytes)
 )
 ```
 
@@ -244,6 +298,11 @@ search box, e.g. on `Ctrl/Cmd+F`).
 | `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
 | `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
+| `Editable()` / `Reformat()` | report the constructed mode / pretty-print the edit buffer in place (caret-preserving) — *editing (v2)* |
+| `Undo()` / `Redo()` / `Cut()` / `Paste()` | edit history & clipboard (no-ops on a read-only viewer) — *editing (v2)* |
+| `Caret()` / `SetCaret(line, col)` | read / move the caret — *editing (v2)* |
+| `ParseStatus()` / `SetOnValidationChanged(fn)` / `SetOnChanged(fn)` | live parse validity & settled-text hooks — *editing (v2)* |
+| `SetInputConfig(c)` | change the edit-mode formatting knobs at runtime — *editing (v2)* |
 
 ## Theming
 
@@ -388,6 +447,7 @@ and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 | [WORKFLOWS.md](WORKFLOWS.md) | How to build, run, test, benchmark, and extend (parsers, colors). |
 | [docs/DESIGN.md](docs/DESIGN.md) | The authoritative architecture + adversarial risk analysis. |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Performance review: hot paths, benchmarks, and the measured deltas. |
+| [CODE_BIBLE.md](CODE_BIBLE.md) | The binding engineering commandments (memory bound, teeth-bearing tests, > 95 % coverage, API stability). |
 | [HUMANS.md](HUMANS.md) | Onboarding and contribution guide for people. |
 | [AGENTS.md](AGENTS.md) | Brief for AI coding agents: invariants to preserve, conventions. |
 | [CLAUDE.md](CLAUDE.md) | Claude Code entry point (points at AGENTS.md). |
@@ -397,12 +457,13 @@ and the adversarial risk analysis) lives in [docs/DESIGN.md](docs/DESIGN.md).
 Contributions are welcome — issues and pull requests both. A few things keep the
 project healthy:
 
-- **Read the briefs first.** [HUMANS.md](HUMANS.md) is the human onboarding guide;
-  [WORKFLOWS.md](WORKFLOWS.md) covers build/run/test/bench and how to add a parser
-  or a color; [AGENTS.md](AGENTS.md) lists the non-negotiable invariants.
+- **Read the briefs first.** [CODE_BIBLE.md](CODE_BIBLE.md) is the binding rule set;
+  [HUMANS.md](HUMANS.md) is the human onboarding guide; [WORKFLOWS.md](WORKFLOWS.md)
+  covers build/run/test/bench and how to add a parser or a color; [AGENTS.md](AGENTS.md)
+  lists the non-negotiable invariants.
 - **`make check` must pass.** It runs `gofmt`, `go vet` (which also forbids
   `internal/` Fyne imports), and `go test -race ./...`. CI additionally enforces
-  **> 90 % coverage**, so ship a regression test with each change.
+  **> 95 % coverage**, so ship a teeth-bearing regression test with each change.
 - **Respect the memory invariants.** Only viewport-many rows are ever live
   widgets; selection/search/copy operate on the model, not on widgets; per-row
   text is horizontally culled. The arena sizes (`Node`=32 B, `Line`=24 B,
