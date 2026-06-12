@@ -35,8 +35,9 @@ func ExamplePrettyView_Search() {
 }
 
 // ExamplePrettyView_CopySubtree copies a node's whole subtree to the clipboard by its
-// source byte offset (JSON/JSONC; XML/HTML carry no per-node offset and return false).
-// The right-click "Copy subtree" menu item does the same for any format.
+// source byte offset. Source offsets are populated for every structured format — JSON,
+// JSONC, XML and HTML — so it resolves a node on all of them (only the raw view, which
+// has no nodes, returns false). The right-click "Copy subtree" menu item does the same.
 func ExamplePrettyView_CopySubtree() {
 	pv := prettyview.NewWithData([]byte(`{"user":{"name":"ada","id":1}}`), prettyview.FormatJSON)
 
