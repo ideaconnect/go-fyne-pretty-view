@@ -106,6 +106,11 @@ type PrettyView struct {
 	lastTextSize float32
 	lastVariant  fyne.ThemeVariant
 
+	// gutter-width memo (#77): the digit count only changes with the line count, so skip the
+	// strconv.Itoa on a metrics pass when TotalLines is unchanged (line numbers on only).
+	lastGutterLines int
+	gutterDigits    int
+
 	// selection state (4 positions + flags, all model-based)
 	sel          selection
 	focused      bool

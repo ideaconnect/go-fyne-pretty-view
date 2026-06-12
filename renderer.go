@@ -28,8 +28,11 @@ func (pv *PrettyView) applyGutter() {
 	if n < 1 {
 		n = 1
 	}
-	digits := len(strconv.Itoa(n))
-	pv.met.SetGutterWidth(float32(digits+2) * pv.met.CharWidth) // a cell of margin each side
+	if n != pv.lastGutterLines { // memo: the Itoa only matters when the line count changes (#77)
+		pv.gutterDigits = len(strconv.Itoa(n))
+		pv.lastGutterLines = n
+	}
+	pv.met.SetGutterWidth(float32(pv.gutterDigits+2) * pv.met.CharWidth) // a cell of margin each side
 }
 
 // prettyViewRenderer implements the manual visible-window virtualization. It owns
