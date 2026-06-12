@@ -183,6 +183,11 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 		// the timer and bump the generation so an already-queued fyne.Do recognizes itself
 		// as stale and does not fire onChanged/validity against the freshly loaded buffer.
 		pv.editDeb.supersede()
+		// The undo/redo history references the buffer being replaced; replaying it against the
+		// freshly seeded buffer would splice at stale offsets and corrupt the new content, so
+		// drop it (#66). The next edit starts a fresh undo unit.
+		pv.hist.reset()
+		pv.coalesceBreak = true
 		// Seed the edit buffer and display its colorized-raw projection: display lines map
 		// 1:1 to buffer lines so the caret stays a trivial buffer position, with live syntax
 		// colors. Prettifying is on demand (Reformat); see format_engine.go.
