@@ -110,3 +110,31 @@ func TestUndoNoopReadOnlyAndEmpty(t *testing.T) {
 		t.Errorf("Undo/Redo on an empty stack changed the buffer to %q", got)
 	}
 }
+
+// TestSetDataReseedClearsUndoHistory is the regression for #66: SetData/Reparse re-seeds the
+// edit buffer, so prior undo ops reference bytes that no longer exist. They must be dropped,
+// not replayed — replaying would splice at stale offsets and corrupt the freshly loaded text.
+func TestSetDataReseedClearsUndoHistory(t *testing.T) {
+	pv, win := renderEditable(t, []byte("seed"), 600, 400)
+	defer win.Close()
+	pv.FocusGained()
+
+	pv.keyMoveCaret(0, 0, false, true) // caret to end of "seed"
+	typeStr(pv, "XYZ")                 // undo op: insert "XYZ" at offset 4 (buffer "seedXYZ")
+	if len(pv.hist.undo) == 0 {
+		t.Fatal("expected undo history after typing")
+	}
+
+	// Programmatically load DIFFERENT content. The retained undo op (at offset 4) now refers
+	// to a buffer that no longer exists; without the fix, replaying it would Delete(4,3) and
+	// drop "456" from the new content.
+	pv.SetData([]byte("0123456789"), FormatRaw)
+	if len(pv.hist.undo) != 0 || len(pv.hist.redo) != 0 {
+		t.Fatalf("re-seed must clear undo+redo, got undo=%d redo=%d", len(pv.hist.undo), len(pv.hist.redo))
+	}
+
+	pv.Undo() // must be a no-op; without the fix it deletes "456", corrupting the new buffer
+	if got := string(pv.Source()); got != "0123456789" {
+		t.Errorf("Undo after re-seed corrupted the buffer: got %q, want %q", got, "0123456789")
+	}
+}

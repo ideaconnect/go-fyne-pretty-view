@@ -25,6 +25,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - [Key methods](#key-methods)
 - [Theming](#theming)
 - [Threading](#threading)
+- [Limits and production notes](#limits-and-production-notes)
 - [Stability](#stability)
 - [Demo](#demo)
 - [Design and documentation](#design-and-documentation)
@@ -303,6 +304,7 @@ search box, e.g. on `Ctrl/Cmd+F`).
 | `Caret()` / `SetCaret(line, col)` | read / move the caret — *editing (v2)* |
 | `ParseStatus()` / `SetOnValidationChanged(fn)` / `SetOnChanged(fn)` | live parse validity & settled-text hooks — *editing (v2)* |
 | `SetInputConfig(c)` | change the edit-mode formatting knobs at runtime — *editing (v2)* |
+| `ShowOpenDialog(pv, win)` *(package func)* | pop the built-in file-open dialog and load the picked file (auto-detected; bounded by `WithMaxInputBytes`). The à-la-carte alternative to the toolbar's `ShowOpen`. |
 
 ## Theming
 
@@ -392,6 +394,43 @@ go func() {
 
 The widget holds no locks by design; its one internal background task — the search
 debounce — already marshals back onto the Fyne goroutine.
+
+## Limits and production notes
+
+The widget is built for bounded memory on large input; the trade-offs that buys are worth
+knowing before you ship it:
+
+- **Source-size ceiling.** A single document is capped at ~4 GiB (offsets are 32-bit);
+  larger input is truncated. `WithMaxInputBytes(n)` sets a smaller explicit cap — the
+  bundled file-open dialog honors it too (an over-cap file is refused, not read whole into
+  memory).
+- **Synchronous parse.** `SetData`/`SetText` parse on the calling (Fyne) goroutine and build
+  a compact model **≈5–7× the source size**. That is fast for multi-megabyte input but is
+  still `O(source)` work done before the call returns — there is no off-thread parse. For
+  very large input, keep it bounded or parse-and-set inside `fyne.Do` after a fetch so the UI
+  doesn't hitch.
+- **Editing a very large buffer.** Live syntax coloring is capped at a 2 MiB buffer budget;
+  above it the editor stays correct and the caret exact, but renders monochrome until a
+  `Reformat` (which splits a minified blob into short lines) or a deletion brings it back
+  under budget.
+- **Desktop input model.** The widget implements Fyne's desktop keyboard/mouse interfaces and
+  targets desktop drivers; it is not designed for the mobile touch driver.
+
+### Accessibility
+
+The body is custom-painted, virtualized monospace text, so the accessibility story is
+explicit:
+
+- **Keyboard:** focusable and fully keyboard-operable once focused — arrows scroll,
+  `Shift`+arrows extend the selection, `Enter` toggles the caret line's fold,
+  `Home`/`End`/`PageUp`/`PageDown` navigate, `Ctrl/Cmd`+`A`/`C`/`F` select-all / copy / find.
+- **Screen readers:** the canvas text is **not** exposed as a Fyne accessibility node, so a
+  screen reader will not read the content — treat it as a visual viewer/editor.
+- **Theme & fonts:** colors and text size follow the host Fyne theme (override via
+  `WithTheme` / `WithSyntaxColors` and the theme's text size), so high-contrast and large-font
+  setups are inherited from the app.
+- **Text direction:** column and selection math assume left-to-right text; right-to-left
+  scripts are not laid out bidirectionally.
 
 ## Stability
 

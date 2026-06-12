@@ -25,6 +25,15 @@ type editHistory struct {
 	limit int
 }
 
+// reset drops the undo/redo stacks (keeping the configured limit) and releases their bytes.
+// SetData calls it when it re-seeds the edit buffer: the existing ops' byte offsets reference
+// the buffer that was just replaced, so replaying them after a reload would splice at the
+// wrong positions and corrupt the freshly loaded content (CODE_BIBLE rule 7).
+func (h *editHistory) reset() {
+	h.undo = nil
+	h.redo = nil
+}
+
 // recordEdit pushes op onto the undo stack, coalescing a run of single-rune inserts into
 // one entry (typing a word is one undo) and evicting the oldest entry past the cap. A
 // new edit invalidates the redo stack.
@@ -93,6 +102,5 @@ func isSingleRune(s []byte) bool {
 
 // bufRange returns a copy of the buffer's [lo, hi) bytes (for recording removed text).
 func (pv *PrettyView) bufRange(lo, hi int) []byte {
-	b := pv.buf.Bytes()
-	return append([]byte(nil), b[lo:hi]...)
+	return pv.buf.Slice(lo, hi) // O(hi-lo), not a whole-buffer copy (#68)
 }

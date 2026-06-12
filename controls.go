@@ -342,7 +342,10 @@ func ShowOpenDialog(pv *PrettyView, win fyne.Window) {
 
 // loadFromReader handles a file-open dialog result: a picker error is surfaced (not
 // swallowed), a cancel (nil reader, no error) is silent, otherwise the file is read
-// (surfacing any read error) and loaded with auto-detection.
+// (surfacing any read error) and loaded with auto-detection. The read is bounded by the
+// configured WithMaxInputBytes, so the bundled loader can never read a multi-gigabyte file
+// whole into memory (#73): an over-cap file is refused with an error rather than silently
+// truncated, since a file open is an explicit user action.
 func loadFromReader(pv *PrettyView, win fyne.Window, rc fyne.URIReadCloser, err error) {
 	if err != nil {
 		dialog.ShowError(err, win)
@@ -352,12 +355,33 @@ func loadFromReader(pv *PrettyView, win fyne.Window, rc fyne.URIReadCloser, err 
 		return // user cancelled
 	}
 	defer rc.Close()
-	data, err := io.ReadAll(rc)
+	data, tooLarge, err := readCapped(rc, pv.cfg.maxInputBytes)
 	if err != nil {
 		dialog.ShowError(err, win)
 		return
 	}
+	if tooLarge {
+		dialog.ShowError(fmt.Errorf("file exceeds the %d-byte limit set via WithMaxInputBytes", pv.cfg.maxInputBytes), win)
+		return
+	}
 	pv.SetData(data, FormatAuto)
+}
+
+// readCapped reads all of r, but bounds the read (hence the allocation) to cap+1 bytes when
+// cap > 0, so an oversized input is detected without ever reading the whole file. It returns
+// the bytes (capped to cap) and whether the input exceeded cap. cap <= 0 means no cap.
+func readCapped(r io.Reader, cap int) (data []byte, tooLarge bool, err error) {
+	if cap > 0 {
+		r = io.LimitReader(r, int64(cap)+1) // +1 byte lets ReadAll see the overflow
+	}
+	data, err = io.ReadAll(r)
+	if err != nil {
+		return nil, false, err
+	}
+	if cap > 0 && len(data) > cap {
+		return data[:cap], true, nil
+	}
+	return data, false, nil
 }
 
 func registerFindShortcut(win fyne.Window, pv *PrettyView) {

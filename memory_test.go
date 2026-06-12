@@ -21,18 +21,36 @@ func modelBytes(d *model.Document) int {
 		d.ProjectionBytes()
 }
 
+// TestModelSizeRatio locks the memory budget — the widget's whole reason to exist. The
+// bounds sit ~15-25% above the measured ratio so an accidental SoA regression (an extra
+// per-node field, a stray per-line string materialization) trips the guard, while ordinary
+// fixture drift does not; the old <=12x bar was loose enough to hide a >2x bloat. A lower
+// floor also fails an accidental under-count (arenas not populated). Measured 2026-06:
+// openapi.json 4.85x, big.json ~7.1x (the documented ≈5-7x band, AGENTS invariant #3).
 func TestModelSizeRatio(t *testing.T) {
-	src, err := os.ReadFile("testdata/openapi.json")
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		file     string
+		maxRatio float64
+	}{
+		{"testdata/openapi.json", 6.0},
+		{"testdata/big.json", 8.5},
 	}
-	d := parse.Parse(src, FormatJSON, 0)
-	model := modelBytes(d)
-	ratio := float64(model) / float64(len(src))
-	t.Logf("source=%d KB, model=%d KB, ratio=%.2fx, nodes=%d lines=%d segs=%d",
-		len(src)/1024, model/1024, ratio, len(d.Nodes), len(d.Lines), len(d.Segs))
-	if ratio > 12 {
-		t.Errorf("model is %.1fx source (want <= 12x) — SoA layout regressed", ratio)
+	for _, c := range cases {
+		src, err := os.ReadFile(c.file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := parse.Parse(src, FormatJSON, 0)
+		model := modelBytes(d)
+		ratio := float64(model) / float64(len(src))
+		t.Logf("%s: source=%d KB, model=%d KB, ratio=%.2fx, nodes=%d lines=%d segs=%d",
+			c.file, len(src)/1024, model/1024, ratio, len(d.Nodes), len(d.Lines), len(d.Segs))
+		if ratio > c.maxRatio {
+			t.Errorf("%s: model is %.2fx source (want <= %.1fx) — SoA layout regressed", c.file, ratio, c.maxRatio)
+		}
+		if ratio < 2 {
+			t.Errorf("%s: model is only %.2fx source (< 2x) — arenas not populated / under-count?", c.file, ratio)
+		}
 	}
 }
 
