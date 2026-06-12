@@ -56,6 +56,10 @@ a breaking change ships under a new major module path, never as a minor bump.
 Document every exported identifier. Keep `CHANGELOG.md` current under Keep-a-Changelog
 headings.
 
+**Deprecation:** never remove an exported symbol abruptly inside a major. Mark it with a
+Go `// Deprecated:` doc comment naming the replacement, keep it for at least one more minor,
+and remove it only at the next major. The golden still tracks it until then.
+
 ## 7. Never corrupt the user's bytes
 
 The viewer and editor are lossless by construction: an editor's `Source()` round-trips

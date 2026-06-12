@@ -637,3 +637,50 @@ func TestRawTabsExpandToStops(t *testing.T) {
 		t.Error("Document.Src should retain the original tab bytes")
 	}
 }
+
+// TestJSONUnterminatedBackslashNoOverrun is the #76 guard: an unterminated string ending in a
+// backslash must not push the scanner past EOF — a node span End > len(Src) would later panic
+// when SegBytes/CopySubtree slices Src. The parse is tolerant (must not panic) and every node
+// span must stay within Src.
+func TestJSONUnterminatedBackslashNoOverrun(t *testing.T) {
+	for _, src := range []string{`"\`, `["\`, `{"k":"\`, `{"a":1,"k":"\`, `["a","\`} {
+		d := Parse([]byte(src), FormatJSON, 0) // tolerant: must not panic
+		for _, n := range d.Nodes {
+			if int(n.SrcStart) > len(d.Src) || int(n.SrcEnd) > len(d.Src) {
+				t.Errorf("src %q: node span [%d,%d) exceeds Src len %d", src, n.SrcStart, n.SrcEnd, len(d.Src))
+			}
+		}
+		_ = renderDoc(d) // rendering must not panic on the recovered structure either
+	}
+}
+
+// TestStructuredInputsNeverFallBackToRaw is the deterministic complement to FuzzParse's
+// structured-mode control-byte check (#78): that fuzz assertion runs only when the input
+// parses structured (d.Format != FormatRaw), so a regression that wrongly classified valid
+// structured input as raw would SILENTLY disable the strongest invariant for exactly the
+// inputs most likely to expose it. This table pins clearly-structured inputs that must parse
+// to their format (and never to raw), failing loudly on a misclassification.
+func TestStructuredInputsNeverFallBackToRaw(t *testing.T) {
+	cases := []struct {
+		src  string
+		want Format
+		auto bool // also assert FormatAuto keeps it structured (JSONC with a leading comment
+		// does not auto-detect — see issue #82 — so it is checked under its forced format only)
+	}{
+		{`{"a":1,"b":[2,3],"c":{"d":"x"}}`, FormatJSON, true},
+		{`[1,2,3,{"k":"v"}]`, FormatJSON, true},
+		{"{ // c\n\"a\": 1 /* b */ }", FormatJSONC, false},
+		{`<root><a id="1">x</a><b/></root>`, FormatXML, true},
+		{`<div class="x"><p>hi</p><br></div>`, FormatHTML, true},
+	}
+	for _, c := range cases {
+		if got := Parse([]byte(c.src), c.want, 0); got.Format != c.want {
+			t.Errorf("forced %v on %q: Format = %v (regressed to raw fallback?)", c.want, c.src, got.Format)
+		}
+		if c.auto {
+			if got := Parse([]byte(c.src), FormatAuto, 0); got.Format == FormatRaw {
+				t.Errorf("auto-detect of %q fell back to raw", c.src)
+			}
+		}
+	}
+}

@@ -204,3 +204,46 @@ func BenchmarkSelectAllCopyBig(b *testing.B) {
 		_ = pv.selectedText()
 	}
 }
+
+// BenchmarkSearchBigPlain and BenchmarkSearchBigRegexWorst lock the search-latency claim
+// (DESIGN §7.3) on the largest fixture: a plain scan, and the worst case — a regex with NO
+// literal prefix, so the bytes.Index prefilter skips nothing and RE2 runs on every line of
+// big.json. CI smoke-runs both so a refactor that re-introduces a heavier per-line path is
+// visible. (#77)
+func BenchmarkSearchBigPlain(b *testing.B) {
+	pv := New()
+	pv.doc = parse.Parse(benchSrc(b, "big.json"), FormatJSON, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.runSearch(SearchQuery{Text: "name"})
+	}
+}
+
+func BenchmarkSearchBigRegexWorst(b *testing.B) {
+	pv := New()
+	pv.doc = parse.Parse(benchSrc(b, "big.json"), FormatJSON, 0)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		pv.runSearch(SearchQuery{Text: "[a-z]+", Mode: SearchRegex})
+	}
+}
+
+// BenchmarkWrapReproject measures one full soft-wrap reprojection of big.json (the
+// computeWrapRows walk + Fenwick rebuild) — the resize-while-wrapped path behind DESIGN's
+// wrap-reflow number, which had no bench. The budget is toggled each iteration so
+// SetWrapColumns actually re-projects rather than short-circuiting on an unchanged budget. (#77)
+func BenchmarkWrapReproject(b *testing.B) {
+	d := parse.Parse(benchSrc(b, "big.json"), FormatJSON, 0)
+	cols := make([]int, int(d.MaxDepth)+1)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w := 80 + i%2 // 80/81: a real change each iteration forces a reprojection
+		for j := range cols {
+			cols[j] = w
+		}
+		d.SetWrapColumns(cols)
+	}
+}

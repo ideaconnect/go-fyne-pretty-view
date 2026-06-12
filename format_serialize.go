@@ -27,6 +27,7 @@ type srcSpan struct {
 // remapCaretOffset relies on.
 func serializePretty(d *model.Document) (out []byte, spans []srcSpan) {
 	out = make([]byte, 0, len(d.Src)+len(d.Src)/4+16)
+	spans = make([]srcSpan, 0, len(d.Segs)) // one span per source-backed segment, at most (#77)
 	// Same pretty-line routine as Text/copy-subtree (model.AppendPrettyLine), indented by
 	// absolute depth and newline-joined, plus a span callback that records each source-backed
 	// segment's old→new byte range for the caret remap.
@@ -52,16 +53,26 @@ func remapCaretOffset(spans []srcSpan, oldOff, newLen int) int {
 	if len(spans) == 0 {
 		return 0
 	}
-	for i, s := range spans {
-		switch {
-		case oldOff < s.oldStart: // before this token (only reachable at i == 0)
-			return clamp(s.newStart, 0, newLen)
-		case oldOff < s.oldEnd: // inside this token: exact
-			return clamp(s.newStart+(oldOff-s.oldStart), 0, newLen)
-		case i+1 >= len(spans) || oldOff < spans[i+1].oldStart: // at/after end, before the next
-			return clamp(s.newStart+(s.oldEnd-s.oldStart), 0, newLen)
+	// Spans are ascending and non-overlapping, so binary-search the last span starting at or
+	// before oldOff instead of scanning all of them (#77 — there is one span per token, so a
+	// multi-MB reformat has millions).
+	lo, hi := 0, len(spans)
+	for lo < hi {
+		mid := int(uint(lo+hi) >> 1)
+		if spans[mid].oldStart <= oldOff {
+			lo = mid + 1
+		} else {
+			hi = mid
 		}
 	}
-	last := spans[len(spans)-1]
-	return clamp(last.newStart+(last.oldEnd-last.oldStart), 0, newLen)
+	idx := lo - 1
+	if idx < 0 { // oldOff is before the first token
+		return clamp(spans[0].newStart, 0, newLen)
+	}
+	s := spans[idx]
+	if oldOff < s.oldEnd { // inside this token: exact same rune
+		return clamp(s.newStart+(oldOff-s.oldStart), 0, newLen)
+	}
+	// at/after the token's end (removed whitespace or synthesized punctuation): clamp to its end
+	return clamp(s.newStart+(s.oldEnd-s.oldStart), 0, newLen)
 }

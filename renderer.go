@@ -28,8 +28,11 @@ func (pv *PrettyView) applyGutter() {
 	if n < 1 {
 		n = 1
 	}
-	digits := len(strconv.Itoa(n))
-	pv.met.SetGutterWidth(float32(digits+2) * pv.met.CharWidth) // a cell of margin each side
+	if n != pv.lastGutterLines { // memo: the Itoa only matters when the line count changes (#77)
+		pv.gutterDigits = len(strconv.Itoa(n))
+		pv.lastGutterLines = n
+	}
+	pv.met.SetGutterWidth(float32(pv.gutterDigits+2) * pv.met.CharWidth) // a cell of margin each side
 }
 
 // prettyViewRenderer implements the manual visible-window virtualization. It owns
@@ -396,5 +399,10 @@ func (pv *PrettyView) recomputeMetrics() {
 	pv.caretColor = t.Foreground                              // a solid, theme-following caret bar
 	pv.errorColor = themeColor(theme.ColorNameError, variant) // gutter marker on recovered-error lines
 
-	pv.lastTextSize, pv.lastVariant, pv.metricsReady = ts, variant, true
+	// Only treat the cell as settled when it was MEASURED (an app exists) and is non-degenerate.
+	// A pre-app estimate, or a measurement that came back as a zero cell (font not yet available),
+	// must NOT lock the memo — otherwise a transiently-unavailable face would permanently render a
+	// clamped 1px grid even after the real font loads (#76). A false here just remeasures next pass.
+	pv.lastTextSize, pv.lastVariant = ts, variant
+	pv.metricsReady = haveApp && cw > 0
 }

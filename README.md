@@ -78,9 +78,12 @@ rasterize a ~1 GB bitmap for the line).
 go get github.com/ideaconnect/go-fyne-pretty-view/v2
 ```
 
-Requires Go 1.26.4+ and the usual Fyne build dependencies (a C compiler and the
-OpenGL/X11 headers on Linux). Upgrading from v1? It is a one-line import-path change —
-see [MIGRATION.md](MIGRATION.md).
+Requires **Go 1.25+** (the floor set by the `golang.org/x/net` and `golang.org/x/image`
+dependencies) and the usual Fyne build dependencies (a C compiler and the OpenGL/X11
+headers on Linux). The repo's own CI and release builds use Go 1.26.4 via the `toolchain`
+directive in [go.mod](go.mod), for CVE-patched stdlib coverage; consumers may build with
+their own Go 1.25+ (`GOTOOLCHAIN=local`). Upgrading from v1? It is a one-line import-path
+change — see [MIGRATION.md](MIGRATION.md).
 
 **Fyne compatibility.** Built and tested against **Fyne v2.7.x** (the version pinned
 in [go.mod](go.mod)). Newer Fyne v2 minor releases are expected to work; each Fyne
@@ -449,6 +452,12 @@ additive over v1 (no v1 symbol renamed or changed) except the module path. Read-
 hosts upgrade by changing only the import path — see [MIGRATION.md](MIGRATION.md). v1 is
 frozen and receives critical/security fixes only.
 
+**Deprecation policy.** Within a major (a frozen surface), a symbol is never removed
+abruptly: it is marked with a Go `// Deprecated:` doc comment pointing at the replacement,
+kept for **at least one subsequent minor**, and removed only at the next major (under a new
+module path). So `go vet`/your IDE flags a deprecated symbol while it still works; nothing
+disappears under you inside a major.
+
 ## Demo
 
 Two demos — the read-only **viewer** and the editable-input **editor** (v2):
@@ -547,6 +556,15 @@ theme foreground when the resource is built.
 
 These fonts are embedded only in the `fonttheme` subpackage; the core widget
 bundles no fonts.
+
+### Go dependencies
+
+Beyond Fyne, the library links two `golang.org/x` modules (both **BSD-3-Clause**):
+`golang.org/x/net` — used solely for `golang.org/x/net/html`, the HTML tokenizer behind
+the HTML parser — and `golang.org/x/image` (a transitive Fyne dependency). Both are pinned
+**ahead** of Fyne's own requests for CVE coverage and are gated by the `govulncheck` step in
+CI and release (which fails on any *reachable* vulnerability). `dweymouth/fyne-tooltip`
+(BSD-3) backs the optional toolbar tooltips. No other direct dependencies are added.
 
 ### If your software uses this library
 

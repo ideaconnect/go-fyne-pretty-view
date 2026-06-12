@@ -2,6 +2,7 @@ package prettyview
 
 import (
 	"image/color"
+	"math/rand"
 	"strings"
 	"testing"
 
@@ -212,5 +213,49 @@ func TestReformatXMLRewritesBuffer(t *testing.T) {
 	// XML tokens carry no source offsets, so the caret falls to the top — it must stay valid.
 	if l := int(pv.sel.focus.line); l < 0 || l >= pv.doc.TotalLines() {
 		t.Errorf("caret line %d out of range after XML reformat (lines=%d)", l, pv.doc.TotalLines())
+	}
+}
+
+// TestRemapCaretOffsetMatchesLinearOracle locks the #77 binary-search rewrite against the
+// previous linear-scan logic (kept here as an oracle) over random ascending, non-overlapping
+// span sets and offsets. Any divergence — the kind a subtle off-by-one in the search bound
+// would cause — fails.
+func TestRemapCaretOffsetMatchesLinearOracle(t *testing.T) {
+	linear := func(spans []srcSpan, oldOff, newLen int) int {
+		if len(spans) == 0 {
+			return 0
+		}
+		for i, s := range spans {
+			switch {
+			case oldOff < s.oldStart:
+				return clamp(s.newStart, 0, newLen)
+			case oldOff < s.oldEnd:
+				return clamp(s.newStart+(oldOff-s.oldStart), 0, newLen)
+			case i+1 >= len(spans) || oldOff < spans[i+1].oldStart:
+				return clamp(s.newStart+(s.oldEnd-s.oldStart), 0, newLen)
+			}
+		}
+		last := spans[len(spans)-1]
+		return clamp(last.newStart+(last.oldEnd-last.oldStart), 0, newLen)
+	}
+	rng := rand.New(rand.NewSource(1))
+	for iter := 0; iter < 3000; iter++ {
+		n := rng.Intn(8)
+		spans := make([]srcSpan, 0, n)
+		oldPos, newPos := 0, 0
+		for k := 0; k < n; k++ {
+			oldPos += rng.Intn(4)     // gap (removed whitespace/punct)
+			length := 1 + rng.Intn(5) // token length
+			spans = append(spans, srcSpan{oldStart: oldPos, oldEnd: oldPos + length, newStart: newPos})
+			oldPos += length
+			newPos += length + rng.Intn(3)
+		}
+		newLen := newPos + rng.Intn(5)
+		for q := 0; q < 5; q++ {
+			off := rng.Intn(oldPos + 5)
+			if got, want := remapCaretOffset(spans, off, newLen), linear(spans, off, newLen); got != want {
+				t.Fatalf("remap mismatch: spans=%v off=%d newLen=%d: binary=%d linear=%d", spans, off, newLen, got, want)
+			}
+		}
 	}
 }

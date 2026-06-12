@@ -65,6 +65,13 @@ func (pv *PrettyView) scheduleReformat() {
 // editSettled runs once a typing burst settles: refresh live parse validity (or, when
 // AutoFormatOnPause is opted into, reflow), then fire onChanged with the settled text. The
 // buffer layout is left exactly as typed unless AutoFormatOnPause is set.
+//
+// NOTE (#76): above the MaxEditBytes cap the per-pause reparse is skipped, so live parse
+// validity is NOT refreshed — ParseStatus()/the gutter marker hold their last value and
+// SetOnValidationChanged does not fire while the buffer stays over the cap (a full reparse on
+// every keystroke of a very large buffer is infeasible). onChanged still fires with the
+// settled text, and an explicit Reformat still re-validates. So a validity indicator freezes
+// above the cap rather than reporting stale-but-wrong OK/not-OK.
 func (pv *PrettyView) editSettled() {
 	// Above the MaxEditBytes cap, skip the per-pause reparse (a full reparse on every pause
 	// is infeasible for a very large buffer); an explicit Reformat still runs.
