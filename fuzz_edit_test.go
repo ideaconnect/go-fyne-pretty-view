@@ -1,6 +1,7 @@
 package prettyview
 
 import (
+	"strings"
 	"testing"
 
 	"fyne.io/fyne/v2"
@@ -16,12 +17,16 @@ func FuzzEditUndoRoundTrip(f *testing.F) {
 	f.Add("a\nb\nc")
 	f.Add("中é\tx\x01y")
 	f.Add("")
+	f.Add(strings.Repeat("a\n", 300)) // #72: forces >200 ops; would over-evict at the default undo cap
 	f.Fuzz(func(t *testing.T, s string) {
 		if len(s) > 1000 {
 			return
 		}
 		test.NewApp()
-		pv := New(WithEditable(), WithInputConfig(InputConfig{AutoFormat: AutoFormatOff}))
+		// An effectively-unlimited undo so the round-trip oracle is sound: with the default
+		// cap a long input legitimately evicts the oldest ops, and undo-all then cannot reach
+		// the empty start — correct behavior the round-trip must not mistake for a bug.
+		pv := New(WithEditable(), WithUndoLimit(1<<30), WithInputConfig(InputConfig{AutoFormat: AutoFormatOff}))
 		win := test.NewWindow(pv)
 		defer win.Close()
 		win.Resize(fyne.NewSize(400, 300))
