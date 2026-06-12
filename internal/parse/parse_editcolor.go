@@ -26,13 +26,36 @@ import (
 // line's tail. Reformatting such a line splits it into short, fully-colored lines.
 const maxColorLineBytes = 16384
 
+// LiveColorBudgetBytes bounds the buffer size the live colorizer will token-lex per
+// keystroke. At or below it, ParseEditableColored lexes and colors normally. Above it, the
+// colorizer is skipped (colorize=false) and every line uses the monochrome edit-raw split
+// (every byte RolePlain) — identical in display shape to the colored projection (1:1 display
+// runes, never reflows, never fails), only without per-token color. This keeps a large
+// editable buffer from re-lexing the whole document on every keystroke (issue #65). Color
+// resumes automatically once the buffer drops back to budget (e.g. a Reformat splits a
+// minified blob into many short lines, or a deletion shrinks it). 2 MiB is comfortably below
+// the dropped-frame threshold measured at 7.5 MB and covers the common editor case.
+const LiveColorBudgetBytes = 2 << 20 // 2 MiB
+
+// WithinLiveColorBudget reports whether a buffer of n bytes is colorized live (issue #65).
+// reprojectRaw uses it to also skip the whole-buffer AutoDetect scan above budget.
+func WithinLiveColorBudget(n int) bool { return n <= LiveColorBudgetBytes }
+
 // editColorParser is the editable-mode projection parser. format selects the colorizer;
 // FormatRaw (or any format without a lexer) colors nothing (every byte stays RolePlain),
-// which makes the output byte-identical to the monochrome edit-raw segmentation.
-type editColorParser struct{ format Format }
+// which makes the output byte-identical to the monochrome edit-raw segmentation. colorize
+// false skips token lexing entirely (every line is the monochrome edit-raw split), so a
+// buffer over the live-color budget never re-lexes the whole document per keystroke (#65).
+type editColorParser struct {
+	format   Format
+	colorize bool // false => skip token lexing; every line is monochrome edit-raw (#65)
+}
 
 func (p editColorParser) Parse(src []byte, b *model.Builder) error {
-	spans := lexColorSpans(src, p.format)
+	var spans []colorSpan
+	if p.colorize {
+		spans = lexColorSpans(src, p.format)
+	}
 	si := 0
 	start := 0
 	for {
@@ -127,8 +150,9 @@ func ParseEditableColored(src []byte, format Format, collapseDepth, tabWidth int
 	if uint64(len(src)) > math.MaxUint32 {
 		src = src[:int(uint64(math.MaxUint32))] // dead in practice; keeps offsets sane
 	}
+	colorize := WithinLiveColorBudget(len(src)) // #65: skip whole-buffer lex above budget
 	b := model.NewBuilder(src, format, collapseDepth)
-	_ = editColorParser{format: format}.Parse(src, b)
+	_ = editColorParser{format: format, colorize: colorize}.Parse(src, b)
 	return b.Finish()
 }
 
