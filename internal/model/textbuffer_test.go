@@ -3,6 +3,7 @@ package model
 import (
 	"bytes"
 	"math/rand"
+	"runtime"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -160,5 +161,89 @@ func TestTextBufferRuneLineIndex(t *testing.T) {
 	}
 	if l, c := tb.LineColAt(tb.Len()); l != 3 || c != 1 {
 		t.Errorf("LineColAt(Len)=(%d,%d), want (3,1) — last line 'x'", l, c)
+	}
+}
+
+// TestTextBufferSliceMatchesBytes checks Slice(lo,hi) returns exactly Bytes()[lo:hi],
+// including across the gap (an insert moves it), and copies (no aliasing). (#68)
+func TestTextBufferSliceMatchesBytes(t *testing.T) {
+	b := NewTextBuffer([]byte("hello world foo bar"))
+	b.Insert(5, []byte("XYZ")) // moves the gap to offset 8: "helloXYZ world foo bar"
+	full := b.Bytes()
+	for _, c := range []struct{ lo, hi int }{{0, 3}, {4, 9}, {7, 12}, {0, len(full)}, {len(full) - 2, len(full)}, {5, 5}, {-3, 4}} {
+		got := string(b.Slice(c.lo, c.hi))
+		lo, hi := max(c.lo, 0), min(c.hi, len(full))
+		want := ""
+		if hi > lo {
+			want = string(full[lo:hi])
+		}
+		if got != want {
+			t.Errorf("Slice(%d,%d) = %q, want %q", c.lo, c.hi, got, want)
+		}
+	}
+	if s := b.Slice(0, 4); len(s) > 0 {
+		s[0] = '!'
+		if b.Slice(0, 1)[0] == '!' {
+			t.Error("Slice aliases the buffer (must copy)")
+		}
+	}
+}
+
+// TestTextBufferRuneAtBefore checks RuneAt/RuneBefore decode correctly (incl. multibyte and
+// reading just past the gap) and report size 0 at the ends. (#68)
+func TestTextBufferRuneAtBefore(t *testing.T) {
+	b := NewTextBuffer([]byte("aé中z")) // a@0(1) é@1(2) 中@3(3) z@6(1), Len=7
+	if r, n := b.RuneAt(1); r != 'é' || n != 2 {
+		t.Errorf("RuneAt(1) = %q,%d want é,2", r, n)
+	}
+	if r, n := b.RuneAt(3); r != '中' || n != 3 {
+		t.Errorf("RuneAt(3) = %q,%d want 中,3", r, n)
+	}
+	if _, n := b.RuneAt(7); n != 0 {
+		t.Errorf("RuneAt(Len) size = %d, want 0", n)
+	}
+	if r, n := b.RuneBefore(3); r != 'é' || n != 2 { // rune ending at 3 is é (1..3)
+		t.Errorf("RuneBefore(3) = %q,%d want é,2", r, n)
+	}
+	if r, n := b.RuneBefore(6); r != '中' || n != 3 { // 中 spans 3..6
+		t.Errorf("RuneBefore(6) = %q,%d want 中,3", r, n)
+	}
+	if _, n := b.RuneBefore(0); n != 0 {
+		t.Errorf("RuneBefore(0) size = %d, want 0", n)
+	}
+	// Move the gap so a decode reads from the post-gap region.
+	b.Insert(1, []byte("XY")) // "aXYé中z", gap at 3; é now at offset 3
+	if r, n := b.RuneAt(3); r != 'é' || n != 2 {
+		t.Errorf("post-gap RuneAt(3) = %q,%d want é,2", r, n)
+	}
+}
+
+// TestTextBufferRuneAtBeforeNoAlloc is the #68 guard: decoding one rune through the gap
+// allocates nothing (a stack buffer), unlike the old caret-step path that copied the whole
+// buffer via Bytes(). RuneAt/RuneBefore must be zero-alloc regardless of buffer size.
+func TestTextBufferRuneAtBeforeNoAlloc(t *testing.T) {
+	b := NewTextBuffer([]byte(strings.Repeat("héllo wörld ", 50000))) // ~600 KB
+	mid := b.Len() / 2
+	if a := testing.AllocsPerRun(200, func() { b.RuneAt(mid); b.RuneBefore(mid) }); a != 0 {
+		t.Errorf("RuneAt/RuneBefore allocate %.0f/run, want 0 (decode through the gap, no copy)", a)
+	}
+}
+
+// TestTextBufferSliceAllocBoundedBySpan is the #68 guard: Slice copies only the requested
+// span, so a tiny slice of a large buffer allocates far less than a whole-buffer Bytes().
+func TestTextBufferSliceAllocBoundedBySpan(t *testing.T) {
+	b := NewTextBuffer(make([]byte, 1<<20)) // 1 MiB
+	bytesAlloc := func(fn func()) uint64 {
+		var m0, m1 runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&m0)
+		fn()
+		runtime.ReadMemStats(&m1)
+		return m1.TotalAlloc - m0.TotalAlloc
+	}
+	small := bytesAlloc(func() { _ = b.Slice(10, 30) }) // 20 bytes
+	whole := bytesAlloc(func() { _ = b.Bytes() })       // ~1 MiB
+	if small >= whole/100 {
+		t.Errorf("Slice(20B) allocated %d B vs Bytes() %d B — Slice must be O(span), far smaller", small, whole)
 	}
 }

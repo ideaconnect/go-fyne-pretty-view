@@ -48,6 +48,57 @@ func (b *TextBuffer) Bytes() []byte {
 	return out
 }
 
+// Slice returns a fresh copy of the logical bytes in [lo, hi) (both clamped to the content),
+// read through the gap with two bulk copies. Unlike Bytes it allocates only the requested
+// span, so capturing a small deleted range for undo costs O(hi-lo), not O(Len).
+func (b *TextBuffer) Slice(lo, hi int) []byte {
+	n := b.Len()
+	lo, hi = clampOff(lo, n), clampOff(hi, n)
+	if hi <= lo {
+		return nil
+	}
+	out := make([]byte, hi-lo)
+	w := 0
+	if lo < b.gapStart { // pre-gap portion: buf[lo : min(hi,gapStart)]
+		w += copy(out, b.buf[lo:min(hi, b.gapStart)])
+	}
+	if hi > b.gapStart { // post-gap portion: logical p maps to buf[p-gapStart+gapEnd]
+		s := max(lo, b.gapStart)
+		copy(out[w:], b.buf[s-b.gapStart+b.gapEnd:hi-b.gapStart+b.gapEnd])
+	}
+	return out
+}
+
+// RuneAt decodes the rune beginning at logical offset i, reading through the gap (no
+// whole-buffer copy). size is >= 1 so a scan advances on invalid UTF-8; for i out of
+// [0, Len) it returns size 0.
+func (b *TextBuffer) RuneAt(i int) (r rune, size int) {
+	if i < 0 || i >= b.Len() {
+		return utf8.RuneError, 0
+	}
+	return b.decodeRune(i)
+}
+
+// RuneBefore decodes the rune ENDING at logical offset i — the rune a leftward caret step
+// passes over — reading through the gap. size is >= 1; for i <= 0 it returns size 0.
+func (b *TextBuffer) RuneBefore(i int) (r rune, size int) {
+	if i <= 0 {
+		return utf8.RuneError, 0
+	}
+	var tmp [utf8.UTFMax]byte
+	lo := max(0, i-utf8.UTFMax)
+	n := 0
+	for j := lo; j < i; j++ {
+		tmp[n] = b.at(j)
+		n++
+	}
+	r, size = utf8.DecodeLastRune(tmp[:n])
+	if size <= 0 {
+		size = 1
+	}
+	return r, size
+}
+
 // at returns the logical byte at offset i (0 <= i < Len). It is the only place that
 // knows the gap exists; the index helpers below read content exclusively through it.
 func (b *TextBuffer) at(i int) byte {

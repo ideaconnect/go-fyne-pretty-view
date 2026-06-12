@@ -102,6 +102,5 @@ func isSingleRune(s []byte) bool {
 
 // bufRange returns a copy of the buffer's [lo, hi) bytes (for recording removed text).
 func (pv *PrettyView) bufRange(lo, hi int) []byte {
-	b := pv.buf.Bytes()
-	return append([]byte(nil), b[lo:hi]...)
+	return pv.buf.Slice(lo, hi) // O(hi-lo), not a whole-buffer copy (#68)
 }

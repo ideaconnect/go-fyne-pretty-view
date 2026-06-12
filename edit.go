@@ -2,7 +2,6 @@ package prettyview
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"fyne.io/fyne/v2"
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/parse"
@@ -218,23 +217,22 @@ func (pv *PrettyView) editDelete(forward bool) {
 		return
 	}
 	at := caretBefore
-	src := pv.buf.Bytes()
 	if forward {
-		if at >= len(src) {
-			return
+		_, n := pv.buf.RuneAt(at) // decode one rune through the gap, no whole-buffer copy (#68)
+		if n == 0 {
+			return // caret at end of buffer
 		}
-		_, n := utf8.DecodeRune(src[at:])
-		removed := append([]byte(nil), src[at:at+n]...)
+		removed := pv.buf.Slice(at, at+n)
 		pv.buf.Delete(at, n)
 		pv.recordEdit(editOp{at: at, removed: removed, caretBefore: caretBefore, caretAfter: at})
 		pv.reprojectRaw()
 		pv.setCaretOff(at)
 	} else {
-		if at <= 0 {
-			return
+		_, n := pv.buf.RuneBefore(at)
+		if n == 0 {
+			return // caret at start of buffer
 		}
-		_, n := utf8.DecodeLastRune(src[:at])
-		removed := append([]byte(nil), src[at-n:at]...)
+		removed := pv.buf.Slice(at-n, at)
 		pv.buf.Delete(at-n, n)
 		pv.recordEdit(editOp{at: at - n, removed: removed, caretBefore: caretBefore, caretAfter: at - n})
 		pv.reprojectRaw()
@@ -256,18 +254,17 @@ func (pv *PrettyView) caretStepRune(forward bool) {
 		return
 	}
 	at := pv.caretOff()
-	src := pv.buf.Bytes()
 	if forward {
-		if at >= len(src) {
-			return
+		_, n := pv.buf.RuneAt(at) // decode through the gap; no whole-buffer copy per arrow (#68)
+		if n == 0 {
+			return // at end of buffer
 		}
-		_, n := utf8.DecodeRune(src[at:])
 		at += n
 	} else {
-		if at <= 0 {
-			return
+		_, n := pv.buf.RuneBefore(at)
+		if n == 0 {
+			return // at start of buffer
 		}
-		_, n := utf8.DecodeLastRune(src[:at])
 		at -= n
 	}
 	pv.setCaretOff(at)
