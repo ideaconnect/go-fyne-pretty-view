@@ -637,3 +637,19 @@ func TestRawTabsExpandToStops(t *testing.T) {
 		t.Error("Document.Src should retain the original tab bytes")
 	}
 }
+
+// TestJSONUnterminatedBackslashNoOverrun is the #76 guard: an unterminated string ending in a
+// backslash must not push the scanner past EOF — a node span End > len(Src) would later panic
+// when SegBytes/CopySubtree slices Src. The parse is tolerant (must not panic) and every node
+// span must stay within Src.
+func TestJSONUnterminatedBackslashNoOverrun(t *testing.T) {
+	for _, src := range []string{`"\`, `["\`, `{"k":"\`, `{"a":1,"k":"\`, `["a","\`} {
+		d := Parse([]byte(src), FormatJSON, 0) // tolerant: must not panic
+		for _, n := range d.Nodes {
+			if int(n.SrcStart) > len(d.Src) || int(n.SrcEnd) > len(d.Src) {
+				t.Errorf("src %q: node span [%d,%d) exceeds Src len %d", src, n.SrcStart, n.SrcEnd, len(d.Src))
+			}
+		}
+		_ = renderDoc(d) // rendering must not panic on the recovered structure either
+	}
+}

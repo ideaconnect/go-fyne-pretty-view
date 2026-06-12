@@ -332,8 +332,8 @@ const keepCol = -1
 // and/or to a column, keeping the anchor, so a Shift+arrow extends the selection.
 // The first move establishes a caret at the top visible line if none exists.
 func (pv *PrettyView) keyExtend(dRows, col int, toLineStart, toLineEnd bool) {
-	if pv.doc == nil || pv.doc.TotalVisibleRows() == 0 {
-		return
+	if pv.doc == nil || pv.r == nil || pv.doc.TotalVisibleRows() == 0 {
+		return // pv.r guard: keyExtend reads r.firstRow; every sibling guards r == nil (#76)
 	}
 	if !pv.sel.placed {
 		li := pv.doc.LineAtRow(int32(max(pv.r.firstRow, 0)))

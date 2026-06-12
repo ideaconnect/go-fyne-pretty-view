@@ -194,6 +194,9 @@ func (s *jsonScanner) scanString() (int, bool) {
 		c := s.src[s.pos]
 		if c == '\\' {
 			s.pos += 2
+			if s.pos > len(s.src) {
+				s.pos = len(s.src) // a trailing backslash must not push pos past EOF (#76)
+			}
 			continue
 		}
 		if c == '"' {

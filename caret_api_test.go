@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/parse"
 )
 
 func TestSetCaretRoundTrip(t *testing.T) {
@@ -112,4 +113,23 @@ func TestEditMemoryWithinBound(t *testing.T) {
 	if got, want := pv.buf.Len(), len(src)+len("edits"); got != want {
 		t.Errorf("buffer Len after edits = %d, want %d (content + typed)", got, want)
 	}
+}
+
+// TestKeyExtendNilRendererSafe is the #76 guard: keyExtend reads pv.r.firstRow, so it must
+// be safe when the widget has never been rendered (pv.r == nil). The edit caret-move paths
+// must not panic before first render.
+func TestKeyExtendNilRendererSafe(t *testing.T) {
+	test.NewApp()
+	pv := New(WithEditable())
+	// Install a non-empty doc WITHOUT rendering (SetData would Refresh -> CreateRenderer and
+	// set pv.r). With visible rows and pv.r == nil, keyExtend reaches the pv.r.firstRow deref.
+	pv.doc = parse.Parse([]byte("a\nb\nc"), parse.FormatRaw, 0)
+	if pv.r != nil {
+		t.Fatal("precondition: an unrendered widget should have pv.r == nil")
+	}
+	if pv.doc.TotalVisibleRows() == 0 {
+		t.Fatal("precondition: doc should have visible rows to reach the guarded deref")
+	}
+	pv.keyExtend(1, keepCol, false, false)    // would deref pv.r.firstRow without the guard
+	pv.keyMoveCaret(1, keepCol, false, false) // routes through keyExtend
 }
