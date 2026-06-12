@@ -112,7 +112,7 @@ func TestFoldNoAlloc(t *testing.T) {
 	d := loadDoc(t, "openapi.json", FormatJSON)
 	a := firstFoldHeadAtDepth(d, 1)
 	if a == model.NoNode {
-		t.Skip("no foldable node at depth 1")
+		t.Fatal("openapi.json must have a foldable node at depth 1 (#78: was a silent skip)")
 	}
 	allocs := testing.AllocsPerRun(50, func() {
 		d.Fold(a)

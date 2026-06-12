@@ -106,7 +106,7 @@ func TestHitTestWrappedClampsPastRowEnd(t *testing.T) {
 		}
 	}
 	if li < 0 {
-		t.Skip("no wrapped line produced")
+		t.Fatal("fixture must produce a wrapped line for the clamp test (#78: was a silent skip)")
 	}
 	cx, cy := CellOrigin(d, m, li, 0)
 	_, col := HitTest(d, m, cx+100000, cy+1) // far right of the first sub-row

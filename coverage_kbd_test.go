@@ -26,7 +26,7 @@ func TestKeyExtendEmptyDocGuard(t *testing.T) {
 	defer win.Close()
 	pv.FocusGained()
 	if pv.doc.TotalVisibleRows() != 0 {
-		t.Skip("empty input produced visible rows")
+		t.Fatalf("empty raw input should produce no visible rows, got %d (#78: was a silent skip)", pv.doc.TotalVisibleRows())
 	}
 	pv.shiftHeld = true
 	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyDown}) // keyExtend -> early return, no panic
