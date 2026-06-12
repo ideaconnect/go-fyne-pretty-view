@@ -55,7 +55,7 @@ jobs:
       # module — a signal-rich gate, not a noisy dependency-version alarm.
       - name: govulncheck (fail on reachable vulnerabilities)
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
 
       - name: Enforce coverage threshold (> 95%)
