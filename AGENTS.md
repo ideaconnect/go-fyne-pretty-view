@@ -11,6 +11,9 @@ HTML / raw text like Bruno's response panel — syntax highlighting, folding,
 char-level selection, copy, and search — built to a **hard memory budget**.
 
 Read these before making non-trivial changes:
+- [CODE_BIBLE.md](CODE_BIBLE.md) — the binding engineering commandments (memory
+  bound, teeth-bearing tests, **coverage > 95 %**, `make check`, API stability).
+  Read it first; the rest of this file is the detail behind it.
 - [STRUCTURE.md](STRUCTURE.md) — where everything lives.
 - [WORKFLOWS.md](WORKFLOWS.md) — how to build/test/bench/extend.
 - [docs/DESIGN.md](docs/DESIGN.md) — the architecture and the adversarial risk
@@ -55,6 +58,12 @@ if it compiles and passes a casual look. The tests in `renderer_test.go` and
 
 - Run `make check` (gofmt + `go vet` + `go test -race`) before finishing. It must
   be green.
+- **Coverage must stay above 95 %.** CI computes cross-package coverage
+  (`go test ./... -race -covermode=atomic -coverpkg=./...`) and fails the build at
+  or below 95 %. Ship a teeth-bearing regression test with every change; never pad
+  the number with assertion-free "coverage" tests (see [CODE_BIBLE.md](CODE_BIBLE.md)
+  rules 2–3). Genuinely untestable entry points (a real `app.New()`/`ShowAndRun`)
+  are isolated behind a thin `main` so the extracted body is tested instead.
 - **No `fyne.io/fyne/v2/internal/...` imports** — `go vet` rejects them. Use
   `sync.Pool`, `container.Scroll`, `fyne.MeasureText`, etc.
 - Match the surrounding style: doc comments on exported identifiers, table-driven

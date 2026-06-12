@@ -8,6 +8,26 @@ module path (`.../v2`) and is called out under **Changed**/**Removed**.
 
 ## [Unreleased]
 
+### Changed
+- **Edit mode: real-time syntax highlighting while typing, and prettify on demand.** The
+  editor no longer swaps to a separate structured projection or reflows on a timer. While
+  you type, the buffer is shown through a tolerant, layout-preserving syntax colorizer —
+  live colors on every keystroke, with the caret kept an exact buffer position — so typing
+  never breaks the existing formatting.
+  - **`AutoFormat` now defaults to `AutoFormatOff`** (was `AutoFormatOnPause`): nothing
+    reflows the text out from under you. Opt into `AutoFormatOnPause` / `AutoFormatOnBlur`
+    for the old auto behavior.
+  - **`Reformat()` now pretty-prints by rewriting the edit buffer in place** (instead of a
+    display-only swap) and remaps the caret to the same token, so the prettified layout
+    persists as you keep typing. It rewrites only a structured, *valid* parse; raw or
+    invalid input is left exactly as typed. `Source()` therefore returns the indented bytes
+    after a `Reformat`, and a reformat is a single undo unit.
+  - The settle (debounced) now refreshes live parse validity and fires `OnChanged`/the
+    validation callback without reflowing; `SetData` no longer arms a settle.
+  - No exported API signatures changed; the **/v2** surface stays frozen.
+- The editor demo (`make run-editor`) reflects the new model: live colors as you type, a
+  Reformat button that prettifies in place, no surprise auto-formatting.
+
 ## [v2.0.0-alpha] — 2026-06-11 — editable input + live formatting
 
 v2 makes the same widget an **opt-in light editor**: a host can let a user type or paste

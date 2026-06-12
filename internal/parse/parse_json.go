@@ -74,7 +74,7 @@ func (p jsonParser) Parse(src []byte, b *model.Builder) error {
 	// whatever structure was recovered rather than failing outright. parseValue
 	// emits nodes as it goes and returns the root node even when it stops early,
 	// and Builder.Finish force-closes any dangling container.
-	id, ok := s.parseValue(nil, false, s.pos)
+	id, ok := s.parseValue(nil, false, s.pos, nil)
 	if !ok {
 		// Nothing structural was recovered at all (e.g. a bare unterminated string
 		// or non-JSON junk under a forced JSON format): fall back to raw. A partial
@@ -127,11 +127,6 @@ func (s *jsonScanner) peek() byte {
 // JSONC mode so the container/top-level parser can emit it as a KindComment node.
 type commentSpan struct{ start, end int }
 
-// skipSpace consumes whitespace and // / /* */ comments. It is scanTrivia with the
-// comment spans discarded — used where emitting a comment node would be ill-placed
-// (between a key and its colon, after a value before its comma).
-func (s *jsonScanner) skipSpace() { s.scanTrivia() }
-
 // scanTrivia consumes whitespace and // line / /* */ block comments, and in JSONC
 // mode returns each comment's byte span (nil in plain JSON, where comments are still
 // tolerated and skipped). The caller emits the spans as nodes at a structurally sound
@@ -149,7 +144,7 @@ func (s *jsonScanner) scanTrivia() []commentSpan {
 	for s.pos < len(s.src) {
 		c := s.src[s.pos]
 		switch {
-		case c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v':
+		case isASCIISpace(c):
 			s.pos++
 		case c >= utf8.RuneSelf:
 			// Possible multi-byte Unicode space. On invalid UTF-8, DecodeRune
@@ -162,24 +157,13 @@ func (s *jsonScanner) scanTrivia() []commentSpan {
 			s.pos += size
 		case c == '/' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '/':
 			start := s.pos
-			s.pos += 2
-			for s.pos < len(s.src) && s.src[s.pos] != '\n' {
-				s.pos++
-			}
+			s.pos = scanLineCommentExtent(s.src, s.pos)
 			if s.jsonc {
 				spans = append(spans, commentSpan{start, s.pos})
 			}
 		case c == '/' && s.pos+1 < len(s.src) && s.src[s.pos+1] == '*':
 			start := s.pos
-			s.pos += 2
-			for s.pos+1 < len(s.src) && !(s.src[s.pos] == '*' && s.src[s.pos+1] == '/') {
-				s.pos++
-			}
-			if s.pos+1 < len(s.src) {
-				s.pos += 2
-			} else {
-				s.pos = len(s.src)
-			}
+			s.pos = scanBlockCommentExtent(s.src, s.pos)
 			if s.jsonc {
 				spans = append(spans, commentSpan{start, s.pos})
 			}
@@ -223,64 +207,71 @@ func (s *jsonScanner) scanString() (int, bool) {
 
 func (s *jsonScanner) scanNumber() int {
 	start := s.pos
-	for s.pos < len(s.src) {
-		c := s.src[s.pos]
-		if (c >= '0' && c <= '9') || c == '-' || c == '+' || c == '.' || c == 'e' || c == 'E' {
-			s.pos++
-			continue
-		}
-		break
-	}
+	s.pos = scanNumberExtent(s.src, s.pos)
 	return start
 }
 
 // matchLiteral checks for a bare word (true/false/null) at s.pos.
 func (s *jsonScanner) matchLiteral(word string) bool {
-	if s.pos+len(word) <= len(s.src) && string(s.src[s.pos:s.pos+len(word)]) == word {
-		return true
-	}
-	return false
+	return matchLiteralAt(s.src, s.pos, word)
 }
 
 // parseValue parses one value and emits a node for it. prefix segments (e.g.
 // `"key": `) are rendered before the value on its head/leaf line. isMember marks
 // object members (vs array elements / the root). srcStart is the node's first
 // source byte. Returns the node id.
-func (s *jsonScanner) parseValue(prefix []model.Seg, isMember bool, srcStart int) (model.NodeID, bool) {
-	s.skipSpace()
+// parseValue's lead carries JSONC comments collected before the value (between a member's
+// key and its colon, and between the colon and the value); it scans any further leading
+// trivia itself. A comment before a CONTAINER value is threaded in as the container's first
+// leading comment (rendered just inside it); a comment before a SCALAR is emitted as a node
+// right AFTER the scalar — both keep node SrcStart non-decreasing (nodeAtByteOffset relies
+// on it) while losing no comment. In plain JSON lead is always empty (scanTrivia collects no
+// spans), so this is a JSONC-only path.
+func (s *jsonScanner) parseValue(prefix []model.Seg, isMember bool, srcStart int, lead []commentSpan) (model.NodeID, bool) {
+	lead = append(lead, s.scanTrivia()...)
 	if s.pos >= len(s.src) {
+		s.emitComments(lead)
 		return model.NoNode, s.fail("unexpected end of input")
 	}
 	c := s.src[s.pos]
 	switch {
 	case c == '{':
-		return s.parseContainer(prefix, isMember, srcStart, '{', '}', model.KindObject)
+		return s.parseContainer(prefix, isMember, srcStart, '{', '}', model.KindObject, lead)
 	case c == '[':
-		return s.parseContainer(prefix, isMember, srcStart, '[', ']', model.KindArray)
+		return s.parseContainer(prefix, isMember, srcStart, '[', ']', model.KindArray, lead)
+	}
+
+	// Scalar value: emit it, then its leading comments just below (monotonic + lossless).
+	var node model.NodeID
+	switch {
 	case c == '"':
 		start, ok := s.scanString()
 		if !ok {
+			s.emitComments(lead)
 			return model.NoNode, false
 		}
-		return s.emitScalar(prefix, isMember, srcStart, s.pos, cleanSrcSeg(s.src, model.RoleString, start, s.pos)), true
+		node = s.emitScalar(prefix, isMember, srcStart, s.pos, cleanSrcSeg(s.src, model.RoleString, start, s.pos))
 	case c == '-' || (c >= '0' && c <= '9'):
 		start := s.scanNumber()
-		return s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleNumber, start, s.pos)), true
+		node = s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleNumber, start, s.pos))
 	case s.matchLiteral("true"):
 		start := s.pos
 		s.pos += 4
-		return s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleBool, start, s.pos)), true
+		node = s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleBool, start, s.pos))
 	case s.matchLiteral("false"):
 		start := s.pos
 		s.pos += 5
-		return s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleBool, start, s.pos)), true
+		node = s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleBool, start, s.pos))
 	case s.matchLiteral("null"):
 		start := s.pos
 		s.pos += 4
-		return s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleNull, start, s.pos)), true
+		node = s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleNull, start, s.pos))
 	default:
+		s.emitComments(lead)
 		return model.NoNode, s.fail("unexpected character in value")
 	}
+	s.emitComments(lead)
+	return node, true
 }
 
 func (s *jsonScanner) emitScalar(prefix []model.Seg, isMember bool, srcStart, srcEnd int, value model.Seg) model.NodeID {
@@ -294,7 +285,7 @@ func (s *jsonScanner) emitScalar(prefix []model.Seg, isMember bool, srcStart, sr
 	return s.b.Leaf(kind, srcStart, srcEnd, segs)
 }
 
-func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart int, open, close byte, kind model.Kind) (model.NodeID, bool) {
+func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart int, open, close byte, kind model.Kind, lead []commentSpan) (model.NodeID, bool) {
 	// Bound recursion: refuse to descend past the nesting cap so adversarial input
 	// can't overflow the stack. The error routes to the tolerant partial render (or
 	// raw fallback if nothing was recovered at all).
@@ -304,9 +295,10 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 	s.pos++ // consume opening brace/bracket
 
 	// Empty container: render as a single leaf `{}` / `[]`. JSONC comments inside the
-	// braces are buffered first, so `{}` stays a leaf but `{ /* c */ }` is a real
-	// (foldable) container with the comment as its child.
-	comments := s.scanTrivia()
+	// braces (or threaded in via lead, i.e. between a key's colon and this `{`) are
+	// buffered first, so `{}` stays a leaf but `{ /* c */ }` / `"a": /* c */ {}` is a
+	// real (foldable) container with the comment as its first child.
+	comments := append(lead, s.scanTrivia()...)
 	if s.peek() == close && len(comments) == 0 {
 		s.pos++
 		segs := make([]model.Seg, 0, len(prefix)+1)
@@ -339,6 +331,7 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 		}
 
 		var childPrefix []model.Seg
+		var keyComments []commentSpan
 		childStart := s.pos
 		if kind == model.KindObject {
 			if s.peek() != '"' {
@@ -350,7 +343,7 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 				break
 			}
 			keyEnd := s.pos
-			s.skipSpace()
+			keyComments = s.scanTrivia() // JSONC comments between the key and its colon
 			if s.peek() != ':' {
 				s.fail("expected ':' after key")
 				break
@@ -359,7 +352,7 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			childPrefix = []model.Seg{cleanSrcSeg(s.src, model.RoleKey, keyStart, keyEnd), model.LitSeg(model.RolePunct, ": ")}
 		}
 
-		childID, ok := s.parseValue(childPrefix, kind == model.KindObject, childStart)
+		childID, ok := s.parseValue(childPrefix, kind == model.KindObject, childStart, keyComments)
 		if !ok {
 			// Tolerant recovery: if a key was consumed but its value was truncated
 			// (no value node emitted), keep the key visible as an error marker so a
@@ -371,7 +364,7 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			break
 		}
 
-		s.skipSpace()
+		s.emitComments(s.scanTrivia()) // JSONC comments trailing the value (before its comma / the close)
 		if s.peek() == ',' {
 			s.pos++
 			s.b.AppendComma(s.b.LastLine(childID))

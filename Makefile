@@ -1,20 +1,24 @@
 # Makefile for go-fyne-pretty-view
 
-GO       ?= go
-PKG      := ./...
-DEMO_DIR := ./cmd/prettyview-demo
-BIN_DIR  := bin
-DEMO_BIN := $(BIN_DIR)/prettyview-demo
+GO         ?= go
+PKG        := ./...
+DEMO_DIR   := ./cmd/prettyview-demo
+EDITOR_DIR := ./cmd/prettyview-editor
+BIN_DIR    := bin
+DEMO_BIN   := $(BIN_DIR)/prettyview-demo
+EDITOR_BIN := $(BIN_DIR)/prettyview-editor
 
 # Overridable knobs:
-#   make run FILE=testdata/catalog.xml
+#   make run-viewer FILE=testdata/catalog.xml
+#   make run-editor EDITOR_FILE=testdata/small.json   (omit for a built-in messy sample)
 #   make test RUN=TestSearchPlain
 #   make bench BENCH=BenchmarkParse
 #   make shots                      (writes PNGs to /tmp and docs/)
-FILE  ?= testdata/openapi.json
-RUN   ?= .
-BENCH ?= .
-COUNT ?= 1
+FILE        ?= testdata/openapi.json
+EDITOR_FILE ?=
+RUN         ?= .
+BENCH       ?= .
+COUNT       ?= 1
 
 .DEFAULT_GOAL := help
 
@@ -24,18 +28,28 @@ help:
 	@echo "go-fyne-pretty-view — make targets:"
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/^## /  /'
 
-## build: compile the library and the demo binary into ./bin
+## build: compile the library and both demo binaries into ./bin
 .PHONY: build
 build:
 	$(GO) build $(PKG)
 	@mkdir -p $(BIN_DIR)
 	$(GO) build -o $(DEMO_BIN) $(DEMO_DIR)
-	@echo "built $(DEMO_BIN)"
+	$(GO) build -o $(EDITOR_BIN) $(EDITOR_DIR)
+	@echo "built $(DEMO_BIN) and $(EDITOR_BIN)"
 
-## run: build and run the demo (override the file with FILE=path)
+## run: build and run the viewer demo (alias of run-viewer)
 .PHONY: run
-run:
+run: run-viewer
+
+## run-viewer: run the read-only viewer demo (override the file with FILE=path)
+.PHONY: run-viewer
+run-viewer:
 	$(GO) run $(DEMO_DIR) $(FILE)
+
+## run-editor: run the editable-input demo (type/paste -> live format; EDITOR_FILE=path optional)
+.PHONY: run-editor
+run-editor:
+	$(GO) run $(EDITOR_DIR) $(EDITOR_FILE)
 
 ## test: run the test suite (filter with RUN=TestName)
 .PHONY: test

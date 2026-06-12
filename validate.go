@@ -35,22 +35,16 @@ func (pv *PrettyView) setParseStatus(st ParseStatus) {
 	}
 }
 
-// parseStatusOf scans a structured document for the first recovered-error marker line.
-func parseStatusOf(d *model.Document) ParseStatus {
-	for li := range d.Lines {
-		o := d.Lines[li].Owner
-		if o != model.NoNode && int(o) < len(d.Nodes) && d.Nodes[o].Kind == model.KindError {
-			return ParseStatus{OK: false, ErrorLine: li}
-		}
-	}
-	return ParseStatus{OK: true, ErrorLine: -1}
-}
-
 // lineIsError reports whether display line li is a recovered-error marker (drives the
-// gutter tint). Cheap O(1) — it reads the line's owning node's kind.
+// gutter tint). In edit mode the displayed projection is colorized-raw (no KindError
+// markers), so it reads the last structured parse status, whose ErrorLine is already a
+// buffer (== display) line. In read-only mode it reads the displayed node's kind directly.
 func (pv *PrettyView) lineIsError(li int32) bool {
 	if pv.doc == nil || int(li) < 0 || int(li) >= len(pv.doc.Lines) {
 		return false
+	}
+	if pv.cfg.editable {
+		return !pv.parseStatus.OK && pv.parseStatus.ErrorLine == int(li)
 	}
 	o := pv.doc.Lines[li].Owner
 	return o != model.NoNode && int(o) < len(pv.doc.Nodes) && pv.doc.Nodes[o].Kind == model.KindError

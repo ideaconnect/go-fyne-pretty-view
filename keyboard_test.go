@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
 )
 
 // TestKeyboardHorizontalScroll: Left/Right arrows scroll horizontally (so the
@@ -115,7 +116,7 @@ func TestKeyboardShiftSelectionWrap(t *testing.T) {
 	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyDown})
 
 	fvl := pv.doc.VisibleLine(pv.sel.focus.line)
-	sub := subRowOfCol(pv.doc.WrapBreaks(fvl, nil), pv.sel.focus.col)
+	sub := geometry.SubRowOfCol(pv.doc.WrapBreaks(fvl, nil), pv.sel.focus.col)
 	focusRow := pv.doc.RowOfLine(fvl) + int32(sub)
 	if focusRow <= startRow {
 		t.Errorf("Shift+Down under wrap is stuck: focus visual row %d <= start row %d", focusRow, startRow)

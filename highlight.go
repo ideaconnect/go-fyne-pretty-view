@@ -47,11 +47,19 @@ func (r *prettyViewRenderer) subSpan(li, sub int32, runeLen int, wrapOn bool,
 		*breaks = r.pv.doc.WrapBreaks(li, (*breaks)[:0])
 		*breaksLine = li
 	}
-	s := int(sub)
-	if s > len(*breaks)-2 {
-		s = len(*breaks) - 2
+	start, end := geometry.SpanOfSub(*breaks, sub)
+	return int(start), int(end), int(start)
+}
+
+// lineSubAtRow resolves a visible row to its (display line, sub-row). Under WrapNone the
+// sub-row is always 0, so the wrapOn fast path just skips the one Fenwick prefix() the
+// general LineAndSubRowAtRow would compute to return that 0. It is the shared form of the
+// row→(li, sub) decision the reflow and both highlight passes open-coded.
+func (pv *PrettyView) lineSubAtRow(row int, wrapOn bool) (li, sub int32) {
+	if wrapOn {
+		return pv.doc.LineAndSubRowAtRow(int32(row))
 	}
-	return int((*breaks)[s]), int((*breaks)[s+1]), int((*breaks)[s])
+	return pv.doc.LineAtRow(int32(row)), 0
 }
 
 // rebuildSelection draws the selection highlight for the rows in [first, last].
@@ -75,13 +83,7 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 		if row < 0 {
 			continue
 		}
-		li := int32(row)
-		var sub int32
-		if wrapOn {
-			li, sub = pv.doc.LineAndSubRowAtRow(int32(row))
-		} else {
-			li = pv.doc.LineAtRow(int32(row))
-		}
+		li, sub := pv.lineSubAtRow(row, wrapOn)
 		if li < a.line || li > b.line {
 			continue // line outside the selection span
 		}
@@ -91,10 +93,10 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 		// Selection's column range on this logical line.
 		selS, selE := 0, runeLen
 		if li == a.line {
-			selS = clampInt(a.col, 0, runeLen)
+			selS = clamp(a.col, 0, runeLen)
 		}
 		if li == b.line {
-			selE = clampInt(b.col, 0, runeLen)
+			selE = clamp(b.col, 0, runeLen)
 		}
 
 		w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &r.selBreaks, &breaksLine)
@@ -132,13 +134,7 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 			if row < 0 || int32(row) >= total {
 				continue
 			}
-			li := int32(row)
-			var sub int32
-			if wrapOn {
-				li, sub = pv.doc.LineAndSubRowAtRow(int32(row))
-			} else {
-				li = pv.doc.LineAtRow(int32(row))
-			}
+			li, sub := pv.lineSubAtRow(row, wrapOn)
 			idxs := pv.search.byLine[li]
 			if len(idxs) == 0 {
 				continue
@@ -161,8 +157,8 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 			}
 			for _, mi := range idxs {
 				mt := pv.search.matches[mi]
-				lo := max(clampInt(mt.ColStart, 0, runeLen), w0)
-				hi := min(clampInt(mt.ColEnd, 0, runeLen), w1)
+				lo := max(clamp(mt.ColStart, 0, runeLen), w0)
+				hi := min(clamp(mt.ColEnd, 0, runeLen), w1)
 				if lo >= hi {
 					continue // match does not touch this visual row
 				}

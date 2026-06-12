@@ -87,6 +87,48 @@ func TestTextBufferBytesIsSnapshot(t *testing.T) {
 	}
 }
 
+// TestTextBufferDeleteClamps exercises Delete's two clamp paths (n past the end, and
+// clampOff's lower/upper bounds) — all must mutate safely without panicking.
+func TestTextBufferDeleteClamps(t *testing.T) {
+	tb := NewTextBuffer([]byte("hello"))
+	tb.Delete(3, 100) // n runs past the end -> clamps to the remaining "lo"
+	if got := string(tb.Bytes()); got != "hel" {
+		t.Errorf("Delete(3,100) = %q, want %q", got, "hel")
+	}
+	tb.Delete(1000, 1) // off past Len -> clampOff returns Len, nothing left to drop
+	if got := string(tb.Bytes()); got != "hel" {
+		t.Errorf("Delete at off>Len mutated the buffer: %q", got)
+	}
+	tb.Delete(-5, 2) // negative off -> clampOff returns 0 -> drops "he"
+	if got := string(tb.Bytes()); got != "l" {
+		t.Errorf("Delete(-5,2) = %q, want %q", got, "l")
+	}
+	tb.Delete(0, 0) // n<=0 is a no-op
+	if got := string(tb.Bytes()); got != "l" {
+		t.Errorf("Delete(_,0) changed the buffer: %q", got)
+	}
+}
+
+// TestTextBufferEnsureGapGrows: an insert far larger than the initial 64-byte gap forces a
+// reallocation; the content must survive the move intact.
+func TestTextBufferEnsureGapGrows(t *testing.T) {
+	tb := NewTextBuffer([]byte("x"))
+	big := strings.Repeat("ab", 200) // 400 bytes >> minGap, so ensureGap reallocates
+	tb.Insert(1, []byte(big))
+	if got, want := string(tb.Bytes()), "x"+big; got != want {
+		t.Errorf("large insert corrupted by realloc: len=%d want=%d", len(got), len(want))
+	}
+}
+
+// TestTextBufferDecodeInvalidUTF8: invalid bytes decode as width-1 so a scan always makes
+// progress (decodeRune's size<=0 guard); two lone 0xff bytes count as two columns.
+func TestTextBufferDecodeInvalidUTF8(t *testing.T) {
+	tb := NewTextBuffer([]byte{0xff, 0xfe})
+	if l, c := tb.LineColAt(2); l != 0 || c != 2 {
+		t.Errorf("LineColAt over invalid UTF-8 = (%d,%d), want (0,2)", l, c)
+	}
+}
+
 // TestTextBufferRuneLineIndex round-trips byte<->(line,col) for every position of a
 // fixture containing multi-byte runes, and checks a few absolute offsets by hand.
 func TestTextBufferRuneLineIndex(t *testing.T) {

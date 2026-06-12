@@ -95,38 +95,6 @@ func parseRaw(src []byte, collapseDepth, tabWidth int) *model.Document {
 	return b.Finish()
 }
 
-// editRawParser is the raw projection used by v2 edit mode. It differs from rawParser
-// in two ways:
-//
-//   - It always emits a final line — including an EMPTY one after a trailing newline,
-//     and a single empty line for empty input — so the caret has a line to sit on after
-//     the last '\n' (the standard text-editor convention). The result has
-//     strings.Count(src,"\n")+1 display lines, mapping 1:1 to the edit buffer's logical
-//     lines.
-//   - Each grid-hostile byte (tabs, C0/DEL controls) becomes a SINGLE placeholder rune,
-//     not a multi-cell tab expansion or escape. This keeps the count of display runes on
-//     a line EQUAL to the count of buffer runes (one control byte = one rune = one
-//     placeholder), so the caret's display column is exactly its buffer rune index — and
-//     no raw control char ever reaches a display line. The structured reformat renders
-//     proper visible escapes; this is only the live-while-typing projection.
-//
-// Viewers keep using rawParser (trailing-blank-line-free, tab-expanding).
-type editRawParser struct{}
-
-func (editRawParser) Parse(src []byte, b *model.Builder) error {
-	start := 0
-	for {
-		nl := bytes.IndexByte(src[start:], '\n')
-		if nl < 0 {
-			b.Leaf(model.KindRawLine, start, len(src), editRawLineSegs(src, start, len(src)))
-			return nil
-		}
-		end := start + nl
-		b.Leaf(model.KindRawLine, start, end, editRawLineSegs(src, start, end))
-		start = end + 1
-	}
-}
-
 // ctlPlaceholder is the single display rune shown for one grid-hostile byte in the
 // edit-raw projection (one cell, never a control character).
 const ctlPlaceholder = "·"
@@ -134,7 +102,8 @@ const ctlPlaceholder = "·"
 // editRawLineSegs renders src[start:end] for edit mode: zero-copy SrcSegs for runs of
 // clean bytes, and a one-rune placeholder LitSeg for each grid-hostile byte. The total
 // display-rune count equals the buffer-rune count, so the caret stays a direct buffer
-// position (see editRawParser).
+// position. It is the monochrome fallback for the edit-mode colorizer's long lines
+// (parse_editcolor.go); short lines get per-token colors there instead.
 func editRawLineSegs(src []byte, start, end int) []model.Seg {
 	if !hasGridBreaker(src[start:end]) {
 		return []model.Seg{model.SrcSeg(model.RolePlain, start, end)} // clean (incl. empty) line

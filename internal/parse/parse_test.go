@@ -194,6 +194,29 @@ func TestJSONCCommentsRendered(t *testing.T) {
 	}
 }
 
+// TestJSONCInlineCommentsRetained is the regression guard for issue #60/#61: the structured
+// parser retains a JSONC comment in EVERY position — not just leading a key or element, but
+// also between a key and its value and trailing a value inside a container (the positions the
+// old skipSpace discarded). An inline comment before a scalar / after a value renders on its
+// own line just below the member (relocated to keep node SrcStart non-decreasing) but is
+// never dropped, so Reformat can prettify JSONC losslessly.
+func TestJSONCInlineCommentsRetained(t *testing.T) {
+	retained := map[string]string{
+		"leading line, before key":    "{\n  // keep\n  \"a\": 1\n}",
+		"leading block, before key":   "{\n  /* keep */\n  \"a\": 1\n}",
+		"leading before array elem":   "[\n  1,\n  // keep\n  2\n]",
+		"trailing after root value":   `{"a":1} // keep`,
+		"between key colon and value": "{\n  \"a\": /* keep */ 1\n}",
+		"trailing a member value":     "{\n  \"a\": 1,\n  \"b\": 2 // keep\n}",
+		"between colon and container": "{\n  \"a\": /* keep */ {\"x\": 1}\n}",
+	}
+	for name, src := range retained {
+		if text := renderDoc(Parse([]byte(src), FormatJSONC, 0)); !strings.Contains(text, "keep") {
+			t.Errorf("%s: comment should be retained but was dropped:\n%s", name, text)
+		}
+	}
+}
+
 // TestJSONNonASCIIWhitespace is the regression for the detector/scanner whitespace
 // mismatch: auto-detection trims unicode.IsSpace, so the scanner must skip the same
 // set or an input it labels JSON stalls mid-scan — a leading form-feed would fall

@@ -8,18 +8,15 @@ import (
 	"fyne.io/fyne/v2"
 )
 
-// TestStructuredCaretEditLandsAtCaret is the regression guard for the structured-mode
-// caret bug: a caret placed (click/SetCaret) in the pretty projection must edit the
-// buffer at that position, not at a stale cached offset.
+// TestStructuredCaretEditLandsAtCaret guards the caret behavior after a buffer-rewriting
+// reformat: a caret placed (SetCaret) on a line in the prettified buffer must edit there,
+// not at a stale end-of-buffer offset.
 func TestStructuredCaretEditLandsAtCaret(t *testing.T) {
 	pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
 	defer win.Close()
 
 	typeStr(pv, `{"a":1,"b":2}`)
-	pv.Reformat()
-	if !pv.editStructured {
-		t.Fatal("precondition: structured projection")
-	}
+	pv.Reformat() // the buffer is now pretty, multi-line
 
 	bLine := -1
 	for li := 0; li < pv.doc.TotalLines(); li++ {
@@ -29,19 +26,28 @@ func TestStructuredCaretEditLandsAtCaret(t *testing.T) {
 		}
 	}
 	if bLine < 0 {
-		t.Fatal("no \"b\" line in the structured doc")
+		t.Fatal("no \"b\" line in the reformatted doc")
 	}
 	if !pv.SetCaret(bLine, 0) {
 		t.Fatal("SetCaret to the \"b\" line failed")
 	}
 	pv.TypedRune('X')
 
+	// The X must land at column 0 of the "b" line (SetCaret(bLine, 0)), not merely
+	// somewhere on it and not at a stale end-of-buffer caret.
 	got := string(pv.buf.Bytes())
-	if got == `{"a":1,"b":2}X` {
-		t.Fatal("BUG: edit landed at the stale end-of-buffer caret")
+	xLine := ""
+	for _, ln := range strings.Split(got, "\n") {
+		if strings.ContainsRune(ln, 'X') {
+			xLine = ln
+			break
+		}
 	}
-	if i := strings.IndexByte(got, 'X'); i < 0 || i > 9 {
-		t.Errorf("typed X landed at index %d (%q), want near the \"b\" caret (~7)", i, got)
+	if !strings.Contains(xLine, `"b"`) {
+		t.Errorf("typed X landed on line %q, want the \"b\" line; full buffer %q", xLine, got)
+	}
+	if !strings.HasPrefix(xLine, "X") {
+		t.Errorf("X landed at column %d not 0 on %q (caret remap off within the line)", strings.IndexByte(xLine, 'X'), xLine)
 	}
 }
 
@@ -52,10 +58,7 @@ func TestStructuredSelectionEditReplaces(t *testing.T) {
 	defer win.Close()
 
 	typeStr(pv, `{"a":1}`)
-	pv.Reformat()
-	if !pv.editStructured {
-		t.Fatal("precondition: structured projection")
-	}
+	pv.Reformat() // buffer is now pretty, multi-line
 	pv.SelectAll()
 	if !pv.sel.active {
 		t.Fatal("SelectAll should produce an active selection")
@@ -64,10 +67,10 @@ func TestStructuredSelectionEditReplaces(t *testing.T) {
 
 	got := string(pv.buf.Bytes())
 	if strings.Contains(got, `"a"`) {
-		t.Errorf("structured select-all + type must replace, got %q (selection not removed)", got)
+		t.Errorf("select-all + type must replace, got %q (selection not removed)", got)
 	}
 	if got != "Z" {
-		t.Errorf("structured select-all + type 'Z' = %q, want %q", got, "Z")
+		t.Errorf("select-all + type 'Z' = %q, want %q", got, "Z")
 	}
 }
 
@@ -79,18 +82,19 @@ func TestStructuredSelectionCut(t *testing.T) {
 
 	typeStr(pv, `{"a":1}`)
 	pv.Reformat()
+	pretty := string(pv.buf.Bytes()) // the prettified buffer (a reformat is its own undo unit)
 	pv.SelectAll()
 	pv.Cut()
 
 	if got := string(pv.buf.Bytes()); got != "" {
-		t.Errorf("structured Cut(SelectAll) should empty the buffer, got %q", got)
+		t.Errorf("Cut(SelectAll) should empty the buffer, got %q", got)
 	}
 	if cb := fyne.CurrentApp().Clipboard().Content(); !strings.Contains(cb, "a") {
 		t.Errorf("Cut clipboard should hold the selected text, got %q", cb)
 	}
 	pv.Undo()
-	if got := string(pv.buf.Bytes()); got != `{"a":1}` {
-		t.Errorf("one Undo after Cut should restore the buffer, got %q", got)
+	if got := string(pv.buf.Bytes()); got != pretty {
+		t.Errorf("one Undo after Cut should restore the buffer, got %q want %q", got, pretty)
 	}
 }
 
@@ -100,11 +104,11 @@ func TestEditDebounceBumpsGeneration(t *testing.T) {
 	pv, win := newEditPV(t, InputConfig{DebounceFor: time.Second, AutoFormat: AutoFormatOnPause})
 	defer win.Close()
 
-	g0 := pv.editGen
+	g0 := pv.editDeb.gen
 	pv.TypedRune('a')
-	g1 := pv.editGen
+	g1 := pv.editDeb.gen
 	pv.TypedRune('b')
-	g2 := pv.editGen
+	g2 := pv.editDeb.gen
 	if !(g1 > g0 && g2 > g1) {
 		t.Errorf("each edit must bump editGen to invalidate a superseded reparse: %d, %d, %d", g0, g1, g2)
 	}

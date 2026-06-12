@@ -31,8 +31,8 @@ const (
 	// autoFormatUnset is the zero value; in a config merge it means "keep the current
 	// value", so a partially-filled InputConfig never clobbers the default mode.
 	autoFormatUnset   AutoFormatMode = iota
-	AutoFormatOff                    // never auto-reformat; only an explicit Reformat() does
-	AutoFormatOnPause                // reformat after a typing pause (the default)
+	AutoFormatOff                    // never auto-reformat; only an explicit Reformat() does (the default)
+	AutoFormatOnPause                // reformat after a typing pause
 	AutoFormatOnBlur                 // reformat when the widget loses focus
 )
 
@@ -40,8 +40,8 @@ const (
 // field, so setting one field keeps the defaults for the rest (a zero field means
 // "keep the default"). It only affects editable widgets (see WithEditable).
 type InputConfig struct {
-	DebounceFor time.Duration  // typing-pause delay before an auto-reformat (default 400ms; <=0 = immediate)
-	AutoFormat  AutoFormatMode // when to auto-reformat (default AutoFormatOnPause)
+	DebounceFor time.Duration  // typing-pause settle delay (default 400ms; <=0 = immediate)
+	AutoFormat  AutoFormatMode // when to auto-reformat (default AutoFormatOff — prettify only on demand)
 
 	// MaxEditBytes bounds the edit buffer (0 = no cap, the default). Above it, an edit
 	// that would grow the buffer past the cap is rejected, and auto-format-on-pause is
@@ -52,7 +52,7 @@ type InputConfig struct {
 }
 
 func defaultInputConfig() InputConfig {
-	return InputConfig{DebounceFor: 400 * time.Millisecond, AutoFormat: AutoFormatOnPause}
+	return InputConfig{DebounceFor: 400 * time.Millisecond, AutoFormat: AutoFormatOff}
 }
 
 // mergeInto copies the non-zero fields of i over dst (the field-merge SearchConfig uses).
@@ -157,6 +157,12 @@ func WithDefaultCollapseDepth(d int) Option {
 }
 
 // WithTabWidth sets the display width of a tab character (default 4).
+//
+// This applies to the read-only viewer, where a tab expands to n columns. In editable
+// mode it has no effect: the live colorizer renders every grid-hostile byte (a tab
+// included) as a single placeholder cell so display runes equal buffer runes and the
+// caret stays an exact (line, col) — a tab is therefore one cell in the editor,
+// regardless of n.
 func WithTabWidth(n int) Option {
 	return func(c *config) {
 		if n > 0 {
@@ -213,9 +219,10 @@ func WithUndoLimit(n int) Option {
 
 // WithInputConfig sets the edit-mode live-formatting knobs (debounce delay and
 // auto-format mode). Fields merge over the defaults like WithSearchConfig: a zero field
-// keeps its default (DebounceFor 400ms, AutoFormat OnPause). Only meaningful together
-// with WithEditable. See SetInputConfig to change them after construction, Reformat for
-// an explicit reformat, and SetOnChanged for a settled-text callback.
+// keeps its default (DebounceFor 400ms, AutoFormat Off — typing keeps live syntax colors
+// and prettifying happens only on an explicit Reformat). Only meaningful together with
+// WithEditable. See SetInputConfig to change them after construction, Reformat for an
+// explicit reformat, and SetOnChanged for a settled-text callback.
 func WithInputConfig(c InputConfig) Option {
 	return func(cfg *config) { c.mergeInto(&cfg.input) }
 }

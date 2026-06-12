@@ -3,10 +3,7 @@ package prettyview
 import (
 	"bytes"
 	"regexp"
-	"time"
 	"unicode/utf8"
-
-	"fyne.io/fyne/v2"
 )
 
 // SearchMode selects plain-substring or regular-expression matching.
@@ -76,47 +73,11 @@ func (pv *PrettyView) SearchDebounced(q SearchQuery) { pv.searchDebounced(q) }
 // running the (synchronous) scan on the Fyne goroutine, so typing a word triggers one
 // scan instead of one per character. A non-positive DebounceFor runs immediately.
 func (pv *PrettyView) searchDebounced(q SearchQuery) {
-	pv.stopSearchTimer()
-	// Bump the generation so that any earlier debounced scan that has ALREADY fired
-	// and queued its fyne.Do closure (which Stop can no longer cancel) is recognized
-	// as stale and skips itself.
-	pv.searchGen++
-	d := pv.cfg.search.DebounceFor
-	if d <= 0 {
-		pv.Search(q)
-		return
-	}
-	gen := pv.searchGen
-	pv.searchTimer = time.AfterFunc(d, func() {
-		// The AfterFunc runs on its own goroutine; marshal the scan onto the Fyne
-		// thread via fyne.Do. Correctness here is load-bearing on fyne.Do enqueuing
-		// onto the main event loop (glfw): that serializes pv.Search's mutation of
-		// pv.search.* with reflow/rebuildMatches, which also run on the Fyne
-		// goroutine. The destroyed flag (atomic, the only field this goroutine reads)
-		// drops a callback that fired after teardown — Stop cannot cancel one already
-		// fired. Inside fyne.Do we re-check destroyed and the generation, so a scan
-		// superseded by a newer keystroke / ClearSearch / SetData does not run.
-		if pv.destroyed.Load() {
-			return
-		}
-		fyne.Do(func() {
-			if pv.destroyed.Load() || gen != pv.searchGen {
-				return
-			}
-			pv.Search(q)
-		})
-	})
-}
-
-// stopSearchTimer cancels and clears any pending debounced scan. Best-effort:
-// Timer.Stop cannot cancel a callback that has already fired (the destroyed guard
-// covers that window). Must be called on the Fyne goroutine; pv.searchTimer is
-// only ever touched there (searchDebounced / ClearSearch / Destroy).
-func (pv *PrettyView) stopSearchTimer() {
-	if pv.searchTimer != nil {
-		pv.searchTimer.Stop()
-		pv.searchTimer = nil
-	}
+	// The shared debouncer marshals the scan onto the Fyne thread via fyne.Do, which is
+	// load-bearing: it serializes pv.Search's mutation of pv.search.* with
+	// reflow/rebuildMatches (also Fyne-goroutine work), and drops a scan superseded by a
+	// newer keystroke / ClearSearch / SetData or fired after teardown. See debounce.go.
+	pv.searchDeb.schedule(pv.cfg.search.DebounceFor, func() { pv.Search(q) })
 }
 
 // SearchNext moves to the next match (wrapping) and reveals it.
@@ -130,8 +91,7 @@ func (pv *PrettyView) SearchPrev() { pv.step(-1) }
 // the path SetData uses, so loading new data drops the old document's pending
 // search too).
 func (pv *PrettyView) ClearSearch() {
-	pv.searchGen++ // invalidate any in-flight debounced scan (pending OR already queued)
-	pv.stopSearchTimer()
+	pv.searchDeb.supersede() // cancel + invalidate any in-flight debounced scan (pending OR already queued)
 	pv.search = searchState{active: -1}
 	pv.refreshMatchesView()
 	pv.notifySearch()
@@ -198,14 +158,12 @@ func (pv *PrettyView) step(dir int) {
 // is out of scope for an in-memory viewer.
 func (pv *PrettyView) runSearch(q SearchQuery) {
 	// A synchronous scan is the authoritative supersede point. Cancel any pending
-	// debounce timer and bump the generation so an already-fired-but-queued
-	// debounced scan (which Timer.Stop can no longer cancel) recognizes itself as
-	// stale (gen != pv.searchGen) and skips itself. Without this, the
-	// Enter-applies-immediately path (controls.go OnSubmitted -> Search) leaves a
-	// keystroke timer armed; it then re-runs the scan, resets the active match to 0
-	// and re-centers, yanking the viewport back to match #1 after the user navigated.
-	pv.stopSearchTimer()
-	pv.searchGen++
+	// debounce timer and bump the generation so an already-fired-but-queued debounced
+	// scan (which Timer.Stop can no longer cancel) recognizes itself as stale and skips.
+	// Without this, the Enter-applies-immediately path (controls.go OnSubmitted -> Search)
+	// leaves a keystroke timer armed; it then re-runs the scan, resets the active match to
+	// 0 and re-centers, yanking the viewport back to match #1 after the user navigated.
+	pv.searchDeb.supersede()
 
 	pv.search.query = q
 	pv.search.matches = pv.search.matches[:0]
@@ -268,7 +226,7 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 		scratch = pv.doc.AssembleLine(li, scratch[:0])
 		switch {
 		case re != nil:
-			if rePrefix != nil && bytes.Index(scratch, rePrefix) < 0 {
+			if rePrefix != nil && !bytes.Contains(scratch, rePrefix) {
 				continue // line cannot contain the required literal prefix — skip RE2
 			}
 			// FindAllIndex evaluates the pattern against the whole line, so anchors

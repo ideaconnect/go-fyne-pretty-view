@@ -35,6 +35,16 @@ func TestSetCaretRoundTrip(t *testing.T) {
 	if pv.sel.focus != before {
 		t.Error("a failed SetCaret must leave the caret unchanged")
 	}
+
+	// In read-only mode SetCaret is a logical navigation position only: even focused,
+	// no caret bar is drawn (the visible caret is editor-only). This locks the SetCaret
+	// godoc against the earlier "navigable caret" overclaim.
+	pv.FocusGained()
+	pv.SetCaret(2, 1)
+	pv.Refresh()
+	if pv.r.caretRect != nil && pv.r.caretRect.Visible() {
+		t.Error("read-only SetCaret must not render a caret bar")
+	}
 }
 
 func TestMaxEditBytesRejected(t *testing.T) {
@@ -75,12 +85,12 @@ func TestEditAboveCapSkipsAutoReparse(t *testing.T) {
 	pv.FocusGained()
 
 	pv.editSettled() // auto path: suppressed above the cap
-	if pv.editStructured {
+	if strings.Contains(string(pv.buf.Bytes()), "\n") {
 		t.Error("auto-format-on-pause must be suppressed above MaxEditBytes")
 	}
-	pv.Reformat() // explicit reformat still works
-	if !pv.editStructured || pv.Format() != FormatJSON {
-		t.Error("explicit Reformat() must work even above the cap")
+	pv.Reformat() // explicit reformat still works above the cap
+	if !strings.Contains(string(pv.buf.Bytes()), "\n") || pv.Format() != FormatJSON {
+		t.Errorf("explicit Reformat() must work even above the cap, buffer = %q", pv.buf.Bytes())
 	}
 }
 

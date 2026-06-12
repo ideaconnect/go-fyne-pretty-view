@@ -43,7 +43,6 @@ package prettyview
 
 import (
 	"image/color"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -70,25 +69,17 @@ type PrettyView struct {
 	doc *model.Document
 
 	// edit state (nil/zero unless constructed WithEditable). buf is the mutable
-	// source-of-truth; in edit mode the displayed doc is the raw projection of buf,
-	// so display lines map 1:1 to buffer lines and the caret is a buffer position.
+	// source-of-truth; in edit mode the displayed doc is the colorized-raw projection of
+	// buf, so display lines map 1:1 to buffer lines and the caret is a buffer position.
 	buf *model.TextBuffer
 
-	// live-format engine (#40). editStructured is true when the displayed doc is the
-	// structured (pretty) reformat rather than the raw edit projection. The caret's
-	// buffer offset is derived live from sel.focus (raw 1:1, or structured via
-	// SourceOffsetAt). caretBuf holds the EXACT offset the reformat placed the caret at,
-	// valid only while sel.focus still equals caretBufPos — so an immediate edit after a
-	// reformat is byte-exact, but a click/arrow (which changes sel.focus) falls back to
-	// the display-derived offset. Never a stale cache.
-	editTimer      *time.Timer
-	editGen        int
-	editStructured bool
-	caretBuf       int
-	caretBufPos    modelPos
-	lastFmtLen     int // idempotent-reformat guard: byte length + hash of the last reparse
-	lastFmtHash    uint64
-	onChanged      func(string) // fired (debounced) after the edited text settles
+	// live-format engine. The displayed doc is always the colorized-raw projection of buf,
+	// so the caret is an exact buffer (line, col) — no separate structured display mode.
+	// editDeb drives the debounced settle (live validity refresh + onChanged); an explicit
+	// Reformat rewrites the buffer bytes to the pretty form (format_engine.go).
+	editDeb   debouncer
+	curFormat Format       // active content format (last SetData/Reparse); drives edit-mode coloring + validity
+	onChanged func(string) // fired (debounced) after the edited text settles, and after Reformat
 
 	// undo/redo history (#42): inverse byte-splice operations, capped by cfg.undoLimit.
 	hist          editHistory
@@ -123,9 +114,8 @@ type PrettyView struct {
 
 	// search state
 	search            searchState
-	searchTimer       *time.Timer // debounce timer for keystroke-driven search
-	searchGen         int         // bumped to invalidate a superseded/already-queued debounced scan
-	destroyed         atomic.Bool // set on renderer teardown; guards the debounce callback
+	searchDeb         debouncer   // debounce engine for keystroke-driven search (see debounce.go)
+	destroyed         atomic.Bool // set on renderer teardown; guards the debounce callbacks
 	matchColor        color.Color
 	activeMatchColor  color.Color
 	onSearchRequested func() // invoked on Ctrl+F (e.g. to focus a search box)
@@ -148,10 +138,15 @@ type PrettyView struct {
 // New constructs an empty PrettyView, applying zero or more Options.
 func New(opts ...Option) *PrettyView {
 	pv := &PrettyView{cfg: defaultConfig()}
+	// Both debounce engines share the one teardown flag, so a Destroy drops every in-flight
+	// timer callback (see debounce.go). pv is heap-allocated, so &pv.destroyed is stable.
+	pv.searchDeb.destroyed = &pv.destroyed
+	pv.editDeb.destroyed = &pv.destroyed
 	pv.parseStatus = ParseStatus{OK: true, ErrorLine: -1} // an empty doc is valid
 	for _, o := range opts {
 		o(&pv.cfg)
 	}
+	pv.curFormat = pv.cfg.format // the construction default until the first SetData
 	pv.doc = model.EmptyDocument()
 	if pv.cfg.editable {
 		// An editable widget always owns a buffer so the first keystroke has somewhere
@@ -179,26 +174,29 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 	if format == FormatAuto {
 		format = pv.cfg.format
 	}
+	pv.curFormat = format // honor an explicit SetData/Reparse format for edit-mode coloring + validity
 	if max := pv.cfg.maxInputBytes; max > 0 && len(src) > max {
 		src = src[:max] // tolerant parsers render a truncated document
 	}
 	if pv.cfg.editable {
-		// Seed the edit buffer from the input and display its raw projection: while
-		// editing, display lines map 1:1 to buffer lines so the caret stays a trivial
-		// buffer position. Structured re-formatting happens on a debounced pause (#40).
+		// A programmatic load supersedes any in-flight settle from prior keystrokes: cancel
+		// the timer and bump the generation so an already-queued fyne.Do recognizes itself
+		// as stale and does not fire onChanged/validity against the freshly loaded buffer.
+		pv.editDeb.supersede()
+		// Seed the edit buffer and display its colorized-raw projection: display lines map
+		// 1:1 to buffer lines so the caret stays a trivial buffer position, with live syntax
+		// colors. Prettifying is on demand (Reformat); see format_engine.go.
 		pv.buf = model.NewTextBuffer(src)
-		pv.editStructured = false
-		pv.lastFmtLen, pv.lastFmtHash = 0, 0
-		pv.doc = parse.ParseEditable(pv.buf.Bytes(), pv.cfg.collapseDepth, pv.cfg.tabWidth)
+		pv.reprojectRaw()
+		pv.setParseStatus(pv.statusFor(nil, pv.buf.Bytes())) // initial validity for the gutter/status
 	} else {
 		pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
 	}
 	pv.ClearSearch()
 	pv.ClearSelection() // a selection from the old document is meaningless against the new one
 	pv.Refresh()
-	if pv.cfg.editable {
-		pv.scheduleReformat() // newly loaded data pretty-prints after the debounce (if AutoFormatOnPause)
-	}
+	// SetData is a programmatic load, not a user edit, so it does not arm a debounced settle
+	// (validity is already set synchronously above); onChanged fires only for actual edits.
 	if pv.onDataChanged != nil {
 		pv.onDataChanged()
 	}
@@ -221,7 +219,8 @@ func (pv *PrettyView) Reparse(format Format) {
 // the originally supplied input and the returned slice ALIASES the document's retained
 // buffer (treat it as read-only, copy before mutating). For an editable widget it is the
 // live edit buffer — the bytes the user has typed/pasted — returned as a fresh copy that
-// is safe to keep. Returns nil before any content is loaded.
+// is safe to keep. An explicit Reformat pretty-prints the buffer in place, so afterwards
+// Source() returns the indented bytes. Returns nil before any content is loaded.
 //
 // Round-trip: SetData(pv.Source(), pv.Format()) reproduces an equivalent document, so an
 // editable widget's edits can be re-loaded into a read-only viewer losslessly.
@@ -235,25 +234,25 @@ func (pv *PrettyView) Source() []byte {
 	return pv.doc.Src
 }
 
-// Text returns the text of the document as currently displayed, as a string: the
-// structured, pretty-printed (depth-indented) form once a reformat has run, or the raw
-// text while typing. It is the editor-facing convenience getter, distinct from the raw
-// Source bytes (which are what the user literally typed). Folding does not truncate it.
-// Note: while typing, control bytes render as a placeholder rune here; for the literal
+// Text returns the text of the document as currently displayed, as a string. In edit mode
+// that is the buffer's text as projected — so it is the pretty, multi-line form once a
+// Reformat has baked the indentation into the buffer, and the as-typed text otherwise. In
+// read-only mode it is the viewer's pretty-printed (depth-indented) rendering. Folding does
+// not truncate it. Note: control bytes render as a placeholder rune here; for the literal
 // bytes (including controls) use Source.
 func (pv *PrettyView) Text() string {
 	if pv.doc == nil {
 		return ""
 	}
-	var b strings.Builder
+	// One pretty-line routine (model.AppendPrettyLine) backs Text, copy-subtree, and the
+	// Reformat serializer, so the indent convention can't drift. Text indents by absolute
+	// depth and terminates every line (including the last) with a newline.
+	var buf []byte
 	for li := 0; li < pv.doc.TotalLines(); li++ {
-		for d := 0; d < int(pv.doc.Lines[li].Depth); d++ {
-			b.WriteString("  ") // two-space indent per nesting level (the display uses pixel indents)
-		}
-		b.WriteString(pv.doc.LineString(int32(li)))
-		b.WriteByte('\n')
+		buf = pv.doc.AppendPrettyLine(int32(li), int(pv.doc.Lines[li].Depth)*reformatIndentUnit, buf, nil)
+		buf = append(buf, '\n')
 	}
-	return b.String()
+	return string(buf)
 }
 
 // Format reports the format actually used for the current document.
@@ -465,10 +464,10 @@ func (pv *PrettyView) centerOnLine(line int32, col int) {
 	vp := pv.r.scroll.Size()
 	cs := pv.contentSize()
 	cx, cy := geometry.CellOrigin(pv.doc, pv.met, line, col)
-	y := clampf(cy-(vp.Height-pv.met.RowH)/2, 0, max(0, cs.Height-vp.Height))
+	y := clamp(cy-(vp.Height-pv.met.RowH)/2, 0, max(0, cs.Height-vp.Height))
 	x := float32(0)
 	if !pv.doc.WrapActive() {
-		x = clampf(cx-vp.Width/2, 0, max(0, cs.Width-vp.Width))
+		x = clamp(cx-vp.Width/2, 0, max(0, cs.Width-vp.Width))
 	}
 	pv.r.scrollToOffset(fyne.NewPos(x, y))
 }

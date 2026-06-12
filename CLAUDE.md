@@ -7,6 +7,10 @@ covers the non-negotiable memory invariants, the architecture facts to respect,
 conventions, and the gotchas. The notes below are the short version plus a few
 Claude-specific tips; they don't replace AGENTS.md.
 
+**The engineering commandments are in [CODE_BIBLE.md](CODE_BIBLE.md)** — the binding
+rules every change must obey: the memory bound, teeth-bearing tests, **coverage above
+95 %**, a green `make check`, and public-API stability.
+
 ## The one thing to remember
 
 This widget exists to view multi-megabyte JSON/XML/HTML **without** the memory

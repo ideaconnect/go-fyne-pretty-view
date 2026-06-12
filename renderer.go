@@ -76,7 +76,7 @@ type prettyViewRenderer struct {
 func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 	pv.ExtendBaseWidget(pv)
 	pv.destroyed.Store(false) // re-enable if the widget is being re-created after a Destroy
-	pv.searchGen++            // invalidate any debounce scan queued before the Destroy/re-create
+	pv.searchDeb.supersede()  // invalidate any debounce scan queued before the Destroy/re-create
 	r := &prettyViewRenderer{pv: pv, live: map[int]*rowWidget{}}
 	// Pooled rows start hidden so the reflow's Show() reliably fires the row
 	// renderer's build(): a row that is already visible (Fyne's default) would make
@@ -110,8 +110,8 @@ func (pv *PrettyView) CreateRenderer() fyne.WidgetRenderer {
 // a no-op, closing the window Timer.Stop alone can't.
 func (r *prettyViewRenderer) Destroy() {
 	r.pv.destroyed.Store(true)
-	r.pv.stopSearchTimer()
-	r.pv.stopEditTimer()
+	r.pv.searchDeb.supersede()
+	r.pv.editDeb.supersede()
 }
 func (r *prettyViewRenderer) Objects() []fyne.CanvasObject { return []fyne.CanvasObject{r.scroll} }
 func (r *prettyViewRenderer) MinSize() fyne.Size           { return fyne.NewSize(120, 80) }
@@ -214,22 +214,17 @@ func (r *prettyViewRenderer) reflow() {
 		// the size truly changed (all rows share one size, so this is normally a
 		// no-op). Pooled rows start hidden (see CreateRenderer) so Show reliably
 		// fires the build rather than no-opping on an already-visible row.
+		rw.line, rw.sub = pv.lineSubAtRow(idx, wrapOn)
 		if wrapOn {
 			// A wrapped line's sub-rows are contiguous visual rows, so WrapBreaks is
 			// computed once per distinct visible line (breaksLine cache), not per row.
-			rw.line, rw.sub = pv.doc.LineAndSubRowAtRow(int32(idx))
 			if rw.line != breaksLine {
 				breaks = pv.doc.WrapBreaks(rw.line, breaks[:0])
 				breaksLine = rw.line
 			}
-			s := int(rw.sub)
-			if s > len(breaks)-2 {
-				s = len(breaks) - 2
-			}
-			rw.startCol, rw.endCol = breaks[s], breaks[s+1]
+			rw.startCol, rw.endCol = geometry.SpanOfSub(breaks, rw.sub)
 		} else {
-			rw.line, rw.sub = pv.doc.LineAtRow(int32(idx)), 0
-			rw.startCol, rw.endCol = -1, -1
+			rw.startCol, rw.endCol = -1, -1 // sentinel: whole-line, no horizontal cull
 		}
 		rw.Move(fyne.NewPos(0, float32(idx)*m.RowH))
 		if rw.Size() != size {
@@ -320,8 +315,8 @@ func (r *prettyViewRenderer) scrollBy(dx, dy float32) {
 	cs := r.pv.contentSize()
 	vp := r.scroll.Size()
 	off := r.scroll.Offset
-	nx := clampf(off.X+dx, 0, max(0, cs.Width-vp.Width))
-	ny := clampf(off.Y+dy, 0, max(0, cs.Height-vp.Height))
+	nx := clamp(off.X+dx, 0, max(0, cs.Width-vp.Width))
+	ny := clamp(off.Y+dy, 0, max(0, cs.Height-vp.Height))
 	r.scrollToOffset(fyne.NewPos(nx, ny))
 }
 

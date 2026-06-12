@@ -4,12 +4,19 @@
 package main
 
 import (
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	prettyview "github.com/ideaconnect/go-fyne-pretty-view/v2"
 )
 
 func main() {
-	a := app.New()
+	demo(app.New())
+}
+
+// demo wires the v1→v2 migration snippet onto app a and returns the read-only viewer and
+// the editable widget. main only supplies the real app; the wiring lives here so a test can
+// exercise the documented snippet headlessly. It is built, not run — ShowAndRun is omitted.
+func demo(a fyne.App) (viewer, editor *prettyview.PrettyView) {
 	w := a.NewWindow("viewer")
 
 	// Read-only: identical to v1 — only the import path changed to .../go-fyne-pretty-view/v2.
@@ -29,6 +36,6 @@ func main() {
 	_ = ed.Text() // the displayed/pretty text, distinct from raw Source()
 
 	w.SetContent(pv)
-	_ = ed
 	// ShowAndRun is intentionally omitted: this example is built, not run.
+	return pv, ed
 }

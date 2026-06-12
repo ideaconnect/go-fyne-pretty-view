@@ -130,10 +130,7 @@ const minWrapCols = 4
 func (m Metrics) ColsForDepth(depth uint8, viewportW float32) int {
 	avail := viewportW - m.TextOriginX(depth) - m.CharWidth*2
 	cols := int(math.Floor(float64(avail / m.CharWidth)))
-	if cols < minWrapCols {
-		cols = minWrapCols
-	}
-	return cols
+	return max(cols, minWrapCols)
 }
 
 // ColAtX maps a content-space x to a rune column using half-glyph rounding.
@@ -210,6 +207,39 @@ func HitTest(d *model.Document, m Metrics, contentX, contentY float32) (line int
 	return li, col
 }
 
+// SubRowOfCol returns the sub-row index whose [breaks[k], breaks[k+1]) span holds col,
+// for a WrapBreaks slice [0, …, lineLen]. Under WrapNone (breaks == [0, lineLen]) the
+// result is always 0; a col at or past the last span clamps to the final sub-row. It is
+// the single source of truth for the col→sub-row mapping shared by CellOrigin, the
+// keyboard caret, and the highlight passes.
+func SubRowOfCol(breaks []int32, col int) int {
+	for k := 0; k+1 < len(breaks); k++ {
+		if int32(col) < breaks[k+1] {
+			return k
+		}
+	}
+	if len(breaks) >= 2 {
+		return len(breaks) - 2
+	}
+	return 0
+}
+
+// SpanOfSub returns sub-row sub's [start, end) displayed-rune-column span from a
+// WrapBreaks slice [0, …, lineLen] (consecutive pairs are each row's [startCol, endCol)),
+// clamping sub into the valid [0, len(breaks)-2] range. It centralizes the
+// "clamp sub, read breaks[s]/breaks[s+1]" boilerplate the reflow and highlight passes
+// repeated inline.
+func SpanOfSub(breaks []int32, sub int32) (start, end int32) {
+	s := int(sub)
+	if s < 0 {
+		s = 0
+	}
+	if s > len(breaks)-2 {
+		s = len(breaks) - 2
+	}
+	return breaks[s], breaks[s+1]
+}
+
 // CellOrigin returns the content-space top-left pixel of (line, col): the inverse
 // of HitTest at a column's left edge. Under soft-wrap it resolves which sub-row
 // holds col and offsets x by that sub-row's start column.
@@ -219,10 +249,7 @@ func CellOrigin(d *model.Document, m Metrics, line int32, col int) (x, y float32
 	local := col
 	if d.WrapActive() {
 		breaks := d.WrapBreaks(line, nil)
-		sub := 0
-		for sub < len(breaks)-2 && col >= int(breaks[sub+1]) {
-			sub++
-		}
+		sub := SubRowOfCol(breaks, col)
 		local = col - int(breaks[sub])
 		row += int32(sub)
 	}
@@ -232,12 +259,5 @@ func CellOrigin(d *model.Document, m Metrics, line int32, col int) (x, y float32
 // wrapRowSpan returns the [start, end) displayed-rune-column range of sub-row sub
 // of line li. Caller must have checked d.WrapActive().
 func wrapRowSpan(d *model.Document, li, sub int32) (start, end int32) {
-	breaks := d.WrapBreaks(li, nil) // [0, b1, …, lineLen]; row k spans [breaks[k], breaks[k+1])
-	if sub < 0 {
-		sub = 0
-	}
-	if int(sub) > len(breaks)-2 {
-		sub = int32(len(breaks) - 2)
-	}
-	return breaks[sub], breaks[sub+1]
+	return SpanOfSub(d.WrapBreaks(li, nil), sub) // [0, b1, …, lineLen]; row k spans [breaks[k], breaks[k+1])
 }
