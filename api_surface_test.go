@@ -43,10 +43,14 @@ func TestExportedSurfaceGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v (run with UPDATE_API_SURFACE=1 to create it)", golden, err)
 	}
-	if got != string(want) {
+	// Normalize line endings: on Windows the golden may be checked out with CRLF (git
+	// autocrlf), while the computed surface always joins with LF. We compare the identifier
+	// SET, not the file's line terminators, so a CRLF checkout must not fail the golden.
+	wantStr := strings.ReplaceAll(string(want), "\r\n", "\n")
+	if got != wantStr {
 		t.Errorf("exported API surface changed.\nIf intentional, regenerate:\n"+
 			"  UPDATE_API_SURFACE=1 go test -run TestExportedSurfaceGolden .\n\n%s",
-			surfaceDiff(string(want), got))
+			surfaceDiff(wantStr, got))
 	}
 }
 

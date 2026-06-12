@@ -1,0 +1,5 @@
+# Deterministic line endings across platforms: the API-surface golden and gofmt both expect
+# LF, so force LF on checkout regardless of a contributor's git core.autocrlf (Windows CI was
+# checking the golden out as CRLF and failing TestExportedSurfaceGolden).
+* text=auto eol=lf
+*.png binary
