@@ -117,6 +117,23 @@ func TestEditModeHonorsExplicitFormat(t *testing.T) {
 	}
 }
 
+// TestReformatJSONCPreservesComments guards against a buffer rewrite deleting JSONC
+// comments the parser treats as trivia: in JSONC mode Reformat recolors but never rewrites.
+func TestReformatJSONCPreservesComments(t *testing.T) {
+	pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
+	defer win.Close()
+
+	const src = "{\n  \"a\": 1 // keep me\n}"
+	pv.SetData([]byte(src), FormatJSONC)
+	pv.Reformat()
+	if got := string(pv.Source()); got != src {
+		t.Errorf("JSONC Reformat must not rewrite the buffer (comment-loss risk):\n got  %q\n want %q", got, src)
+	}
+	if pv.Format() != FormatJSONC {
+		t.Errorf("Format() = %v, want FormatJSONC", pv.Format())
+	}
+}
+
 func TestReparseEditModeFormat(t *testing.T) {
 	pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
 	defer win.Close()

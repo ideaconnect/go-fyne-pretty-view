@@ -33,7 +33,8 @@ func TestStructuredCaretEditLandsAtCaret(t *testing.T) {
 	}
 	pv.TypedRune('X')
 
-	// The X must land on the "b" line, not at a stale end-of-buffer caret.
+	// The X must land at column 0 of the "b" line (SetCaret(bLine, 0)), not merely
+	// somewhere on it and not at a stale end-of-buffer caret.
 	got := string(pv.buf.Bytes())
 	xLine := ""
 	for _, ln := range strings.Split(got, "\n") {
@@ -44,6 +45,9 @@ func TestStructuredCaretEditLandsAtCaret(t *testing.T) {
 	}
 	if !strings.Contains(xLine, `"b"`) {
 		t.Errorf("typed X landed on line %q, want the \"b\" line; full buffer %q", xLine, got)
+	}
+	if !strings.HasPrefix(xLine, "X") {
+		t.Errorf("X landed at column %d not 0 on %q (caret remap off within the line)", strings.IndexByte(xLine, 'X'), xLine)
 	}
 }
 

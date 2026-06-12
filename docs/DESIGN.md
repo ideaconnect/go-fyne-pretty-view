@@ -954,7 +954,10 @@ Prettifying is **on demand**: `Reformat()` (or, opt-in, `AutoFormatOnPause`/`OnB
 re-parses the buffer and, only for a structured *and valid* parse, **rewrites the buffer
 bytes to the pretty-printed form** (`serializePretty`, depth × 2 spaces, the `Text()`
 convention) and remaps the caret once through the source spans — so the prettified layout
-persists as you keep typing. Raw or invalid input is left exactly as typed. The default
+persists as you keep typing. Raw, invalid, or **JSONC** input is left exactly as typed: a
+rewrite must never delete content, and the structured parser does not yet retain every
+JSONC comment (a comment between a value and its comma/close is dropped), so JSONC reformat
+recolors only until the parser gains full comment retention. The default
 `AutoFormat` is `AutoFormatOff`: typing never reflows the text out from under the user.
 The debounced settle (cloning the search debounce machinery: timer + generation counter +
 `fyne.Do` + `destroyed` guard) refreshes live parse validity and fires `OnChanged`; it

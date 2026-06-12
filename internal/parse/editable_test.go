@@ -2,7 +2,7 @@ package parse
 
 import "testing"
 
-// TestParseEditableLineCounts pins the edit-mode raw projection's defining behavior: a
+// TestParseEditableLineCounts pins the edit-mode projection's defining behavior: a
 // trailing newline yields a trailing empty line (so the caret has somewhere to sit),
 // and empty input is one empty line — unlike the viewer's rawParser.
 func TestParseEditableLineCounts(t *testing.T) {
@@ -18,8 +18,8 @@ func TestParseEditableLineCounts(t *testing.T) {
 		{"\n", 2},
 	}
 	for _, c := range cases {
-		if got := ParseEditable([]byte(c.src), 0, 4).TotalLines(); got != c.want {
-			t.Errorf("ParseEditable(%q) lines = %d, want %d", c.src, got, c.want)
+		if got := ParseEditableColored([]byte(c.src), FormatRaw, 0, 4).TotalLines(); got != c.want {
+			t.Errorf("ParseEditableColored(%q) lines = %d, want %d", c.src, got, c.want)
 		}
 	}
 

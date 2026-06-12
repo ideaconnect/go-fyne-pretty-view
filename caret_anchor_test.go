@@ -24,12 +24,15 @@ func TestCaretAnchorSurvivesReformatJSON(t *testing.T) {
 	if !strings.Contains(lt, "deepvalue") {
 		t.Fatalf("caret landed on line %q, want the \"deepvalue\" line", lt)
 	}
-	vs := strings.Index(lt, "deepvalue")
-	if pv.sel.focus.col < vs || pv.sel.focus.col > vs+len("deepvalue") {
-		t.Errorf("caret col %d not within the value token [%d,%d] on %q", pv.sel.focus.col, vs, vs+len("deepvalue"), lt)
+	// The caret was inside "deep|value" (mid = ...+4). It must remap to EXACTLY that
+	// rune boundary in the reformatted line — not merely somewhere within the token.
+	runes := []rune(lt)
+	col := pv.sel.focus.col
+	if col < 0 || col > len(runes) {
+		t.Fatalf("caret col %d out of range for %q", col, lt)
 	}
-	if pv.sel.focus.col == 0 {
-		t.Error("caret column should be rune-precise within the value, not the coarse line start")
+	if before, after := string(runes[:col]), string(runes[col:]); !strings.HasSuffix(before, "deep") || !strings.HasPrefix(after, "value") {
+		t.Errorf("caret col %d is not at the exact 'deep|value' boundary in %q (before=%q after=%q)", col, lt, before, after)
 	}
 }
 

@@ -1,7 +1,5 @@
 package model
 
-import "unicode/utf8"
-
 // This file is the public projection/fold surface of Document. The fold index
 // itself stays unexported; the view drives folding through these delegators and
 // never touches projection internals.
@@ -25,112 +23,6 @@ func (d *Document) FirstVisualRowOfLine(line int32) int32 { return d.fold.rowOfL
 // the sub-row to pick which column slice of the line a given screen row shows.
 func (d *Document) LineAndSubRowAtRow(row int32) (line, sub int32) {
 	return d.fold.lineAndSubRow(row)
-}
-
-// LineAtSourceOffset maps a byte offset into Src back to the display line whose source
-// bytes cover it: the last line whose first source-backed segment starts at or before
-// off (display lines are emitted in source order, so the first line that starts past off
-// ends the search). It is a coarse, line-granular map — enough to re-place an edit caret
-// on the right line after a raw->structured projection swap. Returns 0 for an empty
-// document. A rune-precise column map is the caret semantic anchor (#41).
-func (d *Document) LineAtSourceOffset(off int) int32 {
-	best := int32(0)
-	for li := 0; li < len(d.Lines); li++ {
-		start, ok := d.lineFirstSrcStart(int32(li))
-		if !ok {
-			continue
-		}
-		if start > off {
-			break
-		}
-		best = int32(li)
-	}
-	return best
-}
-
-// lineFirstSrcStart returns the Src start offset of a line's first source-backed
-// (BufSrc) segment, or false for a synthesized-only line.
-func (d *Document) lineFirstSrcStart(li int32) (int, bool) {
-	for _, s := range d.LineSegs(li) {
-		if s.Buf == BufSrc {
-			return int(s.Start), true
-		}
-	}
-	return 0, false
-}
-
-// LineColAtSourceOffset maps a Src byte offset to a rune-precise display (line, col):
-// it finds the line covering off (LineAtSourceOffset) and then walks that line's
-// segments, returning the displayed-rune column where off falls. An offset inside a
-// source-backed segment lands exactly on its rune; one in inter-token whitespace (not
-// displayed) clamps to the nearest segment boundary. This is the caret anchor across a
-// non-destructive reformat: the buffer bytes don't move, so a stable byte offset maps
-// straight to the new structured position (issue #41). Returns (0,0) for an empty doc.
-func (d *Document) LineColAtSourceOffset(off int) (line int32, col int) {
-	if len(d.Lines) == 0 {
-		return 0, 0
-	}
-	line = d.LineAtSourceOffset(off)
-	runesBefore := 0
-	for _, s := range d.LineSegs(line) {
-		if s.Buf == BufSrc {
-			if off <= int(s.Start) {
-				return line, runesBefore // before this token (inter-token gap) -> its start
-			}
-			if off < int(s.End) {
-				return line, runesBefore + utf8.RuneCount(d.Src[s.Start:off])
-			}
-		}
-		runesBefore += utf8.RuneCount(d.SegBytes(s))
-	}
-	return line, runesBefore // past the last source token on the line -> end of its text
-}
-
-// SourceOffsetAt maps a display (line, col) to a byte offset into Src — the inverse of
-// LineColAtSourceOffset. It walks the line's segments: a col inside a source-backed
-// segment returns the exact byte; a col inside a synthesized (Aux) segment, or past the
-// last source token, clamps to the nearest source boundary, so the result is always a
-// valid Src offset. This maps a structured-projection caret/selection back to the edit
-// buffer (the buffer is the Src of the structured document).
-func (d *Document) SourceOffsetAt(line int32, col int) int {
-	if int(line) < 0 || int(line) >= len(d.Lines) {
-		return 0
-	}
-	runesBefore := 0
-	srcAnchor := -1 // last source byte boundary seen on this line
-	for _, s := range d.LineSegs(line) {
-		n := utf8.RuneCount(d.SegBytes(s))
-		if s.Buf == BufSrc {
-			if col <= runesBefore {
-				return int(s.Start)
-			}
-			if col < runesBefore+n {
-				src := d.Src[s.Start:s.End]
-				bo := 0
-				for k := 0; k < col-runesBefore; k++ {
-					_, sz := utf8.DecodeRune(src[bo:])
-					bo += sz
-				}
-				return int(s.Start) + bo
-			}
-			srcAnchor = int(s.End)
-		} else if col < runesBefore+n && srcAnchor >= 0 {
-			return srcAnchor // caret inside a synthesized segment -> preceding source boundary
-		}
-		runesBefore += n
-	}
-	if srcAnchor >= 0 {
-		return srcAnchor // past the last source token -> end of its bytes
-	}
-	// Synthesized-only line (e.g. a close brace): anchor at the owning node's end if this
-	// is its close line (so a select-to-`}` reaches the container's end), else its start.
-	if o := d.Lines[line].Owner; o != NoNode && int(o) < len(d.Nodes) {
-		if d.Nodes[o].CloseLine == line {
-			return int(d.Nodes[o].SrcEnd)
-		}
-		return int(d.Nodes[o].SrcStart)
-	}
-	return 0
 }
 
 // Fold collapses node; Unfold expands it; Toggle flips it.

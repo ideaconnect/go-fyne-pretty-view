@@ -30,9 +30,11 @@ func (pv *PrettyView) SetOnChanged(fn func(string)) { pv.onChanged = fn }
 
 // Reformat pretty-prints the edit buffer NOW: it re-parses under the active format and, if
 // the parse is structured and valid, rewrites the buffer to the indented form and remaps
-// the caret to the same token (so the caret "stays in place"). Raw or invalid input is
-// left untouched (only its colors/validity refresh). It runs regardless of the AutoFormat
-// mode and never panics. No-op for a read-only widget. Call it on the Fyne goroutine.
+// the caret to the same token (so the caret "stays in place"). Raw, invalid, or JSONC input
+// is left untouched — only its colors/validity refresh — so a prettify never deletes
+// content (JSONC is exempt because the parser does not yet retain every comment). It runs
+// regardless of the AutoFormat mode and never panics. No-op for a read-only widget. Call it
+// on the Fyne goroutine.
 func (pv *PrettyView) Reformat() {
 	if !pv.cfg.editable {
 		return
@@ -109,9 +111,13 @@ func (pv *PrettyView) reformat() {
 	status := pv.statusFor(nd, snapshot)
 	pv.setParseStatus(status)
 
-	if nd.Format == FormatRaw || !status.OK {
-		// Genuinely raw, or structured-but-invalid: never rewrite (prettifying invalid
-		// input would corrupt the in-progress text). Refresh colors + gutter only.
+	if nd.Format == FormatRaw || nd.Format == FormatJSONC || !status.OK {
+		// Never rewrite the buffer when it would risk losing content: genuinely raw input,
+		// structured-but-invalid input (prettifying it would corrupt the in-progress text),
+		// or JSONC — whose comments the structured parser only partially retains, so a
+		// rewrite could silently delete them. Refresh colors + gutter only; the bytes and
+		// caret are left exactly as is. (Lossless JSONC reformat awaits full comment
+		// retention in the parser; see docs/DESIGN.md §12.)
 		pv.reprojectRaw()
 		pv.applyGutter()
 		pv.refreshContent()

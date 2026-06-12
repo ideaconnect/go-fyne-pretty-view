@@ -9,10 +9,10 @@ import (
 
 // This file is the v2 LIVE edit projection: a tolerant, layout-preserving syntax
 // colorizer (issue: real-time highlighting while typing). It produces the same display
-// shape as editRawParser — one display line per physical line, a trailing empty line for
-// the caret, and a single placeholder rune per grid-hostile byte so display-runes equal
-// buffer-runes (the caret stays an exact buffer position) — but it ALSO assigns a syntax
-// color role to each run by lexing the bytes in place.
+// shape as the monochrome edit-raw segmentation (editRawLineSegs) — one display line per
+// physical line, a trailing empty line for the caret, and a single placeholder rune per
+// grid-hostile byte so display-runes equal buffer-runes (the caret stays an exact buffer
+// position) — but it ALSO assigns a syntax color role to each run by lexing in place.
 //
 // Unlike a structured parse it NEVER reflows and NEVER fails: mid-edit / invalid input is
 // colored best-effort, so highlighting stays live on every keystroke without the document
@@ -28,7 +28,7 @@ const maxColorLineBytes = 16384
 
 // editColorParser is the editable-mode projection parser. format selects the colorizer;
 // FormatRaw (or any format without a lexer) colors nothing (every byte stays RolePlain),
-// which makes the output byte-identical to editRawParser.
+// which makes the output byte-identical to the monochrome edit-raw segmentation.
 type editColorParser struct{ format Format }
 
 func (p editColorParser) Parse(src []byte, b *model.Builder) error {
@@ -120,8 +120,8 @@ func lexColorSpans(src []byte, format Format) []colorSpan {
 }
 
 // ParseEditableColored builds the editable-mode projection of src, syntax-colored under
-// format (FormatRaw colors nothing). Like ParseEditable it does not rewrite bytes, so
-// display line/column offsets map 1:1 onto the edit buffer (the caret math depends on it).
+// format (FormatRaw colors nothing). It does not rewrite bytes, so display line/column
+// offsets map 1:1 onto the edit buffer (the caret math depends on that alignment).
 func ParseEditableColored(src []byte, format Format, collapseDepth, tabWidth int) *model.Document {
 	_ = tabWidth // each grid-hostile byte (incl. tab) is one placeholder rune, never an expansion
 	if uint64(len(src)) > math.MaxUint32 {

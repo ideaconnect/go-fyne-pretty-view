@@ -298,7 +298,7 @@ func (pv *PrettyView) afterEdit() {
 	pv.applyGutter() // the line count (and so the gutter digit width) may have changed
 	pv.refreshContent()
 	pv.revealCaret()
-	pv.scheduleReformat() // a typing pause re-parses into the structured projection (#40)
+	pv.scheduleReformat() // a typing pause refreshes live validity + fires onChanged (no reflow)
 	if pv.onDataChanged != nil {
 		pv.onDataChanged()
 	}

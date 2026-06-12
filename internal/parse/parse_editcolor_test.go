@@ -73,6 +73,25 @@ func TestEditColorJSONRoles(t *testing.T) {
 	}
 }
 
+// TestEditColorJSONArrayVsObjectStrings pins the frame-stack contract: a string inside an
+// array (or an object VALUE position) is RoleString, only an object KEY is RoleKey.
+func TestEditColorJSONArrayVsObjectStrings(t *testing.T) {
+	d := ParseEditableColored([]byte(`{"key":["a","b"],"k2":"v"}`), FormatJSON, 0, 4)
+	segs := editColorSegs(d)
+	want := map[string]model.ColorRole{
+		`"key"`: model.RoleKey,    // object key
+		`"k2"`:  model.RoleKey,    // object key
+		`"a"`:   model.RoleString, // array element
+		`"b"`:   model.RoleString, // array element
+		`"v"`:   model.RoleString, // object value
+	}
+	for text, role := range want {
+		if got, ok := editColorRoleOf(segs, text); !ok || got != role {
+			t.Errorf("seg %q role = %v (ok=%v), want %v", text, got, ok, role)
+		}
+	}
+}
+
 func TestEditColorXMLRoles(t *testing.T) {
 	d := ParseEditableColored([]byte(`<a x="1">t</a>`), FormatXML, 0, 4)
 	segs := editColorSegs(d)
