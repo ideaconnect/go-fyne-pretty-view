@@ -300,7 +300,8 @@ func (pv *PrettyView) reprojectRaw() {
 // rerenderProjection repaints the live colorized-raw projection in place: re-color the
 // buffer, resize the gutter for the (possibly new) line count, and refresh content +
 // selection — without rewriting bytes or moving the caret. It is the shared tail of
-// reformat()'s two no-rewrite branches (raw/JSONC/invalid input, and already-pretty input).
+// reformat()'s two no-rewrite branches (genuinely raw or structured-but-invalid input, and
+// already-pretty input). Valid JSONC IS rewritten — its comments round-trip losslessly (#82).
 func (pv *PrettyView) rerenderProjection() {
 	pv.reprojectRaw()
 	pv.applyGutter()

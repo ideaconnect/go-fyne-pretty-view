@@ -61,6 +61,15 @@ func serializePretty(d *model.Document) (out []byte, spans []srcSpan) {
 // literals (BufAux), so there are no source spans to record — the XML/HTML caret remap falls
 // to the output start, exactly as before (see remapCaretOffset).
 func appendMarkupPrettyLine(d *model.Document, li int32, buf []byte) []byte {
+	owner := d.Lines[li].Owner
+	// Opaque raw text — HTML <script>/<style> bodies and XML CDATA — is re-emitted from the
+	// source bytes verbatim: no indent, no whitespace collapse, no entity escaping, so embedded
+	// JS/CSS and CDATA round-trip and stay valid (#85). The display still shows the node's
+	// collapsed segment; only this serialization path reads the raw span.
+	if d.IsRawText(owner) {
+		n := &d.Nodes[owner]
+		return append(buf, d.Src[n.SrcStart:n.SrcEnd]...)
+	}
 	indent := int(d.Lines[li].Depth) * reformatIndentUnit
 	for k := 0; k < indent; k++ {
 		buf = append(buf, ' ')
@@ -68,8 +77,8 @@ func appendMarkupPrettyLine(d *model.Document, li int32, buf []byte) []byte {
 	// A line owned by an element node carries attribute values (each wrapped in its delimiter
 	// quotes); any other line's RoleString segment is text content.
 	attrLine := false
-	if o := d.Lines[li].Owner; o != model.NoNode && int(o) < len(d.Nodes) {
-		k := d.Nodes[o].Kind
+	if owner != model.NoNode && int(owner) < len(d.Nodes) {
+		k := d.Nodes[owner].Kind
 		attrLine = k == model.KindElement || k == model.KindEmptyElement
 	}
 	for _, s := range d.LineSegs(li) {

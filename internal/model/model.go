@@ -98,7 +98,20 @@ type Segment struct {
 // Node flags.
 const (
 	flagDefaultCollapsed uint8 = 1 << iota // collapsed on load (depth policy)
+	flagRawText                            // opaque text bytes (HTML <script>/<style>, XML CDATA): preserved verbatim on serialize, never entity-escaped (#85)
 )
+
+// MarkRawText flags a leaf node as opaque raw text (HTML <script>/<style> content or an XML
+// CDATA section) so a markup Reformat re-emits its source bytes verbatim instead of the
+// whitespace-collapsed, entity-escaped display text — escaping a script body's '<' to "&lt;"
+// would be invalid JavaScript (#85). Display is unaffected (the node still renders its
+// collapsed segment). Parsers call this right after Leaf.
+func (b *Builder) MarkRawText(id NodeID) { b.doc.Nodes[id].Flags |= flagRawText }
+
+// IsRawText reports whether node is opaque raw text marked by MarkRawText (#85).
+func (d *Document) IsRawText(node NodeID) bool {
+	return node != NoNode && int(node) < len(d.Nodes) && d.Nodes[node].Flags&flagRawText != 0
+}
 
 // Node is one structural element. 32 bytes, no pointers.
 //

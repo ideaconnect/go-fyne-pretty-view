@@ -184,10 +184,14 @@ structured prettifying on `Reformat`; **JSONC is prettified losslessly** — eve
 comment is retained as a node, so the rewrite never drops one (an inline comment
 moves to its own line just below its member). **XML/HTML `Reformat` re-encodes the
 reserved characters** it decoded (`&` → `&amp;`, `<` → `&lt;`) so the rewritten
-buffer is always valid markup that round-trips; a non-canonical entity (`&#38;`,
-`&AMP;`) canonicalizes to its standard form. Anything else — or malformed input —
-stays raw and is never rewritten. Like every other method, editor calls must run on
-the Fyne goroutine (see [Threading](#threading)).
+buffer is valid markup that round-trips; a non-canonical entity (`&#38;`, `&AMP;`)
+canonicalizes to its standard form. Raw-text content — HTML `<script>`/`<style>`
+bodies and XML `<![CDATA[…]]>` — is preserved **byte-for-byte** (never escaped or
+re-wrapped), so embedded JS/CSS stays valid. Ordinary XML/HTML **text** content is
+whitespace-canonicalized (runs of whitespace collapse to a single space) to keep each
+node on one row — formatting-significant whitespace in element text is not preserved.
+Anything else — or malformed input — stays raw and is never rewritten. Like every
+other method, editor calls must run on the Fyne goroutine (see [Threading](#threading)).
 
 ### Built-in controls (all opt-in)
 

@@ -248,23 +248,25 @@ func (pv *PrettyView) TypedRune(r rune) {
 	}
 }
 
-// TypedKey handles Escape (clear selection) and keyboard scrolling/navigation:
-// Up/Down scroll one row, PageUp/PageDown one viewport, Home/End jump to the top/
-// bottom. A multi-megabyte viewer should be navigable without the mouse.
-// KeyDown / KeyUp track the Shift modifier (fyne.KeyEvent carries none), so TypedKey
-// can tell Shift+arrow (extend the keyboard selection) from a plain arrow (scroll).
+// KeyDown records the Shift modifier (a fyne.KeyEvent carries none) so TypedKey can tell
+// Shift+arrow (extend the keyboard selection) from a plain arrow (scroll); KeyUp clears it.
 func (pv *PrettyView) KeyDown(key *fyne.KeyEvent) {
 	if key.Name == desktop.KeyShiftLeft || key.Name == desktop.KeyShiftRight {
 		pv.shiftHeld = true
 	}
 }
 
+// KeyUp clears the Shift modifier recorded by KeyDown.
 func (pv *PrettyView) KeyUp(key *fyne.KeyEvent) {
 	if key.Name == desktop.KeyShiftLeft || key.Name == desktop.KeyShiftRight {
 		pv.shiftHeld = false
 	}
 }
 
+// TypedKey handles Escape (clear selection) and keyboard scrolling/navigation: Up/Down scroll
+// one row, PageUp/PageDown one viewport, Home/End jump to the top/bottom; with Shift held (see
+// KeyDown) the arrows extend the keyboard selection instead. A multi-megabyte viewer should be
+// navigable without the mouse.
 func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 	if pv.r == nil {
 		if ev.Name == fyne.KeyEscape {

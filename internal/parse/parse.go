@@ -165,7 +165,7 @@ func parserFor(f Format) Parser {
 // failure it falls back to a raw document so content always displays. The optional
 // tabWidth (default 4) sets how raw-mode tabs are expanded to the monospace grid;
 // it is variadic so the many internal callers that don't care can omit it.
-func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model.Document {
+func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) (doc *model.Document) {
 	tw := 4
 	if len(tabWidth) > 0 && tabWidth[0] > 0 {
 		tw = tabWidth[0]
@@ -181,6 +181,15 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 		maxOffset := uint64(math.MaxUint32)
 		src = src[:int(maxOffset)]
 	}
+	// safeParse guards the structured parsers, but the raw fallback, AutoDetect and the Builder
+	// finish step run outside it. None should panic on untrusted input, but if one ever does,
+	// recover and degrade to the raw fallback (or, if even that panics, an empty document)
+	// rather than letting the panic escape Parse and crash the embedding host (#86).
+	defer func() {
+		if r := recover(); r != nil {
+			doc = recoverDoc(src, collapseDepth, tw)
+		}
+	}()
 	if format == FormatAuto {
 		format = AutoDetect(src)
 	}
@@ -192,7 +201,22 @@ func Parse(src []byte, format Format, collapseDepth int, tabWidth ...int) *model
 	if err := safeParse(p, src, b); err != nil {
 		return parseRaw(src, collapseDepth, tw)
 	}
-	return b.Finish()
+	return buildFinish(b)
+}
+
+// buildFinish is the structured-build step, indirected through a var so a test can force a panic
+// and exercise the Parse recover boundary (#86). Production always calls Builder.Finish.
+var buildFinish = func(b *model.Builder) *model.Document { return b.Finish() }
+
+// recoverDoc is Parse's post-panic fallback: the raw splitter behind its own recover, with a
+// minimal empty document as the last resort if even that panics, so no panic escapes Parse (#86).
+func recoverDoc(src []byte, collapseDepth, tabWidth int) (doc *model.Document) {
+	defer func() {
+		if r := recover(); r != nil {
+			doc = model.EmptyDocument()
+		}
+	}()
+	return parseRaw(src, collapseDepth, tabWidth)
 }
 
 // safeParse runs a parser behind a panic boundary. The parsers are tolerance-first

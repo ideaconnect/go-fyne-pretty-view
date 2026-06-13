@@ -69,6 +69,76 @@ func TestReformatHTMLRoundTrip(t *testing.T) {
 	}
 }
 
+// TestReformatPreservesRawText is the issue #85 regression: HTML <script>/<style> bodies and XML
+// CDATA are raw text whose bytes are NOT entity-decoded, so a Reformat must emit them verbatim —
+// never whitespace-collapsed or entity-escaped (escaping a script's '<' to "&lt;" is invalid JS).
+// Ordinary text content is still escaped (the #81 behavior), so the two paths must not bleed.
+func TestReformatPreservesRawText(t *testing.T) {
+	cases := []struct {
+		name, src string
+		format    Format
+		want      []string // must appear verbatim after Reformat
+		absent    []string // the corrupted/escaped forms that must NOT appear
+	}{
+		{
+			name:   "script body verbatim",
+			src:    `<div><script>if (a < b && c > d) { f(); }</script></div>`,
+			format: FormatHTML,
+			want:   []string{"if (a < b && c > d) { f(); }"},
+			absent: []string{"&lt;", "&gt;", "&amp;amp;"},
+		},
+		{
+			name:   "multiline script keeps newlines and indentation",
+			src:    "<script>\n  // first\n  run();\n</script>",
+			format: FormatHTML,
+			// A collapse would join the // line comment with run() and comment it out; the
+			// newline between them must survive.
+			want:   []string{"// first\n", "run();"},
+			absent: []string{"// first run();", "&lt;"},
+		},
+		{
+			name:   "style body verbatim",
+			src:    `<style>a > b { color: #fff; }</style>`,
+			format: FormatHTML,
+			want:   []string{"a > b { color: #fff; }"},
+			absent: []string{"&gt;"},
+		},
+		{
+			name:   "xml cdata verbatim",
+			src:    `<r><v><![CDATA[a < b & c]]></v></r>`,
+			format: FormatXML,
+			want:   []string{"<![CDATA[a < b & c]]>"},
+			absent: []string{"&lt;", "&amp;"},
+		},
+		{
+			name:   "ordinary html text is still escaped",
+			src:    `<p>tom &amp; jerry</p>`,
+			format: FormatHTML,
+			want:   []string{"tom &amp; jerry"},
+			absent: []string{"tom & jerry"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
+			defer win.Close()
+			pv.SetData([]byte(c.src), c.format)
+			pv.Reformat()
+			got := string(pv.Source())
+			for _, w := range c.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("Reformat dropped/altered raw text %q:\n%s", w, got)
+				}
+			}
+			for _, a := range c.absent {
+				if strings.Contains(got, a) {
+					t.Errorf("Reformat corrupted raw text with %q:\n%s", a, got)
+				}
+			}
+		})
+	}
+}
+
 // TestReformatMarkupReencodesEntities is the issue #81 regression: an XML/HTML Reformat must
 // re-encode the reserved characters its parser decoded (& and <, plus a " inside an attribute
 // value) so the rewritten buffer is valid markup that round-trips, rather than emitting a bare

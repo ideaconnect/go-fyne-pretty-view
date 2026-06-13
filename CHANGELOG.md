@@ -14,7 +14,27 @@ checklist that gates dropping it).
 
 _Nothing pending._
 
-## [v2.1.6-alpha] — 2026-06-13 — zero-allocation live reproject
+## [v2.1.7-alpha] — 2026-06-13 — markup raw-text fidelity + parse hardening
+
+From the pre-launch production-readiness review. No exported API signatures changed; the **/v2**
+surface stays frozen.
+
+### Fixed
+- **HTML `<script>`/`<style>` bodies and XML `<![CDATA[…]]>` are now preserved byte-for-byte on
+  `Reformat`** instead of being whitespace-collapsed and entity-escaped. Escaping a script body's
+  `<` to `&lt;` produced invalid JavaScript (and a `//` line comment collapsed onto the next
+  statement); these raw-text spans are re-emitted verbatim from the source. Ordinary element text
+  is still escaped/canonicalized as before (#85).
+- **A panic in the raw fallback or the model finish step can no longer escape `parse.Parse`.** The
+  recover boundary previously wrapped only the structured parsers; it now covers the whole
+  function, degrading to the raw fallback (or an empty document) so an unforeseen panic can't crash
+  the embedding host (#86).
+
+### Documentation
+- README now documents that markup `Reformat` preserves raw-text content verbatim and
+  whitespace-canonicalizes ordinary element text (#85).
+- Fixed a misattached doc comment (`TypedKey`'s description sat on `KeyDown`) and a stale
+  "JSONC is not rewritten" comment in the reformat path (#89).
 
 ### Performance
 - **The live edit reproject now reuses a single segment-build scratch across all lines** instead
