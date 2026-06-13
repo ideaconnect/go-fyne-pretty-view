@@ -288,7 +288,7 @@ func (pv *PrettyView) keyMoveCaret(dRows, col int, toLineStart, toLineEnd bool) 
 // The new Document zero-copies into the buffer snapshot's own bytes, so invariant 3 holds.
 func (pv *PrettyView) reprojectRaw() {
 	src := pv.buf.Bytes()
-	pv.doc = parse.ParseEditableColored(src, pv.resolveFormat(src), pv.cfg.collapseDepth, pv.cfg.tabWidth)
+	pv.doc = parse.ParseEditableColored(src, pv.resolveFormat(src), pv.cfg.collapseDepth)
 }
 
 // rerenderProjection repaints the live colorized-raw projection in place: re-color the

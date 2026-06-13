@@ -145,8 +145,9 @@ func lexColorSpans(src []byte, format Format) []colorSpan {
 // ParseEditableColored builds the editable-mode projection of src, syntax-colored under
 // format (FormatRaw colors nothing). It does not rewrite bytes, so display line/column
 // offsets map 1:1 onto the edit buffer (the caret math depends on that alignment).
-func ParseEditableColored(src []byte, format Format, collapseDepth, tabWidth int) *model.Document {
-	_ = tabWidth // each grid-hostile byte (incl. tab) is one placeholder rune, never an expansion
+func ParseEditableColored(src []byte, format Format, collapseDepth int) *model.Document {
+	// No tab-width knob: each grid-hostile byte (a tab included) renders as one placeholder
+	// rune, never an expansion, so display (line, col) maps exactly onto the edit buffer (#62).
 	if uint64(len(src)) > math.MaxUint32 {
 		src = src[:int(uint64(math.MaxUint32))] // dead in practice; keeps offsets sane
 	}
