@@ -182,7 +182,10 @@ Everything in the [viewer table](#viewer-behavior) above (search, fold, wrap,
 theming, the toolbar) still applies to an editor. **JSON, JSONC, XML and HTML** get
 structured prettifying on `Reformat`; **JSONC is prettified losslessly** — every
 comment is retained as a node, so the rewrite never drops one (an inline comment
-moves to its own line just below its member). Anything else — or malformed input —
+moves to its own line just below its member). **XML/HTML `Reformat` re-encodes the
+reserved characters** it decoded (`&` → `&amp;`, `<` → `&lt;`) so the rewritten
+buffer is always valid markup that round-trips; a non-canonical entity (`&#38;`,
+`&AMP;`) canonicalizes to its standard form. Anything else — or malformed input —
 stays raw and is never rewritten. Like every other method, editor calls must run on
 the Fyne goroutine (see [Threading](#threading)).
 

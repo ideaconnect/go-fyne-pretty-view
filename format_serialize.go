@@ -28,6 +28,11 @@ type srcSpan struct {
 func serializePretty(d *model.Document) (out []byte, spans []srcSpan) {
 	out = make([]byte, 0, len(d.Src)+len(d.Src)/4+16)
 	spans = make([]srcSpan, 0, len(d.Segs)) // one span per source-backed segment, at most (#77)
+	// XML/HTML reserialization must re-encode the entities the parser decoded out of text and
+	// attribute content, or a reformat would emit invalid markup that can't round-trip (e.g.
+	// &amp; -> & on save — issue #81). The viewer's Text()/copy path keeps the decoded form,
+	// so this escaping is reformat-only.
+	markup := d.Format == FormatXML || d.Format == FormatHTML
 	// Same pretty-line routine as Text/copy-subtree (model.AppendPrettyLine), indented by
 	// absolute depth and newline-joined, plus a span callback that records each source-backed
 	// segment's old→new byte range for the caret remap.
@@ -35,12 +40,80 @@ func serializePretty(d *model.Document) (out []byte, spans []srcSpan) {
 		if li > 0 {
 			out = append(out, '\n')
 		}
+		if markup {
+			out = appendMarkupPrettyLine(d, int32(li), out)
+			continue
+		}
 		out = d.AppendPrettyLine(int32(li), int(d.Lines[li].Depth)*reformatIndentUnit, out,
 			func(srcStart, srcEnd uint32, outStart int) {
 				spans = append(spans, srcSpan{oldStart: int(srcStart), oldEnd: int(srcEnd), newStart: outStart})
 			})
 	}
 	return out, spans
+}
+
+// appendMarkupPrettyLine serializes one display line of an XML/HTML document for Reformat,
+// re-encoding the reserved characters the parser decoded out of text and attribute content so
+// the rewritten buffer is VALID markup that round-trips (e.g. the model's decoded "&" is
+// written back as "&amp;" — issue #81). It mirrors model.AppendPrettyLine's indent + segment
+// walk but escapes RoleString segments; every other role (tag punctuation, names, comments,
+// doctypes) is already in source form and is copied verbatim. Markup segments are interned
+// literals (BufAux), so there are no source spans to record — the XML/HTML caret remap falls
+// to the output start, exactly as before (see remapCaretOffset).
+func appendMarkupPrettyLine(d *model.Document, li int32, buf []byte) []byte {
+	indent := int(d.Lines[li].Depth) * reformatIndentUnit
+	for k := 0; k < indent; k++ {
+		buf = append(buf, ' ')
+	}
+	// A line owned by an element node carries attribute values (each wrapped in its delimiter
+	// quotes); any other line's RoleString segment is text content.
+	attrLine := false
+	if o := d.Lines[li].Owner; o != model.NoNode && int(o) < len(d.Nodes) {
+		k := d.Nodes[o].Kind
+		attrLine = k == model.KindElement || k == model.KindEmptyElement
+	}
+	for _, s := range d.LineSegs(li) {
+		b := d.SegBytes(s)
+		if s.Role == model.RoleString {
+			buf = appendEscapedMarkupSeg(buf, b, attrLine)
+			continue
+		}
+		buf = append(buf, b...)
+	}
+	return buf
+}
+
+// appendEscapedMarkupSeg escapes one RoleString segment for markup reserialization. An
+// attribute value arrives wrapped in its delimiter quotes ("val"); only the inner content is
+// escaped (with a literal " becoming &quot; so it can't break the delimiter), the quotes stay.
+// A text segment is escaped directly.
+func appendEscapedMarkupSeg(buf, b []byte, attrLine bool) []byte {
+	if attrLine && len(b) >= 2 && b[0] == '"' && b[len(b)-1] == '"' {
+		buf = append(buf, '"')
+		buf = appendEscapedMarkupContent(buf, b[1:len(b)-1], true)
+		return append(buf, '"')
+	}
+	return appendEscapedMarkupContent(buf, b, false)
+}
+
+// appendEscapedMarkupContent re-encodes the characters that would otherwise produce invalid
+// markup: a bare '&' and '<' in any content, plus a '"' inside an attribute value (its
+// delimiter). '>' is left as-is — it is valid unescaped in both text and attribute values —
+// so reformatting canonicalizes encodings as little as possible while always staying valid.
+func appendEscapedMarkupContent(buf, b []byte, attrValue bool) []byte {
+	for _, c := range b {
+		switch {
+		case c == '&':
+			buf = append(buf, "&amp;"...)
+		case c == '<':
+			buf = append(buf, "&lt;"...)
+		case c == '"' && attrValue:
+			buf = append(buf, "&quot;"...)
+		default:
+			buf = append(buf, c)
+		}
+	}
+	return buf
 }
 
 // remapCaretOffset maps a caret byte offset in the OLD buffer to the equivalent offset in

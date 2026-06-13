@@ -8,7 +8,21 @@ module path (`.../v2`) and is called out under **Changed**/**Removed**.
 
 ## [Unreleased]
 
+### Fixed
+- **XML/HTML `Reformat` no longer decodes entities into the buffer.** Reserialization
+  re-encodes the reserved characters the parser decoded (`&` → `&amp;`, `<` → `&lt;`, and a
+  `"` inside an attribute value → `&quot;`), so a reformat-then-save stays valid markup and
+  round-trips `&amp;` rather than emitting an invalid bare `&` (#81). Display/copy are
+  unchanged — they still show the decoded text.
+- **A JSONC document that begins with a comment now auto-detects as JSONC** instead of
+  falling back to raw. A leading `// license` header (or `{ // note`) is an unambiguous
+  JSONC signal, so the comment is preserved as a visible node; a `//` inside a string value
+  still stays plain JSON (#82).
+
 ### Changed
+- **Dropped the dead `tabWidth` parameter from the internal `ParseEditableColored`** — every
+  grid-hostile byte (a tab included) renders as one placeholder rune, so there was no
+  tab-width to honor. Internal package only; the `/v2` public surface is unchanged (#83).
 - **Edit mode: real-time syntax highlighting while typing, and prettify on demand.** The
   editor no longer swaps to a separate structured projection or reflows on a timer. While
   you type, the buffer is shown through a tolerant, layout-preserving syntax colorizer —
