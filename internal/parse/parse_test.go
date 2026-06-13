@@ -315,6 +315,46 @@ func TestJSONDetectRejectsBracketLedNonJSON(t *testing.T) {
 	}
 }
 
+// TestDetectJSONCLeadingComment is the regression for issue #82: a JSONC document whose
+// first non-whitespace token is a comment — before the opening bracket (a ".jsonc" license
+// header) or as the first token inside it — must auto-detect as JSONC (with the comment
+// preserved as a visible node), not fall back to raw. A "//" inside a string value stays
+// plain JSON, and bracket-led non-JSON still stays raw.
+func TestDetectJSONCLeadingComment(t *testing.T) {
+	cases := []struct {
+		name, src   string
+		want        Format
+		wantComment string // if non-empty, must survive as a rendered node (not dropped)
+	}{
+		{"line comment before object", "// license: MIT\n{\"a\": 1}", FormatJSONC, "// license: MIT"},
+		{"block comment before array", "/* header */\n[1, 2, 3]", FormatJSONC, "/* header */"},
+		{"comment inside object", "{ // note\n  \"a\": 1\n}", FormatJSONC, "// note"},
+		{"comment inside array", "[ /* first */ 1, 2 ]", FormatJSONC, "/* first */"},
+		{"indented leading comment", "  \n  // hi\n  {\"a\":1}", FormatJSONC, "// hi"},
+
+		// Negatives: a comment-free document is plain JSON; a "//" inside a string value
+		// is data, not a comment; bracket-led prose is still raw.
+		{"plain object stays json", `{"a":1}`, FormatJSON, ""},
+		{"url in string stays json", `{"u":"http://example.com"}`, FormatJSON, ""},
+		{"trailing comment stays json", `{"a":1} // tail`, FormatJSON, ""},
+		{"bracket-led prose stays raw", "[ERROR] disk full", FormatRaw, ""},
+		{"comment only, no json, stays raw", "// just a note, nothing structured", FormatRaw, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := Parse([]byte(c.src), FormatAuto, 0)
+			if d.Format != c.want {
+				t.Errorf("auto-detect of %q = %v, want %v", c.src, d.Format, c.want)
+			}
+			if c.wantComment != "" {
+				if text := renderDoc(d); !strings.Contains(text, c.wantComment) {
+					t.Errorf("comment %q dropped from the auto-detected render:\n%s", c.wantComment, text)
+				}
+			}
+		})
+	}
+}
+
 // TestJSONTrailingContentFallsBackToRaw is the regression for the silent
 // drop-everything-after-the-root bug: a cleanly-parsed root value followed by more
 // bytes (NDJSON, concatenated values, or trailing prose) is not a single JSON
@@ -664,12 +704,12 @@ func TestStructuredInputsNeverFallBackToRaw(t *testing.T) {
 	cases := []struct {
 		src  string
 		want Format
-		auto bool // also assert FormatAuto keeps it structured (JSONC with a leading comment
-		// does not auto-detect — see issue #82 — so it is checked under its forced format only)
+		auto bool // also assert FormatAuto keeps it structured (a leading comment now
+		// auto-detects as JSONC rather than falling back to raw — issue #82)
 	}{
 		{`{"a":1,"b":[2,3],"c":{"d":"x"}}`, FormatJSON, true},
 		{`[1,2,3,{"k":"v"}]`, FormatJSON, true},
-		{"{ // c\n\"a\": 1 /* b */ }", FormatJSONC, false},
+		{"{ // c\n\"a\": 1 /* b */ }", FormatJSONC, true},
 		{`<root><a id="1">x</a><b/></root>`, FormatXML, true},
 		{`<div class="x"><p>hi</p><br></div>`, FormatHTML, true},
 	}

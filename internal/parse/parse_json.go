@@ -23,14 +23,18 @@ func (p jsonParser) Format() Format {
 }
 
 func (p jsonParser) Detect(src []byte) int {
+	if p.jsonc {
+		// JSONC is auto-selected ONLY for a document whose leading trivia (before the
+		// first bracket) or first in-bracket token is a real // or /* */ comment — a
+		// signal plain JSON cannot produce. A "//" inside a string value (e.g. a URL)
+		// appears only after the first key/element, never this early, so there is no
+		// ambiguity. A comment-free JSON document scores 0 here and is left to the
+		// plain-JSON detector below. This fixes a ".jsonc" config with a leading
+		// `// license` header (or `{ // note`) auto-detecting as raw (issue #82).
+		return detectJSONCWithComment(src)
+	}
 	t := bytes.TrimLeftFunc(src, unicode.IsSpace)
 	if len(t) == 0 || (t[0] != '{' && t[0] != '[') {
-		return 0
-	}
-	if p.jsonc {
-		// JSONC is never chosen by auto-detection: a "//" inside a string (e.g. a
-		// URL) is not a comment, so it can't be told apart cheaply. The scanner is
-		// comment-tolerant regardless, and FormatJSONC remains explicitly selectable.
 		return 0
 	}
 	// A leading '{'/'[' alone is too weak a signal: log lines and markdown
@@ -41,7 +45,35 @@ func (p jsonParser) Detect(src []byte) int {
 	// followed by '}' or a '"' key; an array by ']' or a value-start byte. This is a
 	// cheap structural sniff, not a full validation — the parser stays tolerant, and
 	// a clean parse that leaves trailing junk still falls back to raw (see Parse).
-	head := t[1:]
+	//
+	// A leading // comment makes t[0] a '/', so plain JSON declines here and the JSONC
+	// detector claims the document instead (issue #82).
+	return jsonBracketScore(t[0], t[1:])
+}
+
+// detectJSONCWithComment scores a document as JSONC when a // or /* */ comment appears in
+// non-string trivia before the first value — either ahead of the opening bracket (a
+// ".jsonc" license header) or as the first token inside it ("{ // note ..."). That is an
+// unambiguous JSONC signal, so JSONC is safe to auto-select while a comment-free document
+// is left to the plain-JSON detector (issue #82). It never enters strings, so a "//" in a
+// string value is never mistaken for a comment.
+func detectJSONCWithComment(src []byte) int {
+	rest, sawComment := skipWSAndComments(bytes.TrimLeftFunc(src, unicode.IsSpace))
+	if len(rest) == 0 || (rest[0] != '{' && rest[0] != '[') {
+		return 0
+	}
+	inner, innerComment := skipWSAndComments(rest[1:])
+	if !sawComment && !innerComment {
+		return 0 // a comment-free JSON document — let the plain-JSON detector own it
+	}
+	return jsonBracketScore(rest[0], inner)
+}
+
+// jsonBracketScore scores how plausibly a '{'/'[' container is JSON, given the bytes that
+// follow the opening byte (leading whitespace is trimmed here; the JSONC path also strips
+// leading comments first). It is the structural sniff shared by both JSON detectors.
+func jsonBracketScore(open byte, afterOpen []byte) int {
+	head := afterOpen
 	if len(head) > sniffLimit {
 		head = head[:sniffLimit]
 	}
@@ -50,18 +82,48 @@ func (p jsonParser) Detect(src []byte) int {
 		return 80 // a lone opening bracket (e.g. a document mid-edit): plausibly JSON
 	}
 	c := rest[0]
-	if t[0] == '{' {
+	if open == '{' {
 		if c == '}' || c == '"' {
 			return 80
 		}
 		return 0
 	}
-	// t[0] == '[': the first element must start with a JSON value (or close the array).
+	// open == '[': the first element must start with a JSON value (or close the array).
 	if c == ']' || c == '"' || c == '{' || c == '[' || c == '-' ||
 		c == 't' || c == 'f' || c == 'n' || (c >= '0' && c <= '9') {
 		return 80
 	}
 	return 0
+}
+
+// skipWSAndComments returns src advanced past leading ASCII/Unicode whitespace and any //
+// line or /* */ block comments, plus whether at least one comment was skipped. It is the
+// cheap detection-time trivia scan (issue #82); it never enters strings. Its whitespace set
+// matches jsonScanner.scanTrivia so detection and parsing agree on what counts as trivia.
+func skipWSAndComments(src []byte) (rest []byte, sawComment bool) {
+	i := 0
+	for i < len(src) {
+		c := src[i]
+		switch {
+		case isASCIISpace(c):
+			i++
+		case c >= utf8.RuneSelf:
+			r, size := utf8.DecodeRune(src[i:])
+			if !unicode.IsSpace(r) {
+				return src[i:], sawComment
+			}
+			i += size
+		case c == '/' && i+1 < len(src) && src[i+1] == '/':
+			i = scanLineCommentExtent(src, i)
+			sawComment = true
+		case c == '/' && i+1 < len(src) && src[i+1] == '*':
+			i = scanBlockCommentExtent(src, i)
+			sawComment = true
+		default:
+			return src[i:], sawComment
+		}
+	}
+	return src[i:], sawComment
 }
 
 func (p jsonParser) Parse(src []byte, b *model.Builder) error {
