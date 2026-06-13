@@ -137,3 +137,34 @@ path in CI.
 Follow semver; the public API is everything exported from package `prettyview`
 (see [README.md](README.md) for the surface), frozen as the `/v2` surface by
 `TestExportedSurfaceGolden`.
+
+### Dropping -alpha
+
+Every release so far is tagged `vX.Y.Z-alpha`. The suffix signals **pre-production
+maturity**, not API churn — the `/v2` surface is already frozen. The API being frozen and
+the release being `-alpha` are independent: the suffix is dropped only when the project is
+ready to make a production-readiness promise, gated by this checklist. Until then, docs must
+not claim a non-alpha / "1.0" status (issue #67 fixed the contradictory copy).
+
+To cut the first non-alpha release (`v2.Y.0`, no suffix), all of the following must hold and
+be verifiable:
+
+- [ ] **Green CI on all three OSes** (Linux test + Windows/macOS build & test — the matrix
+      added in #69) on the exact commit being tagged.
+- [ ] **`govulncheck` clean** (the CI gate passes; no unaddressed advisories).
+- [ ] **Surface golden unchanged** — `TestExportedSurfaceGolden` passes and
+      `testdata/api_surface.txt` has no pending diff (the frozen `/v2` contract held).
+- [ ] **`make check` green** and **cross-package coverage > 95 %** (the CI gate).
+- [ ] **`make mutation` ≥ the efficacy gate** on the pure logic packages (no new surviving
+      mutants since the last run).
+- [ ] **CHANGELOG cut** — the `[Unreleased]` section is moved under the new version heading,
+      dated, with no stale "pre-1.0 / v0.x / v1.0.0-frozen" copy anywhere
+      (`grep -rn "pre-1.0\|v0\.x" *.md *.go` returns only intentional history).
+- [ ] **This milestone's P0/P1 issues closed** (the "production hardening" gaps resolved).
+- [ ] **Maturity soak** — a deliberate decision that the editor + viewer have enough
+      real-world mileage to back a stability promise (this is the judgment call the suffix
+      exists to defer; it is not something CI can assert).
+
+When dropping the suffix, bump the **minor** (e.g. `v2.2.0`) to mark the production line,
+reconcile README / SECURITY.md / package docs / CHANGELOG to the non-alpha story in the same
+commit, and tag without `-alpha`.

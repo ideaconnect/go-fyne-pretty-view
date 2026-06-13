@@ -31,9 +31,11 @@ func (pv *PrettyView) SetOnChanged(fn func(string)) { pv.onChanged = fn }
 // the caret to the same token (so the caret "stays in place"). Raw or invalid input is left
 // untouched — only its colors/validity refresh — so a prettify never deletes content. JSONC
 // is prettified losslessly: every comment is retained as a node (an inline comment renders
-// on its own line just below its member), so the rewrite preserves them all. It runs
-// regardless of the AutoFormat mode and never panics. No-op for a read-only widget. Call it
-// on the Fyne goroutine.
+// on its own line just below its member), so the rewrite preserves them all. XML/HTML
+// reserialization re-encodes the reserved characters it decoded (& -> &amp;, < -> &lt;) so a
+// reformatted markup buffer stays valid and round-trips (issue #81). It runs regardless of
+// the AutoFormat mode and never panics. No-op for a read-only widget. Call it on the Fyne
+// goroutine.
 func (pv *PrettyView) Reformat() {
 	if !pv.cfg.editable {
 		return

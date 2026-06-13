@@ -18,7 +18,7 @@ func TestParseEditableLineCounts(t *testing.T) {
 		{"\n", 2},
 	}
 	for _, c := range cases {
-		if got := ParseEditableColored([]byte(c.src), FormatRaw, 0, 4).TotalLines(); got != c.want {
+		if got := ParseEditableColored([]byte(c.src), FormatRaw, 0).TotalLines(); got != c.want {
 			t.Errorf("ParseEditableColored(%q) lines = %d, want %d", c.src, got, c.want)
 		}
 	}

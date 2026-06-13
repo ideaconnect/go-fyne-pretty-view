@@ -82,7 +82,7 @@ func TestParseEditableColored_BudgetCapsAllocs(t *testing.T) {
 	const runs = 5
 	var total uint64
 	for i := 0; i < runs; i++ {
-		total += bytesAllocated(func() { _ = ParseEditableColored(big, FormatJSON, 0, 4) })
+		total += bytesAllocated(func() { _ = ParseEditableColored(big, FormatJSON, 0) })
 	}
 	avg := total / runs
 	if avg > limit {
@@ -98,7 +98,7 @@ func TestParseEditableColored_BelowBudgetColors(t *testing.T) {
 	if !WithinLiveColorBudget(len(src)) {
 		t.Fatalf("sub-budget test buffer (%d bytes) is unexpectedly over budget", len(src))
 	}
-	d := ParseEditableColored(src, FormatJSON, 0, 4)
+	d := ParseEditableColored(src, FormatJSON, 0)
 	colored := false
 	for li := 0; li < d.TotalLines(); li++ {
 		for _, s := range d.LineSegs(int32(li)) {
@@ -118,7 +118,7 @@ func TestParseEditableColored_BelowBudgetColors(t *testing.T) {
 func TestEditProjection_RunesMatchBuffer_AcrossBudget(t *testing.T) {
 	for _, n := range []int{1 << 10, LiveColorBudgetBytes, LiveColorBudgetBytes + 1} {
 		src := makeJSON(n)
-		d := ParseEditableColored(src, FormatJSON, 0, 4)
+		d := ParseEditableColored(src, FormatJSON, 0)
 		assertDisplayRunesEqualBufferRunes(t, src, d)
 	}
 }
@@ -131,7 +131,7 @@ func TestParseEditableColored_OverBudgetFlatAndTolerant(t *testing.T) {
 	blob := makeJSON(LiveColorBudgetBytes + (1 << 20))
 	blob = blob[:len(blob)-1]                   // drop the closing brace: unbalanced
 	blob = append(blob, []byte("\n{\"x\":")...) // an extra partial line at the end
-	d := ParseEditableColored(blob, FormatJSON, 0, 4)
+	d := ParseEditableColored(blob, FormatJSON, 0)
 
 	lines := strings.Split(string(blob), "\n")
 	if d.TotalLines() != len(lines) {
@@ -155,6 +155,6 @@ func BenchmarkLiveColorizeKeystroke_OverBudget(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = ParseEditableColored(src, FormatJSON, 0, 4)
+		_ = ParseEditableColored(src, FormatJSON, 0)
 	}
 }

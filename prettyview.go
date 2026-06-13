@@ -35,10 +35,11 @@
 //
 // # Stability
 //
-// Pre-1.0 (v0.x) the exported API may change between minor versions (see CHANGELOG.md).
-// As of v1.0.0 the surface is frozen under semantic import versioning: additions ship
-// as v1.x and any breaking change ships under a new major module path (.../v2). The
-// frozen surface is pinned by TestExportedSurfaceGolden.
+// The module is on the /v2 major and ships vX.Y.Z-alpha releases; the -alpha suffix marks
+// pre-production maturity, not API churn. The exported surface is frozen under semantic
+// import versioning: additions ship as a minor and any breaking change ships under a new
+// major module path (.../v3), never as a minor bump. The frozen surface is pinned by
+// TestExportedSurfaceGolden; see CHANGELOG.md for every change.
 package prettyview
 
 import (
@@ -72,6 +73,11 @@ type PrettyView struct {
 	// source-of-truth; in edit mode the displayed doc is the colorized-raw projection of
 	// buf, so display lines map 1:1 to buffer lines and the caret is a buffer position.
 	buf *model.TextBuffer
+
+	// pool reuses the projection's arenas + buffer snapshot across keystroke reprojects so a
+	// live edit allocates ~nothing instead of rebuilding the whole Document each time (#80).
+	// Lazily created on the first reproject; nil for a read-only widget.
+	pool *parse.EditPool
 
 	// live-format engine. The displayed doc is always the colorized-raw projection of buf,
 	// so the caret is an exact buffer (line, col) — no separate structured display mode.

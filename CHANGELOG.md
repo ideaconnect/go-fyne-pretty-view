@@ -2,11 +2,106 @@
 
 All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html). As of v1.0.0 the exported
-surface is frozen: additions ship as v1.x; any breaking change ships under a new major
-module path (`.../v2`) and is called out under **Changed**/**Removed**.
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html). The module is on the **`/v2`**
+major; the exported surface of `prettyview`/`fonttheme` is **frozen** (pinned by
+`TestExportedSurfaceGolden`): additions ship as a minor, and any breaking change ships only
+under a new major module path (`.../v3`), called out under **Changed**/**Removed**. Releases
+carry a `-alpha` suffix that marks pre-production maturity — not API churn (see
+[SECURITY.md](SECURITY.md) for the support model and [WORKFLOWS.md](WORKFLOWS.md) for the
+checklist that gates dropping it).
 
 ## [Unreleased]
+
+_Nothing pending._
+
+## [v2.1.5-alpha] — 2026-06-13 — production-hardening follow-ups
+
+The remaining gaps from the code- & test-quality reviews (milestone "v2.2.0 — production
+hardening"). No exported API signatures changed; the **/v2** surface stays frozen.
+
+### Fixed
+- **XML/HTML `Reformat` no longer decodes entities into the buffer.** Reserialization
+  re-encodes the reserved characters the parser decoded (`&` → `&amp;`, `<` → `&lt;`, and a
+  `"` inside an attribute value → `&quot;`), so a reformat-then-save stays valid markup and
+  round-trips `&amp;` rather than emitting an invalid bare `&` (#81). Display/copy are
+  unchanged — they still show the decoded text.
+- **A JSONC document that begins with a comment now auto-detects as JSONC** instead of
+  falling back to raw. A leading `// license` header (or `{ // note`) is an unambiguous
+  JSONC signal, so the comment is preserved as a visible node; a `//` inside a string value
+  still stays plain JSON (#82).
+
+### Performance
+- **The live edit reproject now reuses its Document arenas and the buffer snapshot across
+  keystrokes** instead of re-allocating the whole projection every time (#80). A keystroke
+  reproject of a large (over-budget, monochrome) buffer drops from ~18.6 MB / 18 allocations to
+  ~32 B / 1 allocation, and is ~35 % faster on both minified and pretty-printed multi-MB
+  buffers — a GC-pressure/RSS/jitter win. The pooled projection is byte-identical to a fresh
+  parse (locked by a randomized equality fuzz), so caret/selection/search behavior is unchanged.
+  Per-keystroke wall time is still proportional to the buffer (the snapshot copy and rune-count
+  extent pass are inherently whole-buffer); work strictly proportional to the edited region is a
+  separate, deferred follow-up (#84).
+
+### Changed
+- **Dropped the dead `tabWidth` parameter from the internal `ParseEditableColored`** — every
+  grid-hostile byte (a tab included) renders as one placeholder rune, so there was no
+  tab-width to honor. Internal package only; the `/v2` public surface is unchanged (#83).
+
+## [v2.1.4-alpha] — 2026-06-13 — reflow allocation + mutation testing
+
+### Performance
+- Reuse the soft-wrap break scratch across reflows instead of re-allocating the whole wrapped
+  line's break list every scroll tick (review #3).
+
+### Changed
+- Make the API-surface golden line-ending-agnostic and pin LF via `.gitattributes`, so the
+  cross-OS CI (added in #69) passes on a Windows CRLF checkout.
+- Add `make mutation` (gremlins) to measure test *efficacy* beyond coverage; the pure logic
+  packages stand at 100 % (review #3, documented in CODE_BIBLE/WORKFLOWS).
+
+## [v2.1.3-alpha] — 2026-06-12 — P2 production hardening
+
+### Fixed
+- Close four latent defensive gaps in the parsers/buffer (a trailing backslash pushing past
+  EOF, and similar) (#76).
+
+### Performance
+- Preallocate the reformat source spans and binary-search the caret remap (millions of spans
+  on a multi-MB reformat); memoize the gutter digit width; add regression benches (#77).
+
+### Changed
+- Lower the `go` directive to the real floor, unpin `govulncheck`, and document the deps (#79).
+
+### Tests
+- Lock the binary-search caret-remap against the linear oracle (#77); convert a self-erasing
+  `t.Skip` to `t.Fatal` and lock the structured-classification guard (#78).
+
+## [v2.1.2-alpha] — 2026-06-12 — cross-OS CI + robustness + test breadth
+
+### Fixed
+- Clear the undo history when `SetData` re-seeds the buffer, so an undo can't resurrect a
+  previous document's bytes (#66).
+- Bound the bundled Open dialog's read by `WithMaxInputBytes` (#73).
+
+### Performance
+- Stop copying the whole buffer on every delete / arrow keystroke (#68).
+
+### Changed
+- CI now runs the test suite on Windows and macOS, not just Linux (#69).
+
+### Tests
+- XML/HTML editor round-trip + undo-restores-bytes parity (#70); exercise the real async
+  debounce path under `-race` plus the shutdown drop (#71); fuzz the editor undo round-trip,
+  caret cells and wrap partition, with an unbounded-undo oracle fix (#72); tighten the
+  model-size guard to the documented band (#74); document production limits + accessibility (#75).
+
+## [v2.1.1-alpha] — 2026-06-11 — live-colorizer budget
+
+### Performance
+- Cap the live colorizer with a 2 MiB budget so a large editable buffer is rendered monochrome
+  rather than re-lexed on every keystroke; color resumes automatically once it drops back under
+  budget (#65).
+
+## [v2.1.0-alpha] — 2026-06-11 — live highlighting while typing
 
 ### Changed
 - **Edit mode: real-time syntax highlighting while typing, and prettify on demand.** The
@@ -27,6 +122,13 @@ module path (`.../v2`) and is called out under **Changed**/**Removed**.
   - No exported API signatures changed; the **/v2** surface stays frozen.
 - The editor demo (`make run-editor`) reflects the new model: live colors as you type, a
   Reformat button that prettifies in place, no surprise auto-formatting.
+
+### Fixed
+- Resolve the dead-code / duplication / gap audit (#55–#64) and raise the quality bar; drop
+  code orphaned by the live-highlight redesign; guard JSONC reformat; harden tests.
+
+### Added
+- An editable-input editor demo, and `make run-viewer` / `make run-editor`.
 
 ## [v2.0.0-alpha] — 2026-06-11 — editable input + live formatting
 

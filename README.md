@@ -182,7 +182,10 @@ Everything in the [viewer table](#viewer-behavior) above (search, fold, wrap,
 theming, the toolbar) still applies to an editor. **JSON, JSONC, XML and HTML** get
 structured prettifying on `Reformat`; **JSONC is prettified losslessly** — every
 comment is retained as a node, so the rewrite never drops one (an inline comment
-moves to its own line just below its member). Anything else — or malformed input —
+moves to its own line just below its member). **XML/HTML `Reformat` re-encodes the
+reserved characters** it decoded (`&` → `&amp;`, `<` → `&lt;`) so the rewritten
+buffer is always valid markup that round-trips; a non-canonical entity (`&#38;`,
+`&AMP;`) canonicalizes to its standard form. Anything else — or malformed input —
 stays raw and is never rewritten. Like every other method, editor calls must run on
 the Fyne goroutine (see [Threading](#threading)).
 
@@ -437,20 +440,21 @@ explicit:
 
 ## Stability
 
-The module is **pre-1.0 (v0.x, alpha)**. The exported API of `prettyview` and
-`fonttheme` may change between minor versions; every breaking change is recorded under
-**Changed**/**Removed** in [CHANGELOG.md](CHANGELOG.md).
-
-As of **v1.0.0** the exported surface is frozen under [semantic import
-versioning](https://go.dev/ref/mod#major-version-suffixes): additions ship as a minor, and
-any breaking change ships under a new major module path — never as a minor bump. The
+The module is on the **`/v2` major** (`.../go-fyne-pretty-view/v2`) and ships releases tagged
+`vX.Y.Z-alpha`. The `-alpha` suffix marks **pre-production maturity** — the library is still
+accumulating real-world mileage — **not** API instability: the exported surface of `prettyview`
+and `fonttheme` is **frozen** under [semantic import
+versioning](https://go.dev/ref/mod#major-version-suffixes). Additions ship as a minor; any
+breaking change ships under a new major module path (`.../v3`) — never as a minor bump. The
 frozen surface is pinned by `TestExportedSurfaceGolden` (`testdata/api_surface.txt`), so an
-accidental change to a public signature fails CI.
+accidental change to a public signature fails CI, and every change is recorded in
+[CHANGELOG.md](CHANGELOG.md). The checklist that gates dropping the `-alpha` suffix lives in
+[WORKFLOWS.md](WORKFLOWS.md#dropping--alpha).
 
-**v2** (`.../go-fyne-pretty-view/v2`) adds opt-in editing + live formatting; it is
-additive over v1 (no v1 symbol renamed or changed) except the module path. Read-only
-hosts upgrade by changing only the import path — see [MIGRATION.md](MIGRATION.md). v1 is
-frozen and receives critical/security fixes only.
+**v2** adds opt-in editing + live formatting; it is additive over v1 (no v1 symbol renamed or
+changed) except the module path. Read-only hosts upgrade by changing only the import path —
+see [MIGRATION.md](MIGRATION.md). **v1** is frozen and receives critical/security fixes only,
+on the `v1-maintenance` branch (tagged `v1.x.y`).
 
 **Deprecation policy.** Within a major (a frozen surface), a symbol is never removed
 abruptly: it is marked with a Go `// Deprecated:` doc comment pointing at the replacement,

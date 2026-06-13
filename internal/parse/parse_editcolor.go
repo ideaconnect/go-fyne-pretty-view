@@ -145,15 +145,31 @@ func lexColorSpans(src []byte, format Format) []colorSpan {
 // ParseEditableColored builds the editable-mode projection of src, syntax-colored under
 // format (FormatRaw colors nothing). It does not rewrite bytes, so display line/column
 // offsets map 1:1 onto the edit buffer (the caret math depends on that alignment).
-func ParseEditableColored(src []byte, format Format, collapseDepth, tabWidth int) *model.Document {
-	_ = tabWidth // each grid-hostile byte (incl. tab) is one placeholder rune, never an expansion
-	if uint64(len(src)) > math.MaxUint32 {
-		src = src[:int(uint64(math.MaxUint32))] // dead in practice; keeps offsets sane
-	}
-	colorize := WithinLiveColorBudget(len(src)) // #65: skip whole-buffer lex above budget
+func ParseEditableColored(src []byte, format Format, collapseDepth int) *model.Document {
+	// No tab-width knob: each grid-hostile byte (a tab included) renders as one placeholder
+	// rune, never an expansion, so display (line, col) maps exactly onto the edit buffer (#62).
+	src = clampEditableSrc(src)
 	b := model.NewBuilder(src, format, collapseDepth)
-	_ = editColorParser{format: format, colorize: colorize}.Parse(src, b)
+	parseEditableInto(b, src, format)
 	return b.Finish()
+}
+
+// clampEditableSrc bounds src to the uint32 offset range the model arenas address. Dead in
+// practice (the editor caps the buffer far below 4 GiB) but keeps segment offsets sane.
+func clampEditableSrc(src []byte) []byte {
+	if uint64(len(src)) > math.MaxUint32 {
+		return src[:int(uint64(math.MaxUint32))]
+	}
+	return src
+}
+
+// parseEditableInto drives the editable-mode projection of src into b (already seeded). It is
+// the shared core of the free ParseEditableColored and the pooled EditPool.Reproject (#80), so
+// both produce a byte-identical Document. #65: above the live-color budget colorize is skipped
+// (every line monochrome) so a large buffer never re-lexes per keystroke.
+func parseEditableInto(b *model.Builder, src []byte, format Format) {
+	colorize := WithinLiveColorBudget(len(src))
+	_ = editColorParser{format: format, colorize: colorize}.Parse(src, b)
 }
 
 // --- JSON / JSONC colorizer -------------------------------------------------------------

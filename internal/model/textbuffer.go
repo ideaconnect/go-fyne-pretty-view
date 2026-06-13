@@ -48,6 +48,24 @@ func (b *TextBuffer) Bytes() []byte {
 	return out
 }
 
+// BytesInto materializes the buffer into dst, reusing dst's backing array (growing it only
+// when too small) and returning the filled slice. It is the allocation-reuse companion to
+// Bytes for the editable live-reproject hot path (issue #80): the returned slice aliases dst,
+// so any earlier snapshot taken into the SAME dst is invalidated by this call. That is safe
+// because the pooled Document that zero-copies into the snapshot is rebuilt in lockstep, so no
+// live Document is ever left aliasing a stale snapshot.
+func (b *TextBuffer) BytesInto(dst []byte) []byte {
+	n := b.Len()
+	if cap(dst) < n {
+		dst = make([]byte, n)
+	} else {
+		dst = dst[:n]
+	}
+	k := copy(dst, b.buf[:b.gapStart])
+	copy(dst[k:], b.buf[b.gapEnd:])
+	return dst
+}
+
 // Slice returns a fresh copy of the logical bytes in [lo, hi) (both clamped to the content),
 // read through the gap with two bulk copies. Unlike Bytes it allocates only the requested
 // span, so capturing a small deleted range for undo costs O(hi-lo), not O(Len).

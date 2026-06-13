@@ -26,7 +26,7 @@ func FuzzEditableCaretCells(f *testing.F) {
 		}
 		lines := strings.Split(s, "\n")
 		for _, format := range []Format{FormatJSON, FormatJSONC, FormatXML, FormatHTML, FormatRaw} {
-			d := ParseEditableColored([]byte(s), format, 0, 4)
+			d := ParseEditableColored([]byte(s), format, 0)
 			if d.TotalLines() != len(lines) {
 				t.Fatalf("fmt=%v TotalLines=%d want %d", format, d.TotalLines(), len(lines))
 			}

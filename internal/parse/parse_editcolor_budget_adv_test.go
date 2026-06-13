@@ -69,7 +69,7 @@ func TestAdvOverBudgetHostileBytes(t *testing.T) {
 		t.Fatalf("buffer %d not over budget %d", len(src), LiveColorBudgetBytes)
 	}
 	for _, f := range []Format{FormatJSON, FormatXML, FormatJSONC, FormatRaw, FormatAuto, FormatHTML} {
-		d := ParseEditableColored(src, f, 0, 4)
+		d := ParseEditableColored(src, f, 0)
 		label := "over-budget fmt=" + formatName(f)
 		advAssertRunes(t, label, src, d)
 		advNoRawControl(t, label, d)
@@ -126,7 +126,7 @@ func TestAdvOverBudgetSingleHugeLine(t *testing.T) {
 	if WithinLiveColorBudget(len(clean)) {
 		t.Fatalf("clean huge line %d not over budget", len(clean))
 	}
-	dc := ParseEditableColored(clean, FormatJSON, 0, 4)
+	dc := ParseEditableColored(clean, FormatJSON, 0)
 	if dc.TotalLines() != 1 {
 		t.Fatalf("clean huge: TotalLines=%d want 1", dc.TotalLines())
 	}
@@ -148,7 +148,7 @@ func TestAdvOverBudgetSingleHugeLine(t *testing.T) {
 	colored := model.NewBuilder(src, FormatJSON, 0)
 	_ = editColorParser{format: FormatJSON, colorize: true}.Parse(src, colored)
 	dColor := colored.Finish()
-	dMono := ParseEditableColored(src, FormatJSON, 0, 4) // over budget => colorize=false
+	dMono := ParseEditableColored(src, FormatJSON, 0) // over budget => colorize=false
 	if dColor.TotalLines() != 1 || dMono.TotalLines() != 1 {
 		t.Fatalf("huge single line: colored=%d mono=%d want 1 each", dColor.TotalLines(), dMono.TotalLines())
 	}
@@ -172,7 +172,7 @@ func TestAdvBudgetEmptyAndTinyAtCliff(t *testing.T) {
 		[]byte("\t"),
 		[]byte("中"),
 	} {
-		d := ParseEditableColored(src, FormatJSON, 0, 4)
+		d := ParseEditableColored(src, FormatJSON, 0)
 		advAssertRunes(t, "tiny", src, d)
 		advNoRawControl(t, "tiny", d)
 	}
@@ -192,8 +192,8 @@ func TestAdvBudgetEmptyAndTinyAtCliff(t *testing.T) {
 	if WithinLiveColorBudget(len(overCap)) {
 		t.Fatalf("overCap len %d should be over budget", len(overCap))
 	}
-	dAt := ParseEditableColored(atCap, FormatJSON, 0, 4)
-	dOver := ParseEditableColored(overCap, FormatJSON, 0, 4)
+	dAt := ParseEditableColored(atCap, FormatJSON, 0)
+	dOver := ParseEditableColored(overCap, FormatJSON, 0)
 	advAssertRunes(t, "atCap", atCap, dAt)
 	advNoRawControl(t, "atCap", dAt)
 	advAssertRunes(t, "overCap", overCap, dOver)
