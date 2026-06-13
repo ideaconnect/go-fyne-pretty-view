@@ -19,6 +19,9 @@ EDITOR_FILE ?=
 RUN         ?= .
 BENCH       ?= .
 COUNT       ?= 1
+# Mutation testing (make mutation): pure logic packages + the minimum test efficacy gate.
+MUT_PKGS     ?= internal/geometry internal/model internal/parse
+MUT_EFFICACY ?= 95
 
 .DEFAULT_GOAL := help
 
@@ -76,6 +79,17 @@ bench:
 .PHONY: shots
 shots:
 	PV_SHOTS=1 $(GO) test -run TestCaptureScreenshots $(PKG)
+
+## mutation: mutation-test the pure logic packages (gremlins) — measures test EFFICACY beyond coverage %
+.PHONY: mutation
+mutation:
+	@GREMLINS="$$($(GO) env GOPATH)/bin/gremlins"; \
+	[ -x "$$GREMLINS" ] || $(GO) install github.com/go-gremlins/gremlins/cmd/gremlins@latest; \
+	for p in $(MUT_PKGS); do \
+		echo "== mutation: $$p (efficacy gate $(MUT_EFFICACY)%) =="; \
+		( cd $$p && "$$GREMLINS" unleash --workers 2 --test-cpu 1 --threshold-efficacy $(MUT_EFFICACY) ) || exit 1; \
+	done
+	@echo "mutation: all packages >= $(MUT_EFFICACY)% test efficacy"
 
 ## vet: run go vet
 .PHONY: vet

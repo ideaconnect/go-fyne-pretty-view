@@ -67,11 +67,13 @@ type prettyViewRenderer struct {
 	selObjs   []fyne.CanvasObject
 	matchObjs []fyne.CanvasObject
 
-	// reusable WrapBreaks scratch for the highlight passes, so rebuildSelection /
-	// rebuildMatches don't allocate a fresh []int32 per reflow under soft-wrap
-	// (the row build pass has its own reused scratch in reflow).
-	selBreaks   []int32
-	matchBreaks []int32
+	// reusable WrapBreaks scratch, persistent across reflows so the soft-wrap row build and
+	// the two highlight passes (rebuildSelection / rebuildMatches) don't allocate a fresh
+	// []int32 per reflow. reflowBreaks backs the row-build loop; selBreaks / matchBreaks back
+	// the highlight passes (each layer needs its own, since a reflow runs all three).
+	reflowBreaks []int32
+	selBreaks    []int32
+	matchBreaks  []int32
 }
 
 // CreateRenderer implements fyne.Widget. It builds the scroll + layered content
@@ -202,7 +204,7 @@ func (r *prettyViewRenderer) reflow() {
 	cw := pv.contentSize().Width
 	size := fyne.NewSize(cw, m.RowH)
 	wrapOn := pv.doc.WrapActive()
-	var breaks []int32
+	breaks := r.reflowBreaks[:0] // reuse the persistent backing array across reflows (no per-frame alloc)
 	breaksLine := int32(-1)
 	for idx := first; idx <= last; idx++ {
 		rw, existed := r.live[idx]
@@ -239,6 +241,7 @@ func (r *prettyViewRenderer) reflow() {
 			rw.Show()
 		}
 	}
+	r.reflowBreaks = breaks // retain the (possibly grown) backing array for the next reflow
 
 	// The loop above already (re)built and repainted each row exactly once. Use
 	// canvas.Refresh here (not rowLayer.Refresh, whose Container.Refresh would

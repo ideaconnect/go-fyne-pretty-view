@@ -1,6 +1,7 @@
 package prettyview
 
 import (
+	"strings"
 	"testing"
 
 	"fyne.io/fyne/v2"
@@ -48,5 +49,36 @@ func TestLineNumberGutter(t *testing.T) {
 	}
 	if !found {
 		t.Error("the first line was not among the live rows")
+	}
+}
+
+// TestGutterWidthGrowsWithLineCount guards the #77 gutter digit-width memo: the width must
+// recompute when the line count crosses a digit boundary (9->10->100), not stay fixed at the
+// first document's digit count. A regression to a compute-once memo would clip the numbers
+// past the boundary while the rest of the suite stayed green.
+func TestGutterWidthGrowsWithLineCount(t *testing.T) {
+	lines := func(n int) []byte { return []byte(strings.Repeat("x\n", n-1) + "x") } // exactly n lines
+
+	test.NewApp()
+	pv := New(WithLineNumbers())
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(400, 300))
+
+	pv.SetData(lines(5), FormatRaw) // 1-digit line numbers
+	pv.Refresh()
+	w1 := pv.met.GutterWidth()
+
+	pv.SetData(lines(120), FormatRaw) // crosses into 3-digit line numbers
+	pv.Refresh()
+	w3 := pv.met.GutterWidth()
+	if !(w3 > w1) {
+		t.Errorf("gutter width must grow with the line count: 5 lines=%v, 120 lines=%v", w1, w3)
+	}
+
+	pv.SetData(lines(7), FormatRaw) // back to 1 digit -> width must shrink again
+	pv.Refresh()
+	if w := pv.met.GutterWidth(); w >= w3 {
+		t.Errorf("gutter width must shrink when the line count drops: %v (was %v at 120 lines)", w, w3)
 	}
 }
