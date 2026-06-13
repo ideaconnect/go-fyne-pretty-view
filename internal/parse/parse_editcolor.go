@@ -48,10 +48,15 @@ func WithinLiveColorBudget(n int) bool { return n <= LiveColorBudgetBytes }
 // buffer over the live-color budget never re-lexes the whole document per keystroke (#65).
 type editColorParser struct {
 	format   Format
-	colorize bool // false => skip token lexing; every line is monochrome edit-raw (#65)
+	colorize bool         // false => skip token lexing; every line is monochrome edit-raw (#65)
+	scratch  *[]model.Seg // reused per-line segment build buffer; nil => Parse uses a local (#84)
 }
 
 func (p editColorParser) Parse(src []byte, b *model.Builder) error {
+	if p.scratch == nil { // direct construction (tests): no shared scratch, build into a local
+		var local []model.Seg
+		p.scratch = &local
+	}
 	var spans []colorSpan
 	if p.colorize {
 		spans = lexColorSpans(src, p.format)
@@ -61,11 +66,11 @@ func (p editColorParser) Parse(src []byte, b *model.Builder) error {
 	for {
 		nl := bytes.IndexByte(src[start:], '\n')
 		if nl < 0 {
-			appendColorLine(b, src, start, len(src), spans, &si)
+			appendColorLine(b, src, start, len(src), spans, &si, p.scratch)
 			return nil
 		}
 		end := start + nl
-		appendColorLine(b, src, start, end, spans, &si)
+		appendColorLine(b, src, start, end, spans, &si, p.scratch)
 		start = end + 1
 	}
 }
@@ -74,14 +79,17 @@ func (p editColorParser) Parse(src []byte, b *model.Builder) error {
 // clean bytes that share a color role become one zero-copy SrcSeg, and each grid-hostile
 // byte becomes a one-rune placeholder LitSeg carrying the run's role. si is the caller's
 // running cursor into spans (advanced in place, since lines are walked in order).
-func appendColorLine(b *model.Builder, src []byte, start, end int, spans []colorSpan, si *int) {
+func appendColorLine(b *model.Builder, src []byte, start, end int, spans []colorSpan, si *int, scratch *[]model.Seg) {
 	if len(spans) == 0 || end-start > maxColorLineBytes {
 		// No syntax to color (raw), or a pathologically long line: fall back to the
 		// monochrome edit-raw segmentation (still placeholder-safe and 1:1).
-		b.Leaf(model.KindRawLine, start, end, editRawLineSegs(src, start, end))
+		*scratch = editRawLineSegsInto((*scratch)[:0], src, start, end)
+		b.Leaf(model.KindRawLine, start, end, *scratch)
 		return
 	}
-	var segs []model.Seg
+	// Build this line's segments into the caller's reused scratch (Builder.Leaf copies them
+	// into the arena, so the backing slice is free to reuse on the next line — #84).
+	segs := (*scratch)[:0]
 	runStart := start
 	var runRole model.ColorRole
 	haveRun := false
@@ -117,6 +125,7 @@ func appendColorLine(b *model.Builder, src []byte, start, end int, spans []color
 	if len(segs) == 0 {
 		segs = append(segs, model.SrcSeg(model.RolePlain, start, end)) // empty line
 	}
+	*scratch = segs // retain the (possibly grown) backing slice for the next line
 	b.Leaf(model.KindRawLine, start, end, segs)
 }
 
@@ -150,7 +159,8 @@ func ParseEditableColored(src []byte, format Format, collapseDepth int) *model.D
 	// rune, never an expansion, so display (line, col) maps exactly onto the edit buffer (#62).
 	src = clampEditableSrc(src)
 	b := model.NewBuilder(src, format, collapseDepth)
-	parseEditableInto(b, src, format)
+	var scratch []model.Seg // grown once, reused across this parse's lines
+	parseEditableInto(b, src, format, &scratch)
 	return b.Finish()
 }
 
@@ -167,9 +177,9 @@ func clampEditableSrc(src []byte) []byte {
 // the shared core of the free ParseEditableColored and the pooled EditPool.Reproject (#80), so
 // both produce a byte-identical Document. #65: above the live-color budget colorize is skipped
 // (every line monochrome) so a large buffer never re-lexes per keystroke.
-func parseEditableInto(b *model.Builder, src []byte, format Format) {
+func parseEditableInto(b *model.Builder, src []byte, format Format, scratch *[]model.Seg) {
 	colorize := WithinLiveColorBudget(len(src))
-	_ = editColorParser{format: format, colorize: colorize}.Parse(src, b)
+	_ = editColorParser{format: format, colorize: colorize, scratch: scratch}.Parse(src, b)
 }
 
 // --- JSON / JSONC colorizer -------------------------------------------------------------
