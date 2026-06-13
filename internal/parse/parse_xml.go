@@ -51,7 +51,7 @@ func (xmlParser) Parse(src []byte, b *model.Builder) error {
 	dec.Strict = false
 	dec.AutoClose = xml.HTMLAutoClose
 	dec.Entity = xml.HTMLEntity
-	s := &xmlScanner{dec: dec, b: b}
+	s := &xmlScanner{dec: dec, b: b, src: src}
 	for {
 		t, err := s.next()
 		if err != nil {
@@ -68,7 +68,7 @@ func (xmlParser) Parse(src []byte, b *model.Builder) error {
 			b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!"+collapseSpace(string(tok))+">")})
 		case xml.CharData:
 			if txt := collapseSpace(string(tok)); txt != "" {
-				b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)})
+				s.markIfCDATA(b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)}))
 			}
 		}
 	}
@@ -78,6 +78,7 @@ func (xmlParser) Parse(src []byte, b *model.Builder) error {
 type xmlScanner struct {
 	dec     *xml.Decoder
 	b       *model.Builder
+	src     []byte // original bytes, for verbatim CDATA detection (#85)
 	peeked  xml.Token
 	hasPeek bool
 
@@ -85,6 +86,16 @@ type xmlScanner struct {
 	// dec.InputOffset(), so element nodes carry real Src ranges for copy-subtree.
 	tokStart, tokEnd   int
 	peekStart, peekEnd int
+}
+
+// markIfCDATA flags the just-emitted text node as raw text when its source bytes begin a CDATA
+// section, so a Reformat re-emits "<![CDATA[…]]>" verbatim instead of canonicalizing the
+// content to entity-escaped text (#85). encoding/xml delivers CDATA as ordinary CharData, so
+// the only signal is the raw prefix.
+func (s *xmlScanner) markIfCDATA(id model.NodeID) {
+	if s.tokStart >= 0 && s.tokStart < len(s.src) && bytes.HasPrefix(s.src[s.tokStart:], []byte("<![CDATA[")) {
+		s.b.MarkRawText(id)
+	}
 }
 
 func (s *xmlScanner) next() (xml.Token, error) {
@@ -151,7 +162,7 @@ func (s *xmlScanner) parseElement(start xml.StartElement, srcStart int) {
 			return
 		case xml.CharData:
 			if txt := collapseSpace(string(tok)); txt != "" {
-				s.b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)})
+				s.markIfCDATA(s.b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)}))
 			}
 		case xml.Comment:
 			s.b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})

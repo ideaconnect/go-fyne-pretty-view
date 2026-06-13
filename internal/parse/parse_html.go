@@ -140,7 +140,13 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 			closeTo(tok.Data, tokEnd)
 		case html.TextToken:
 			if txt := collapseSpace(tok.Data); txt != "" {
-				b.Leaf(model.KindText, tokStart, tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)})
+				id := b.Leaf(model.KindText, tokStart, tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)})
+				// <script>/<style> bodies are raw text: their bytes are not entity-decoded, so
+				// re-escaping '<' to "&lt;" on Reformat would corrupt the JS/CSS. Mark them so
+				// serialization emits the source verbatim (#85).
+				if len(names) > 0 && isRawTextElement(names[len(names)-1]) {
+					b.MarkRawText(id)
+				}
 			}
 		case html.CommentToken:
 			b.Leaf(model.KindComment, tokStart, tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(tok.Data)+" -->")})
@@ -166,6 +172,12 @@ func htmlStartSegs(tok html.Token, selfClose bool) []model.Seg {
 	}
 	return segs
 }
+
+// isRawTextElement reports whether an element's text content is raw (CDATA-like): its bytes are
+// not entity-decoded by the HTML parser, so they must round-trip verbatim, never re-escaped, on
+// Reformat (#85). script and style are HTML's raw-text elements; textarea/title are "escapable
+// raw text" whose entities ARE decoded, so they are treated as ordinary (escaped) text.
+func isRawTextElement(name string) bool { return name == "script" || name == "style" }
 
 // isVoidElement reports whether name is an HTML void element (no closing tag).
 func isVoidElement(name string) bool {
