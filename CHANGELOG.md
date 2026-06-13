@@ -19,6 +19,17 @@ module path (`.../v2`) and is called out under **Changed**/**Removed**.
   JSONC signal, so the comment is preserved as a visible node; a `//` inside a string value
   still stays plain JSON (#82).
 
+### Performance
+- **The live edit reproject now reuses its Document arenas and the buffer snapshot across
+  keystrokes** instead of re-allocating the whole projection every time (#80). A keystroke
+  reproject of a large (over-budget, monochrome) buffer drops from ~18.6 MB / 18 allocations to
+  ~32 B / 1 allocation, and is ~35 % faster on both minified and pretty-printed multi-MB
+  buffers — a GC-pressure/RSS/jitter win. The pooled projection is byte-identical to a fresh
+  parse (locked by a randomized equality fuzz), so caret/selection/search behavior is unchanged.
+  Per-keystroke wall time is still proportional to the buffer (the snapshot copy and rune-count
+  extent pass are inherently whole-buffer); work strictly proportional to the edited region is a
+  separate, deferred follow-up.
+
 ### Changed
 - **Dropped the dead `tabWidth` parameter from the internal `ParseEditableColored`** — every
   grid-hostile byte (a tab included) renders as one placeholder rune, so there was no

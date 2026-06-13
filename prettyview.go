@@ -73,6 +73,11 @@ type PrettyView struct {
 	// buf, so display lines map 1:1 to buffer lines and the caret is a buffer position.
 	buf *model.TextBuffer
 
+	// pool reuses the projection's arenas + buffer snapshot across keystroke reprojects so a
+	// live edit allocates ~nothing instead of rebuilding the whole Document each time (#80).
+	// Lazily created on the first reproject; nil for a read-only widget.
+	pool *parse.EditPool
+
 	// live-format engine. The displayed doc is always the colorized-raw projection of buf,
 	// so the caret is an exact buffer (line, col) — no separate structured display mode.
 	// editDeb drives the debounced settle (live validity refresh + onChanged); an explicit

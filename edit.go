@@ -287,8 +287,14 @@ func (pv *PrettyView) keyMoveCaret(dRows, col int, toLineStart, toLineEnd bool) 
 // 1:1 to buffer lines (the caret stays exact) and highlighting is live on every keystroke.
 // The new Document zero-copies into the buffer snapshot's own bytes, so invariant 3 holds.
 func (pv *PrettyView) reprojectRaw() {
-	src := pv.buf.Bytes()
-	pv.doc = parse.ParseEditableColored(src, pv.resolveFormat(src), pv.cfg.collapseDepth)
+	if pv.pool == nil {
+		pv.pool = parse.NewEditPool()
+	}
+	// Reuse the prior snapshot's backing array and the pooled Document arenas, so a keystroke
+	// reproject allocates ~nothing in steady state (#80). The pooled Document and snapshot are
+	// rebuilt in lockstep, so nothing is left aliasing a stale snapshot.
+	src := pv.buf.BytesInto(pv.pool.Snapshot())
+	pv.doc = pv.pool.Reproject(src, pv.resolveFormat(src), pv.cfg.collapseDepth)
 }
 
 // rerenderProjection repaints the live colorized-raw projection in place: re-color the

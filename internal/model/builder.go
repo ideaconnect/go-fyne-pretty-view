@@ -57,6 +57,48 @@ func NewBuilder(src []byte, format Format, collapseDepth int) *Builder {
 	return b
 }
 
+// NewPooledBuilder is NewBuilder for the editable live-reproject hot path: the returned Builder
+// and its Document are meant to be reused across keystrokes via ResetBuilder, which rewinds the
+// arenas in place so a reproject reuses the prior allocation rather than allocating fresh
+// Nodes/Lines/Segs/Aux/fold every keystroke (issue #80). The Document it produces is
+// byte-identical to NewBuilder's — pooling reuses backing storage, never changes output.
+func NewPooledBuilder(src []byte, format Format, collapseDepth int) *Builder {
+	return NewBuilder(src, format, collapseDepth)
+}
+
+// ResetBuilder rewinds the builder's Document to empty (arenas truncated to [:0], capacity
+// retained) and re-seeds it for a fresh parse of src, so driving the same Open/Leaf/Close calls
+// yields a Document byte-identical to NewBuilder(src, ...). It is the per-keystroke reuse path
+// for the live editable reproject (issue #80); the Document's fold index is retained and reset
+// in Finish so its backing arrays are reused too.
+func (b *Builder) ResetBuilder(src []byte, format Format, collapseDepth int) {
+	d := b.doc
+	d.Src = src
+	d.Format = format
+	d.Aux = d.Aux[:0]
+	d.Nodes = d.Nodes[:0]
+	d.Lines = d.Lines[:0]
+	d.Segs = d.Segs[:0]
+	d.lineRunes = d.lineRunes[:0]
+	d.lineASCII = d.lineASCII[:0]
+	d.MaxLineRunes = 0
+	d.MaxDepth = 0
+	d.rowsOf = nil // the wrap projection is recomputed by the renderer after a reproject
+	d.colsByDepth = nil
+	// Clear the intern cache (keeping its allocation) so re-interning rebuilds Aux from offset
+	// 0 identically; a stale entry would resolve a literal to a now-truncated Aux offset.
+	for k := range b.litCache {
+		delete(b.litCache, k)
+	}
+	b.collapseDepth = collapseDepth
+	b.stack = b.stack[:0]
+	d.Nodes = append(d.Nodes, Node{
+		Parent: NoNode, Subtree: 1, ChildCount: 0,
+		HeadLine: -1, CloseLine: -1, Kind: KindRoot, Depth: 0,
+	})
+	b.stack = append(b.stack, 0)
+}
+
 // curDepth is the indentation depth for a node added now. The root sits at
 // stack[0], so top-level nodes get depth 0.
 func (b *Builder) curDepth() uint8 {
@@ -255,7 +297,13 @@ func (b *Builder) Finish() *Document {
 	b.doc.Nodes[0].Subtree = NodeID(len(b.doc.Nodes))
 	b.buildCollapsedRenderings()
 	b.computeExtent()
-	b.doc.fold = newFoldIndex(b.doc)
+	// Reuse the existing fold index's backing arrays on a pooled reproject (issue #80); a fresh
+	// build allocates one. Both yield the same all-visible projection.
+	if b.doc.fold == nil {
+		b.doc.fold = newFoldIndex(b.doc)
+	} else {
+		b.doc.fold.reset(b.doc)
+	}
 	if !b.doc.fold.applyDefaults(b.doc) {
 		b.doc.fold.buildFenwick() // no default-collapse: build the all-visible Fenwick once
 	}
@@ -266,8 +314,20 @@ func (b *Builder) Finish() *Document {
 // to size the horizontal/vertical scroll extent. One O(n) pass.
 func (b *Builder) computeExtent() {
 	d := b.doc
-	d.lineRunes = make([]int32, len(d.Lines))
-	d.lineASCII = make([]bool, len(d.Lines))
+	d.MaxDepth = 0
+	d.MaxLineRunes = 0
+	// Reuse the cached per-line slices' backing arrays across a pooled reproject (issue #80).
+	n := len(d.Lines)
+	if cap(d.lineRunes) >= n {
+		d.lineRunes = d.lineRunes[:n]
+	} else {
+		d.lineRunes = make([]int32, n)
+	}
+	if cap(d.lineASCII) >= n {
+		d.lineASCII = d.lineASCII[:n]
+	} else {
+		d.lineASCII = make([]bool, n)
+	}
 	for li := range d.Lines {
 		l := &d.Lines[li]
 		if l.Depth > d.MaxDepth {

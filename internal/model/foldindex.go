@@ -104,6 +104,38 @@ func newFoldIndex(d *Document) *foldIndex {
 	return fi
 }
 
+// reset rewinds the fold index to the all-visible projection for d, reusing the existing
+// backing arrays whenever they are large enough (issue #80 pooling). It produces exactly what
+// newFoldIndex would, but allocates nothing in steady state. The Fenwick is rebuilt by the
+// caller (Finish) via buildFenwick, which reuses its own backing array when the size matches.
+func (fi *foldIndex) reset(d *Document) {
+	nNodes := len(d.Nodes)
+	words := (nNodes + 63) / 64
+	if cap(fi.collapsed.words) >= words {
+		fi.collapsed.words = fi.collapsed.words[:words]
+		for i := range fi.collapsed.words {
+			fi.collapsed.words[i] = 0
+		}
+	} else {
+		fi.collapsed = newBitset(nNodes)
+	}
+	n := len(d.Lines)
+	if cap(fi.hiddenBy) >= n {
+		fi.hiddenBy = fi.hiddenBy[:n]
+	} else {
+		fi.hiddenBy = make([]NodeID, n)
+	}
+	if cap(fi.vis) >= n {
+		fi.vis = fi.vis[:n]
+	} else {
+		fi.vis = make([]int32, n)
+	}
+	for i := 0; i < n; i++ {
+		fi.hiddenBy[i] = NoNode
+		fi.vis[i] = fi.weightOf(d, int32(i))
+	}
+}
+
 // weightOf is the Fenwick weight a *visible* line contributes: its visual-row
 // count. Under WrapNone (d.rowsOf == nil) that is always 1 — a single nil check,
 // so the non-wrap path pays nothing. Under WrapWord it is the line's wrapped-row
