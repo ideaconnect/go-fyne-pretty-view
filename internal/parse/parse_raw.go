@@ -99,28 +99,28 @@ func parseRaw(src []byte, collapseDepth, tabWidth int) *model.Document {
 // edit-raw projection (one cell, never a control character).
 const ctlPlaceholder = "·"
 
-// editRawLineSegs renders src[start:end] for edit mode: zero-copy SrcSegs for runs of
-// clean bytes, and a one-rune placeholder LitSeg for each grid-hostile byte. The total
-// display-rune count equals the buffer-rune count, so the caret stays a direct buffer
-// position. It is the monochrome fallback for the edit-mode colorizer's long lines
-// (parse_editcolor.go); short lines get per-token colors there instead.
-func editRawLineSegs(src []byte, start, end int) []model.Seg {
+// editRawLineSegsInto renders src[start:end] for edit mode, APPENDING into dst (pass dst[:0]
+// to reuse a scratch slice across lines — #84): zero-copy SrcSegs for runs of clean bytes,
+// and a one-rune placeholder LitSeg for each grid-hostile byte. The total display-rune count
+// equals the buffer-rune count, so the caret stays a direct buffer position. It is the
+// monochrome fallback for the edit-mode colorizer's long lines (parse_editcolor.go); short
+// lines get per-token colors there instead.
+func editRawLineSegsInto(dst []model.Seg, src []byte, start, end int) []model.Seg {
 	if !hasGridBreaker(src[start:end]) {
-		return []model.Seg{model.SrcSeg(model.RolePlain, start, end)} // clean (incl. empty) line
+		return append(dst, model.SrcSeg(model.RolePlain, start, end)) // clean (incl. empty) line
 	}
-	var segs []model.Seg
 	runStart := start
 	for i := start; i < end; i++ {
 		if isGridHostile(src[i]) {
 			if i > runStart {
-				segs = append(segs, model.SrcSeg(model.RolePlain, runStart, i))
+				dst = append(dst, model.SrcSeg(model.RolePlain, runStart, i))
 			}
-			segs = append(segs, model.LitSeg(model.RolePlain, ctlPlaceholder))
+			dst = append(dst, model.LitSeg(model.RolePlain, ctlPlaceholder))
 			runStart = i + 1
 		}
 	}
 	if end > runStart {
-		segs = append(segs, model.SrcSeg(model.RolePlain, runStart, end))
+		dst = append(dst, model.SrcSeg(model.RolePlain, runStart, end))
 	}
-	return segs
+	return dst
 }

@@ -14,6 +14,18 @@ checklist that gates dropping it).
 
 _Nothing pending._
 
+## [v2.1.6-alpha] — 2026-06-13 — zero-allocation live reproject
+
+### Performance
+- **The live edit reproject now reuses a single segment-build scratch across all lines** instead
+  of allocating one temporary `[]Seg` per physical line (#84, first half of the #80 follow-up).
+  Combined with #80's arena pooling, a steady-state keystroke reproject of a large buffer now
+  allocates **0 B / 0 allocations** on both minified and pretty-printed shapes (the pretty shape
+  was ~2.16 MB / ~67 k allocations). The non-pooled `ParseEditableColored` benefits too (one
+  scratch reused across lines instead of one per line). Output is byte-identical to before
+  (locked by the equality fuzz). The remaining half of #84 — work strictly proportional to the
+  edited region — is still open.
+
 ## [v2.1.5-alpha] — 2026-06-13 — production-hardening follow-ups
 
 The remaining gaps from the code- & test-quality reviews (milestone "v2.2.0 — production

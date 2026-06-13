@@ -181,6 +181,34 @@ func TestEditPoolSteadyStateAllocs(t *testing.T) {
 	}
 }
 
+// TestEditPoolPrettyAllocsConstant locks the per-line scratch reuse (#84): a pretty (many short
+// lines) over-budget buffer must reproject with a small CONSTANT number of allocations, not one
+// per physical line. Before the reuse, the pooled pretty reproject allocated ~one []Seg
+// temporary per line (~tens of thousands on a multi-MB buffer); now the scratch is reused, so
+// the count neither exceeds a small constant nor scales with the line count.
+func TestEditPoolPrettyAllocsConstant(t *testing.T) {
+	small := makeJSONPretty(LiveColorBudgetBytes + (1 << 20))   // over budget, many lines
+	large := makeJSONPretty(2*LiveColorBudgetBytes + (2 << 20)) // ~2x the lines
+	if WithinLiveColorBudget(len(small)) || WithinLiveColorBudget(len(large)) {
+		t.Fatalf("fixtures must be over budget (monochrome)")
+	}
+	warm := func(src []byte) *EditPool {
+		p := NewEditPool()
+		p.Reproject(src, FormatJSON, 0)
+		p.Reproject(src, FormatJSON, 0)
+		return p
+	}
+	ps, pl := warm(small), warm(large)
+	ns := testing.AllocsPerRun(30, func() { _ = ps.Reproject(small, FormatJSON, 0) })
+	nl := testing.AllocsPerRun(30, func() { _ = pl.Reproject(large, FormatJSON, 0) })
+	if ns > 4 {
+		t.Errorf("pretty pooled reproject allocated %.0f times, want <= 4 (per-line []Seg scratch not reused?)", ns)
+	}
+	if nl > ns+2 {
+		t.Errorf("pretty alloc count scaled with line count: %.0f (small) vs %.0f (2x) — per-line temporaries", ns, nl)
+	}
+}
+
 // TestEditPoolBudgetCrossing confirms pooling is transparent across the #65 color budget: the
 // same pool, driven under->over->under the 2 MiB cliff, equals a fresh parse at each step and
 // keeps the right colorization (colored below budget, monochrome above).

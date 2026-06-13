@@ -19,6 +19,7 @@ import "github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 type EditPool struct {
 	bld      *model.Builder
 	snapshot []byte
+	scratch  []model.Seg // reused per-line segment build buffer, persisted across reprojects (#84)
 }
 
 // NewEditPool returns an empty pool. The first Reproject allocates the arenas; every subsequent
@@ -41,6 +42,6 @@ func (p *EditPool) Reproject(src []byte, format Format, collapseDepth int) *mode
 	} else {
 		p.bld.ResetBuilder(src, format, collapseDepth)
 	}
-	parseEditableInto(p.bld, src, format)
+	parseEditableInto(p.bld, src, format, &p.scratch)
 	return p.bld.Finish()
 }
