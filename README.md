@@ -440,20 +440,21 @@ explicit:
 
 ## Stability
 
-The module is **pre-1.0 (v0.x, alpha)**. The exported API of `prettyview` and
-`fonttheme` may change between minor versions; every breaking change is recorded under
-**Changed**/**Removed** in [CHANGELOG.md](CHANGELOG.md).
-
-As of **v1.0.0** the exported surface is frozen under [semantic import
-versioning](https://go.dev/ref/mod#major-version-suffixes): additions ship as a minor, and
-any breaking change ships under a new major module path — never as a minor bump. The
+The module is on the **`/v2` major** (`.../go-fyne-pretty-view/v2`) and ships releases tagged
+`vX.Y.Z-alpha`. The `-alpha` suffix marks **pre-production maturity** — the library is still
+accumulating real-world mileage — **not** API instability: the exported surface of `prettyview`
+and `fonttheme` is **frozen** under [semantic import
+versioning](https://go.dev/ref/mod#major-version-suffixes). Additions ship as a minor; any
+breaking change ships under a new major module path (`.../v3`) — never as a minor bump. The
 frozen surface is pinned by `TestExportedSurfaceGolden` (`testdata/api_surface.txt`), so an
-accidental change to a public signature fails CI.
+accidental change to a public signature fails CI, and every change is recorded in
+[CHANGELOG.md](CHANGELOG.md). The checklist that gates dropping the `-alpha` suffix lives in
+[WORKFLOWS.md](WORKFLOWS.md#dropping--alpha).
 
-**v2** (`.../go-fyne-pretty-view/v2`) adds opt-in editing + live formatting; it is
-additive over v1 (no v1 symbol renamed or changed) except the module path. Read-only
-hosts upgrade by changing only the import path — see [MIGRATION.md](MIGRATION.md). v1 is
-frozen and receives critical/security fixes only.
+**v2** adds opt-in editing + live formatting; it is additive over v1 (no v1 symbol renamed or
+changed) except the module path. Read-only hosts upgrade by changing only the import path —
+see [MIGRATION.md](MIGRATION.md). **v1** is frozen and receives critical/security fixes only,
+on the `v1-maintenance` branch (tagged `v1.x.y`).
 
 **Deprecation policy.** Within a major (a frozen surface), a symbol is never removed
 abruptly: it is marked with a Go `// Deprecated:` doc comment pointing at the replacement,
