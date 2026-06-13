@@ -57,11 +57,11 @@ visible in the viewport ever exist as live canvas objects.** Everything else
 lives in a compact, pointer-free, struct-of-arrays model, and selection, search
 and copy all operate on that model rather than on widgets.
 
-Measured on the included fixtures:
+Measured on the included fixtures in the current test harness:
 
 | Input | Visible rows | Live row widgets | Heap after scrolling the whole file |
 |---|---|---|---|
-| `big.json` (7.5 MB) | 440,005 | **31** | **~80–90 MB** |
+| `big.json` (7.5 MB) | 440,005 | **~30 viewport rows** | **~80–90 MB snapshot** |
 
 The parsed model is roughly **5× to over 7× the source size** — about 4.85× for
 typical pretty-printed JSON (the ~478 KB `openapi.json` → ~2.2 MB, guarded by
@@ -301,11 +301,11 @@ search box, e.g. on `Ctrl/Cmd+F`).
 |---|---|
 | `SetData(src, format)` / `SetText(s)` | load content |
 | `Reparse(format)` / `Source()` / `Format()` | re-parse the current bytes / read them back / current format |
-| `ExpandAll()` / `CollapseAll()` / `SetDefaultCollapseDepth(d)` | fold control |
+| `ExpandAll()` / `CollapseAll()` / `ExpandToDepth(d)` / `CollapseToDepth(d)` / `SetDefaultCollapseDepth(d)` | fold control |
 | `ExpandTo(byteOffset) bool` / `ScrollToLine(line) bool` | reveal & scroll to a node by source offset (any structured format) or to a display line (any format) |
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
 | `CopySelection()` / `CopySubtree(byteOffset) bool` | clipboard (CopySubtree copies the pretty-printed subtree for any format) |
-| `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` | search |
+| `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` / `Matches()` / `SearchError()` | search |
 | `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
 | `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
