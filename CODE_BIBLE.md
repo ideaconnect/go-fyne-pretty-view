@@ -35,6 +35,12 @@ gap. If a line is genuinely untestable (a real `app.New()`/`ShowAndRun` entry
 point), isolate it behind a thin `main` and test the extracted body instead of
 contorting the test around a driver.
 
+Coverage measures whether code *ran*, not whether a test would *catch a change* to it.
+The teeth check (rule 2) is verified empirically by **`make mutation`** — gremlins mutates
+the pure logic packages (geometry / model / parse) and gates on test efficacy (killed ÷
+covered); the pure packages stand at 100 %. Run it after touching that logic; a surviving
+mutant is a covered-but-untested line a real bug could hide in.
+
 ## 4. `make check` is the gate
 
 `gofmt`, `go vet`, and `go test -race ./...` must all be green before a change is

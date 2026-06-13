@@ -29,6 +29,21 @@ make check                 # CI gate: gofmt check + vet + -race
 `make cover` writes `coverage.out` and prints total coverage. `make clean`
 removes `./bin` and coverage artifacts.
 
+```sh
+make mutation              # mutation-test the pure logic packages (gremlins); efficacy gate
+make mutation MUT_PKGS=internal/geometry MUT_EFFICACY=100
+```
+
+`make mutation` runs [gremlins](https://github.com/go-gremlins/gremlins) over
+`internal/{geometry,model,parse}` (installing it on first use), mutating the source and
+re-running each package's tests — a **surviving** mutant is covered-but-not-actually-tested
+code. It gates on test efficacy (`MUT_EFFICACY`, default 95 %; the pure packages are at
+100 %). It's a manual/periodic check, not part of `make check` (it runs the suite once per
+mutant — minutes, not seconds). The widget (root) package needs a Fyne app per run, so
+mutation testing is scoped to the headless logic packages. Many byte-scanner mutations
+(`i++`→`i--`) cause infinite loops that gremlins records as "timed out" = killed; that's
+expected, not a failure.
+
 ## Verifying visually without a display
 
 The widget renders through Fyne's software painter in tests, so you can produce
