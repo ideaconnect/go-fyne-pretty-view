@@ -12,7 +12,32 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
-_Nothing pending._
+From a second pre-alpha deep-review pass (issues #94–#105). No exported API signatures changed;
+the **/v2** surface stays frozen.
+
+### Fixed
+- **Forced-format JSON/JSONC no longer silently drops a container's contents on unrecoverable
+  input.** Under an explicit `FormatJSON`/`FormatJSONC` (e.g. a host passing a known format for a
+  `.json` file), an array element or object member whose first byte can't begin a JSON value/key
+  (`[NaN,1]`, `['a','b']`, `{foo:1,"ok":2}`) collapsed the whole container to an empty `[]`/`{}`
+  with no error marker — discarding the user's bytes. The unparseable run is now surfaced as a
+  visible error-marker line and the parser continues to the following siblings, so every byte stays
+  visible (the project's core contract), matching the existing object-key/trailing-junk recovery.
+  Auto-detect already routed these to raw, so only the forced-format path was affected (#94).
+- **Edit-mode Copy/Cut no longer corrupts tab and control bytes on the clipboard.** In an editable
+  widget, `CopySelection`/`Cut`/`SelectedText` walked the display projection, which renders a tab
+  and every C0/DEL control as a single placeholder rune — so a copied/cut tab became `·` (structured
+  buffers) or a control byte became a literal tab (raw buffers). Copy/Cut now source the exact edit
+  buffer bytes (the projection maps 1:1 onto the buffer), giving a byte-faithful clipboard round-trip
+  (CODE_BIBLE rule 7). The read-only viewer path is unchanged (#95).
+
+### CI
+- **The release workflow now runs the full test gate on the released SHA before building any
+  artifact.** A tag push triggers only `release.yml`, which previously built and published binaries
+  without running tests (`ci.yml` fires on branches/PRs, not tags) — so the race detector, the >95%
+  coverage gate, the perf guards, and the API-freeze golden never ran at release time. A `test` job
+  (race + cross-package coverage + the coverage threshold + a benchmark smoke-run + `govulncheck`,
+  mirroring `ci.yml`) now gates the `build` matrix via `needs: test` (#96).
 
 ## [v2.1.7-alpha] — 2026-06-13 — markup raw-text fidelity + parse hardening
 

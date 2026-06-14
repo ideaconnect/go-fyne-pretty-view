@@ -522,6 +522,18 @@ func (pv *PrettyView) selectedText() string {
 	if !ok {
 		return ""
 	}
+	// In edit mode the displayed projection renders every grid-hostile byte (a tab, any
+	// C0 control, DEL) as a single placeholder rune, so walking the display would put a
+	// lossy copy on the clipboard — a tab/control becomes '·', or (raw projection) a
+	// control byte becomes a literal tab. The projection maps 1:1 onto the edit buffer,
+	// so copy the exact buffer bytes for the selected (line, col) span instead, giving a
+	// byte-faithful round-trip (CODE_BIBLE rule 7); #95. The read-only viewer has no
+	// buffer and keeps the display walk below (which restores real tabs for raw input).
+	if pv.cfg.editable && pv.buf != nil {
+		lo := pv.buf.ByteOffAt(int(a.line), a.col)
+		hi := pv.buf.ByteOffAt(int(b.line), b.col)
+		return string(pv.buf.Slice(lo, hi))
+	}
 	// Walk the visible display lines of the span directly (a.line..b.line, skipping
 	// folded-away lines) instead of resolving every row through the O(log n) Fenwick
 	// projection. A whole line — every interior line, and either endpoint when its

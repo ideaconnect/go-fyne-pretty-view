@@ -400,46 +400,57 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 		childStart := s.pos
 		if kind == model.KindObject {
 			if s.peek() != '"' {
-				s.fail("expected object key")
-				break
+				// A non-string where a key is expected (an unquoted / garbage key, e.g.
+				// {foo: 1}). Surface the bad run as a visible error marker and continue so
+				// the member — and every member after it — stays visible instead of the
+				// whole object collapsing to an empty {} (#94).
+				s.recoverBadMember(childStart, childStart, nil, close)
+				continue
 			}
 			keyStart, ok := s.scanString()
 			if !ok {
-				break
+				break // an unterminated key string runs to EOF — nothing left to recover
 			}
 			keyEnd := s.pos
 			keyComments = s.scanTrivia() // JSONC comments between the key and its colon
 			if s.peek() != ':' {
-				s.fail("expected ':' after key")
-				break
+				// A key with no following colon (e.g. {"a" 1}): surface the key plus the
+				// run up to the next delimiter as an error marker and continue (#94).
+				s.recoverBadMember(childStart, childStart, nil, close)
+				continue
 			}
 			s.pos++
 			childPrefix = []model.Seg{cleanSrcSeg(s.src, model.RoleKey, keyStart, keyEnd), model.LitSeg(model.RolePunct, ": ")}
 		}
 
 		childID, ok := s.parseValue(childPrefix, kind == model.KindObject, childStart, keyComments)
-		if !ok {
-			// Tolerant recovery: if a key was consumed but its value was truncated
-			// (no value node emitted), keep the key visible as an error marker so a
-			// cut-off member isn't silently dropped. If parseValue already emitted a
-			// partial nested node, that node carries the key — don't duplicate it.
-			if childID == model.NoNode && len(childPrefix) > 0 {
-				s.b.Leaf(model.KindError, childStart, s.pos, childPrefix)
-			}
-			break
+		if !ok && childID == model.NoNode {
+			// The element / value's first byte cannot begin a JSON value (NaN, Infinity,
+			// undefined, a single-quoted string, a bare @, …). parseValue emitted nothing,
+			// so surface the unparseable run as a visible error marker — carrying the
+			// object key prefix, if any — and continue to the next sibling rather than
+			// dropping the rest of the container. This preserves the every-byte-stays-
+			// visible contract on the forced-format path that auto-detect routes to raw (#94).
+			s.recoverBadMember(childStart, s.pos, childPrefix, close)
+			continue
 		}
+		// Either the value parsed, or a partial nested node was emitted (childID !=
+		// NoNode — e.g. a truncated or recovered-error inner container). A partial node is
+		// kept; fall through and let the delimiter handling below try the next sibling.
 
 		s.emitComments(s.scanTrivia()) // JSONC comments trailing the value (before its comma / the close)
 		if s.peek() == ',' {
 			s.pos++
-			s.b.AppendComma(s.b.LastLine(childID))
+			if childID != model.NoNode {
+				s.b.AppendComma(s.b.LastLine(childID))
+			}
 			continue
 		}
 		// A complete value followed by neither ',' nor the close byte (nor EOF) is
 		// trailing junk, e.g. the "X" in "[trueX]" or "abc" in "[123abc]" — a bare
 		// literal/number scan stops at the first foreign byte without a delimiter
-		// check. Surface it as an error marker rather than silently dropping the rest
-		// of the container, mirroring the truncated-key recovery above.
+		// check. Surface it as an error marker and continue (consuming a following comma)
+		// rather than silently dropping the rest of the container.
 		if s.pos < len(s.src) && s.peek() != close {
 			junkStart := s.pos
 			for s.pos < len(s.src) && s.src[s.pos] != ',' && s.src[s.pos] != close {
@@ -447,9 +458,40 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			}
 			s.b.Leaf(model.KindError, junkStart, s.pos, []model.Seg{cleanSrcSeg(s.src, model.RolePlain, junkStart, s.pos)})
 			s.fail("unexpected content after value")
+			if s.peek() == ',' {
+				s.pos++ // keep the element after the trailing junk visible too
+				continue
+			}
 			break
 		}
 		// Otherwise expect the closing brace on the next iteration.
 	}
 	return id, s.err == nil
+}
+
+// recoverBadMember surfaces an unparseable container member as a visible KindError
+// marker instead of silently dropping it (and every sibling after it). It scans the
+// junk run from the current position to the next ',' or close byte (or EOF) and emits a
+// marker spanning [markerStart, end): any already-parsed key segs (prefix) followed by
+// the raw run from rawStart. It records the parse error and consumes a trailing comma so
+// the following member still renders, keeping every byte visible — so `[NaN,1]` keeps
+// both, `{foo:1,"ok":2}` keeps "ok", and `[[1,2],[@,9],[3,4]]` keeps all three (#94).
+// It mirrors the trailing-junk recovery in parseContainer.
+func (s *jsonScanner) recoverBadMember(markerStart, rawStart int, prefix []model.Seg, close byte) {
+	end := s.pos
+	for end < len(s.src) && s.src[end] != ',' && s.src[end] != close {
+		end++
+	}
+	segs := append([]model.Seg(nil), prefix...)
+	if end > rawStart {
+		segs = append(segs, cleanSrcSeg(s.src, model.RolePlain, rawStart, end))
+	}
+	if len(segs) > 0 {
+		s.b.Leaf(model.KindError, markerStart, end, segs)
+	}
+	s.pos = end
+	if s.pos < len(s.src) && s.src[s.pos] == ',' {
+		s.pos++ // consume the delimiter so the next member is still parsed
+	}
+	s.fail("unexpected content in container")
 }
