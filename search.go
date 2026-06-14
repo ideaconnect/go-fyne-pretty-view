@@ -47,7 +47,10 @@ type searchState struct {
 }
 
 // SetOnSearchRequested registers a callback invoked when the user presses the
-// search shortcut (Ctrl/Cmd+F), so a host can focus its search field.
+// search shortcut (Ctrl/Cmd+F), so a host can focus its search field. Setting it
+// replaces any previous callback. It is independent of the bundled search bar, which
+// focuses its own box on Ctrl+F: both run, so a built-in search bar and your own
+// Ctrl+F handler coexist.
 func (pv *PrettyView) SetOnSearchRequested(fn func()) { pv.onSearchRequested = fn }
 
 // Search starts or replaces the active search and reveals the first match. It is the
@@ -98,8 +101,23 @@ func (pv *PrettyView) ClearSearch() {
 }
 
 func (pv *PrettyView) notifySearch() {
+	for _, h := range pv.onSearchChangedHooks {
+		h()
+	}
 	if pv.onSearchChanged != nil {
 		pv.onSearchChanged()
+	}
+}
+
+// notifySearchRequested fires the bundled search bar's internal focus hook and then the
+// host's public onSearchRequested, so the built-in search bar never clobbers a host
+// Ctrl+F handler (#99).
+func (pv *PrettyView) notifySearchRequested() {
+	for _, h := range pv.onSearchRequestedHooks {
+		h()
+	}
+	if pv.onSearchRequested != nil {
+		pv.onSearchRequested()
 	}
 }
 
@@ -233,12 +251,18 @@ func (pv *PrettyView) runSearch(q SearchQuery) {
 			// (^ $) and word boundaries (\b \B) see full context. A from-offset
 			// FindIndex(scratch[from:]) loop is wrong here: re-slicing the suffix
 			// gives the engine a fresh start-of-text, which re-anchors ^ at every
-			// resume point and hides the byte to the left of \b/\B. The n argument
-			// bounds the per-line slice to the remaining match budget (so a single
-			// pathological line can't allocate past the cap); zero-width matches
-			// (e.g. \b, or o* at a non-o) carry nothing to highlight and are skipped.
+			// resume point and hides the byte to the left of \b/\B. Pass n = -1 (the
+			// whole line) rather than the remaining budget: the budget counts only
+			// RECORDED matches, but FindAllIndex's n counts every returned match
+			// including the zero-width ones (e.g. \b, or o* at a non-o) that carry
+			// nothing to highlight and are skipped — so bounding by the budget would
+			// spend it on zero-width hits and silently drop real matches past them
+			// while leaving capped=false (#98). We instead break once the budget of
+			// recorded matches is reached. (A pathological line of millions of
+			// zero-width hits is already gated by the literal-prefix prefilter, and
+			// scratch is reused, so the per-line slice is not a memory concern.)
 			cur := colCursor{hay: scratch}
-			for _, loc := range re.FindAllIndex(scratch, limit-len(pv.search.matches)) {
+			for _, loc := range re.FindAllIndex(scratch, -1) {
 				if loc[0] == loc[1] {
 					continue
 				}

@@ -12,7 +12,7 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
-From a second pre-alpha deep-review pass (issues #94–#105). No exported API signatures changed;
+From a second pre-alpha deep-review pass (issues #94–#106). No exported API signatures changed;
 the **/v2** surface stays frozen.
 
 ### Fixed
@@ -30,6 +30,31 @@ the **/v2** surface stays frozen.
   buffers) or a control byte became a literal tab (raw buffers). Copy/Cut now source the exact edit
   buffer bytes (the projection maps 1:1 onto the buffer), giving a byte-faithful clipboard round-trip
   (CODE_BIBLE rule 7). The read-only viewer path is unchanged (#95).
+- **An edit in an editable widget now invalidates an active search.** A keystroke reprojects the
+  buffer and reassigns line/column coordinates, but the per-keystroke path never cleared
+  `pv.search`, so highlights and the `SearchStatus` count drifted onto the wrong text as you typed
+  (`Reformat` already cleared for the same reason). Edits now drop stale matches before the repaint
+  (#97).
+- **Regex search no longer drops real matches to zero-width hits under a small `MaxMatches`.** A
+  zero-width-capable pattern (e.g. `o*`) spent the per-line match budget on the skipped empty
+  matches, so real matches past them were lost and the count under-reported with `capped` false.
+  The budget now counts only recorded matches (#98).
+
+### Changed
+- **The built-in controls no longer clobber a host's `SetOnDataChanged` / `SetOnSearchChanged` /
+  `SetOnSearchRequested`.** `NewFormatSelect` and `NewSearchBar` previously registered through those
+  single-slot public setters, so using a bundled control *and* your own callback silently dropped
+  one. They now subscribe through internal hooks that fire **alongside** the public callback, so an
+  app can mix a built-in control with its own hook (as the docs always claimed). No API change (#99).
+
+### Tests
+- **`Reformat` output is now locked by a semantic round-trip + fuzz**, re-parsing the result with the
+  stdlib (`encoding/json` with `UseNumber`, `encoding/xml`) — an oracle independent of the model's own
+  serializer, which the prior `serializePretty`-vs-`Text()` parity check could not be (both share
+  `AppendPrettyLine`). The structured Cut test now asserts clipboard **equality**, not substring (#100).
+  The new fuzz surfaced a separate, pre-existing `Reformat` bug — a raw C0/DEL byte in a JSON string
+  reformats to the invalid `\xNN` display escape — now filed as #106 and excluded from the fuzz's
+  domain until fixed.
 
 ### CI
 - **The release workflow now runs the full test gate on the released SHA before building any

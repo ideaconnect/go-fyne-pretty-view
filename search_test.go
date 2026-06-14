@@ -20,6 +20,46 @@ func lineContaining(d *model.Document, sub string) int32 {
 	return -1
 }
 
+// TestSearchRegexZeroWidthDoesNotEatBudget is the #98 regression: a zero-width-capable
+// pattern (o* matches "" at every non-'o' position) must not spend the MaxMatches budget on
+// the skipped zero-width hits and drop the real match that lies past them. MaxMatches=5 is
+// smaller than the index of the real 'o', so the old n=budget bound returned only the
+// leading empties (0 recorded), reporting 0 results for a pattern that genuinely matches.
+func TestSearchRegexZeroWidthDoesNotEatBudget(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte("zzzzzo"), FormatRaw, WithSearchConfig(SearchConfig{MaxMatches: 5}))
+	pv.Search(SearchQuery{Text: "o*", Mode: SearchRegex})
+	if _, total, _ := pv.SearchStatus(); total != 1 {
+		t.Fatalf("regex o* total = %d, want 1 (the real 'o' must survive the zero-width hits)", total)
+	}
+	m := pv.search.matches[0]
+	if got := string([]rune(pv.doc.DisplayString(int32(m.Line)))[m.ColStart:m.ColEnd]); got != "o" {
+		t.Errorf("match text = %q, want %q", got, "o")
+	}
+}
+
+// TestEditableEditInvalidatesActiveSearch is the #97 regression: a per-keystroke edit
+// reprojects the buffer and reassigns line/column coordinates, so an active search's matches
+// become stale (Reformat already clears for the same reason). An edit must drop them so
+// highlights and SearchStatus don't drift onto the wrong text as the user types.
+func TestEditableEditInvalidatesActiveSearch(t *testing.T) {
+	pv, win := renderEditable(t, nil, 600, 300)
+	defer win.Close()
+	pv.SetData([]byte("hello world\nhello there\n"), FormatRaw)
+	pv.Search(SearchQuery{Text: "hello"})
+	if _, total, _ := pv.SearchStatus(); total != 2 {
+		t.Fatalf("precondition: search total = %d, want 2", total)
+	}
+	pv.SetCaret(0, 0)
+	pv.editInsert([]byte("Z")) // any edit
+	if active, total, capped := pv.SearchStatus(); active != 0 || total != 0 || capped {
+		t.Errorf("after edit SearchStatus = (%d,%d,%v), want (0,0,false) — stale matches not cleared", active, total, capped)
+	}
+	if n := len(pv.search.matches); n != 0 {
+		t.Errorf("after edit pv.search.matches has %d stale entries, want 0", n)
+	}
+}
+
 func TestSearchPlain(t *testing.T) {
 	pv := docPV(`{"name":"alpha","other":"alphabet"}`, FormatJSON)
 	pv.Search(SearchQuery{Text: "alpha"})

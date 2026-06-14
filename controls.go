@@ -157,7 +157,7 @@ func NewFormatSelect(pv *PrettyView) fyne.CanvasObject {
 			pv.Reparse(parseFormatName(s))
 		}
 	}
-	pv.SetOnDataChanged(func() {
+	pv.addOnDataChangedHook(func() { // internal hook: does not clobber a host SetOnDataChanged (#99)
 		sel.Selected = pv.Format().String()
 		sel.Refresh()
 	})
@@ -284,8 +284,8 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 		entry.SetText("")
 		pv.ClearSearch()
 	}
-	pv.SetOnSearchChanged(update)
-	pv.SetOnSearchRequested(func() { focusObject(entry) })
+	pv.addOnSearchChangedHook(update)                          // internal hooks: do not clobber a host's
+	pv.addOnSearchRequestedHook(func() { focusObject(entry) }) // SetOnSearchChanged/Requested (#99)
 
 	// Case-sensitive and regex toggles: HighImportance highlights the active state,
 	// and toggling re-runs the current query so the result set updates immediately.
@@ -388,9 +388,7 @@ func registerFindShortcut(win fyne.Window, pv *PrettyView) {
 	win.Canvas().AddShortcut(
 		&desktop.CustomShortcut{KeyName: fyne.KeyF, Modifier: fyne.KeyModifierShortcutDefault},
 		func(fyne.Shortcut) {
-			if pv.onSearchRequested != nil {
-				pv.onSearchRequested()
-			}
+			pv.notifySearchRequested() // bundled search bar + host hook both fire (#99)
 		},
 	)
 }

@@ -405,8 +405,8 @@ func (pv *PrettyView) TypedShortcut(s fyne.Shortcut) {
 	case *fyne.ShortcutCut:
 		pv.Cut() // copy-only (no-op) unless editable
 	case *desktop.CustomShortcut:
-		if sc.KeyName == fyne.KeyF && sc.Modifier == fyne.KeyModifierShortcutDefault && pv.onSearchRequested != nil {
-			pv.onSearchRequested()
+		if sc.KeyName == fyne.KeyF && sc.Modifier == fyne.KeyModifierShortcutDefault {
+			pv.notifySearchRequested() // bundled search bar + host hook both fire (#99)
 		}
 	}
 }

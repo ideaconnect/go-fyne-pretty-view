@@ -133,6 +133,15 @@ type PrettyView struct {
 	onSearchChanged   func() // invoked after the match set / active match changes
 	onDataChanged     func() // invoked after SetData/Reparse swaps the document
 
+	// Internal control-sync hooks. The bundled controls (NewFormatSelect, NewSearchBar)
+	// subscribe through these so they fire ALONGSIDE — never instead of — a host's own
+	// SetOnDataChanged/SetOnSearchChanged/SetOnSearchRequested callback. That lets an app
+	// use a built-in control and its own hook at the same time, instead of the control
+	// silently clobbering the single public slot (#99). Append-only; unexported.
+	onDataChangedHooks     []func()
+	onSearchChangedHooks   []func()
+	onSearchRequestedHooks []func()
+
 	// multi-click tracking for word/line selection
 	lastClickAt  time.Time
 	lastClickPos fyne.Position
@@ -213,9 +222,7 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 	pv.Refresh()
 	// SetData is a programmatic load, not a user edit, so it does not arm a debounced settle
 	// (validity is already set synchronously above); onChanged fires only for actual edits.
-	if pv.onDataChanged != nil {
-		pv.onDataChanged()
-	}
+	pv.notifyDataChanged()
 }
 
 // SetText is shorthand for SetData([]byte(s), FormatAuto).
@@ -281,12 +288,45 @@ func (pv *PrettyView) Format() Format {
 
 // SetOnDataChanged registers a callback invoked whenever the document is
 // replaced (SetData/SetText/Reparse). Use it to keep host controls (such as a
-// format selector) in sync. Setting it replaces any previous callback.
+// format selector) in sync. Setting it replaces any previous callback. It is
+// independent of the bundled controls' own sync (NewFormatSelect): both run, so
+// you can use a built-in format selector and your own data-changed callback at once.
 func (pv *PrettyView) SetOnDataChanged(fn func()) { pv.onDataChanged = fn }
+
+// notifyDataChanged fires the bundled controls' internal sync hooks and then the host's
+// public onDataChanged, so a built-in control never clobbers a host callback (#99).
+func (pv *PrettyView) notifyDataChanged() {
+	for _, h := range pv.onDataChangedHooks {
+		h()
+	}
+	if pv.onDataChanged != nil {
+		pv.onDataChanged()
+	}
+}
+
+// addOnDataChangedHook subscribes an internal (bundled-control) data-changed listener,
+// fired alongside the host's SetOnDataChanged. See notifyDataChanged (#99).
+func (pv *PrettyView) addOnDataChangedHook(fn func()) {
+	pv.onDataChangedHooks = append(pv.onDataChangedHooks, fn)
+}
+
+// addOnSearchRequestedHook subscribes an internal (bundled-control) Ctrl+F listener,
+// fired alongside the host's SetOnSearchRequested. See notifySearchRequested (#99).
+func (pv *PrettyView) addOnSearchRequestedHook(fn func()) {
+	pv.onSearchRequestedHooks = append(pv.onSearchRequestedHooks, fn)
+}
+
+// addOnSearchChangedHook subscribes an internal (bundled-control) match-changed listener,
+// fired alongside the host's SetOnSearchChanged. See notifySearch (#99).
+func (pv *PrettyView) addOnSearchChangedHook(fn func()) {
+	pv.onSearchChangedHooks = append(pv.onSearchChangedHooks, fn)
+}
 
 // SetOnSearchChanged registers a callback invoked whenever the search match set
 // or active match changes. Use it to keep a host match counter in sync. Setting
-// it replaces any previous callback.
+// it replaces any previous callback. It is independent of the bundled search bar's
+// own counter sync (NewSearchBar): both run, so you can use a built-in search bar and
+// your own search-changed callback at once.
 func (pv *PrettyView) SetOnSearchChanged(fn func()) { pv.onSearchChanged = fn }
 
 // NewWithData constructs a PrettyView and immediately parses src under format.
