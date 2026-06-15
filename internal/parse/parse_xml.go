@@ -130,13 +130,26 @@ func (s *xmlScanner) peek() (xml.Token, bool) {
 // parseElement builds one element. srcStart is the byte offset of its '<', so its
 // node carries a real [SrcStart,SrcEnd) span into the source (for copy-subtree).
 func (s *xmlScanner) parseElement(start xml.StartElement, srcStart int) {
-	// Empty element: <tag/> or <tag></tag> — render inline as a single leaf.
-	if t, ok := s.peek(); ok {
+	// Empty element: <tag/>, <tag></tag>, or <tag>  </tag> (whitespace-only content) — render
+	// inline as a single leaf rather than a pointlessly-foldable empty container (#102). Skip
+	// whitespace-only CharData (it renders as nothing — collapseSpace == ""), then if the next
+	// token closes this element, inline it. Any real content (a child, comment, PI, or
+	// non-blank text) is left buffered for the loop below, which opens a container.
+	for {
+		t, ok := s.peek()
+		if !ok {
+			break
+		}
+		if cd, isCD := t.(xml.CharData); isCD && collapseSpace(string(cd)) == "" {
+			s.hasPeek = false // drop the blank text; re-peek the following token
+			continue
+		}
 		if end, isEnd := t.(xml.EndElement); isEnd && end.Name == start.Name {
 			s.hasPeek = false // consume the end token
 			s.b.Leaf(model.KindEmptyElement, srcStart, s.peekEnd, startSegs(start, true))
 			return
 		}
+		break
 	}
 
 	// Bound recursion: past the nesting cap, render this element as a leaf marker

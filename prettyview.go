@@ -29,9 +29,11 @@
 // The widget intentionally holds no locks: all of its state (the document, the
 // fold index, and the selection/search state) is owned by the Fyne goroutine, so
 // single-threaded access is a precondition rather than something guarded at
-// runtime. The only work that runs off that goroutine is the search-debounce timer
-// (time.AfterFunc); it marshals its scan back via fyne.Do and drops superseded
-// scans via a generation counter, so it never touches widget state concurrently.
+// runtime. The only work that runs off that goroutine is its two debounce timers
+// (time.AfterFunc): the keystroke-driven search scan, and — in edit mode only — the
+// post-edit settle that refreshes live validity and fires OnChanged. Each marshals
+// its result back via fyne.Do, drops superseded work via a generation counter, and is
+// canceled on teardown via a shared flag, so neither touches widget state concurrently.
 //
 // # Stability
 //
@@ -133,6 +135,15 @@ type PrettyView struct {
 	onSearchChanged   func() // invoked after the match set / active match changes
 	onDataChanged     func() // invoked after SetData/Reparse swaps the document
 
+	// Internal control-sync hooks. The bundled controls (NewFormatSelect, NewSearchBar)
+	// subscribe through these so they fire ALONGSIDE — never instead of — a host's own
+	// SetOnDataChanged/SetOnSearchChanged/SetOnSearchRequested callback. That lets an app
+	// use a built-in control and its own hook at the same time, instead of the control
+	// silently clobbering the single public slot (#99). Append-only; unexported.
+	onDataChangedHooks     []func()
+	onSearchChangedHooks   []func()
+	onSearchRequestedHooks []func()
+
 	// multi-click tracking for word/line selection
 	lastClickAt  time.Time
 	lastClickPos fyne.Position
@@ -213,17 +224,17 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 	pv.Refresh()
 	// SetData is a programmatic load, not a user edit, so it does not arm a debounced settle
 	// (validity is already set synchronously above); onChanged fires only for actual edits.
-	if pv.onDataChanged != nil {
-		pv.onDataChanged()
-	}
+	pv.notifyDataChanged()
 }
 
 // SetText is shorthand for SetData([]byte(s), FormatAuto).
 func (pv *PrettyView) SetText(s string) { pv.SetData([]byte(s), FormatAuto) }
 
-// Reparse re-parses the current source under a different format (e.g. when a UI
-// lets the user override auto-detection). No-op if no document is loaded. In edit mode
-// it re-reads the live edit buffer (via Source), not a stale model snapshot.
+// Reparse re-parses the current source under a different format (e.g. when a UI lets the
+// user override auto-detection). On a widget that has never been loaded, Source() is empty,
+// so this produces an empty document (the nil guard below is defensive — New seeds an empty
+// document, so pv.doc is never nil after construction). In edit mode it re-reads the live
+// edit buffer (via Source), not a stale model snapshot.
 func (pv *PrettyView) Reparse(format Format) {
 	if pv.doc == nil {
 		return
@@ -281,12 +292,45 @@ func (pv *PrettyView) Format() Format {
 
 // SetOnDataChanged registers a callback invoked whenever the document is
 // replaced (SetData/SetText/Reparse). Use it to keep host controls (such as a
-// format selector) in sync. Setting it replaces any previous callback.
+// format selector) in sync. Setting it replaces any previous callback. It is
+// independent of the bundled controls' own sync (NewFormatSelect): both run, so
+// you can use a built-in format selector and your own data-changed callback at once.
 func (pv *PrettyView) SetOnDataChanged(fn func()) { pv.onDataChanged = fn }
+
+// notifyDataChanged fires the bundled controls' internal sync hooks and then the host's
+// public onDataChanged, so a built-in control never clobbers a host callback (#99).
+func (pv *PrettyView) notifyDataChanged() {
+	for _, h := range pv.onDataChangedHooks {
+		h()
+	}
+	if pv.onDataChanged != nil {
+		pv.onDataChanged()
+	}
+}
+
+// addOnDataChangedHook subscribes an internal (bundled-control) data-changed listener,
+// fired alongside the host's SetOnDataChanged. See notifyDataChanged (#99).
+func (pv *PrettyView) addOnDataChangedHook(fn func()) {
+	pv.onDataChangedHooks = append(pv.onDataChangedHooks, fn)
+}
+
+// addOnSearchRequestedHook subscribes an internal (bundled-control) Ctrl+F listener,
+// fired alongside the host's SetOnSearchRequested. See notifySearchRequested (#99).
+func (pv *PrettyView) addOnSearchRequestedHook(fn func()) {
+	pv.onSearchRequestedHooks = append(pv.onSearchRequestedHooks, fn)
+}
+
+// addOnSearchChangedHook subscribes an internal (bundled-control) match-changed listener,
+// fired alongside the host's SetOnSearchChanged. See notifySearch (#99).
+func (pv *PrettyView) addOnSearchChangedHook(fn func()) {
+	pv.onSearchChangedHooks = append(pv.onSearchChangedHooks, fn)
+}
 
 // SetOnSearchChanged registers a callback invoked whenever the search match set
 // or active match changes. Use it to keep a host match counter in sync. Setting
-// it replaces any previous callback.
+// it replaces any previous callback. It is independent of the bundled search bar's
+// own counter sync (NewSearchBar): both run, so you can use a built-in search bar and
+// your own search-changed callback at once.
 func (pv *PrettyView) SetOnSearchChanged(fn func()) { pv.onSearchChanged = fn }
 
 // NewWithData constructs a PrettyView and immediately parses src under format.
@@ -451,9 +495,11 @@ func (pv *PrettyView) syncWrap() {
 	pv.r.scroll.Content.Resize(pv.contentSize())
 }
 
-// SetTheme overrides any of the viewer's colors for a theme variant and
-// refreshes. Nil fields keep their defaults; calls compose with earlier
-// WithTheme/WithSyntaxColors/SetTheme overrides for that variant.
+// SetTheme overrides any of the viewer's colors for a theme variant and refreshes. Nil
+// fields keep their defaults; calls compose with earlier WithTheme/WithSyntaxColors/SetTheme
+// overrides for that variant (an override is additive — a nil field keeps the PRIOR override,
+// it does not revert to the default). To clear overrides and return a variant to the built-in
+// defaults (which track the host Fyne theme), use ResetTheme.
 func (pv *PrettyView) SetTheme(variant fyne.ThemeVariant, t Theme) {
 	pv.cfg.setThemeOverride(variant, t)
 	pv.metricsReady = false // override changed: force the palette to rebuild even if the variant didn't
@@ -461,10 +507,26 @@ func (pv *PrettyView) SetTheme(variant fyne.ThemeVariant, t Theme) {
 }
 
 // SetSyntaxColors overrides just the syntax token colors for a theme variant and
-// refreshes (shorthand for SetTheme with only the token fields set).
+// refreshes (shorthand for SetTheme with only the token fields set). Like SetTheme it is
+// additive; ResetTheme clears overrides back to the defaults.
 func (pv *PrettyView) SetSyntaxColors(variant fyne.ThemeVariant, c SyntaxColors) {
 	pv.cfg.setThemeOverride(variant, c.asTheme())
 	pv.metricsReady = false // override changed: force the palette to rebuild
+	pv.Refresh()
+}
+
+// ResetTheme removes every color override previously set for variant (via WithTheme,
+// WithSyntaxColors, SetTheme, or SetSyntaxColors), reverting that variant to the built-in
+// defaults and refreshing. Because the overrides are additive (a nil field keeps the prior
+// override, never reverts), this is the only way to fully undo them. The restored structural
+// defaults track the host Fyne theme, so a later app light/dark switch is followed again —
+// unlike re-applying explicit default colors, which would pin them. No-op for a variant with
+// no overrides. Call it on the Fyne goroutine.
+func (pv *PrettyView) ResetTheme(variant fyne.ThemeVariant) {
+	if pv.cfg.themeOverride != nil {
+		delete(pv.cfg.themeOverride, variant)
+	}
+	pv.metricsReady = false // override cleared: force the palette to rebuild
 	pv.Refresh()
 }
 

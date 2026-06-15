@@ -215,7 +215,10 @@ func (pv *PrettyView) autoscrollEdge(local fyne.Position) {
 // --- hover / cursor ---
 
 func (pv *PrettyView) MouseIn(*desktop.MouseEvent) {}
-func (pv *PrettyView) MouseOut()                   {}
+
+// MouseOut clears the fold-triangle hover state on exit, mirroring the FocusLost reset
+// pattern, so Cursor() can't report a stale pointer cursor after the pointer leaves (#102).
+func (pv *PrettyView) MouseOut() { pv.overTriangle = false }
 func (pv *PrettyView) MouseMoved(ev *desktop.MouseEvent) {
 	cx, cy := pv.contentPos(ev.Position)
 	pv.overTriangle = pv.foldNodeAt(cx, cy) != model.NoNode
@@ -405,8 +408,8 @@ func (pv *PrettyView) TypedShortcut(s fyne.Shortcut) {
 	case *fyne.ShortcutCut:
 		pv.Cut() // copy-only (no-op) unless editable
 	case *desktop.CustomShortcut:
-		if sc.KeyName == fyne.KeyF && sc.Modifier == fyne.KeyModifierShortcutDefault && pv.onSearchRequested != nil {
-			pv.onSearchRequested()
+		if sc.KeyName == fyne.KeyF && sc.Modifier == fyne.KeyModifierShortcutDefault {
+			pv.notifySearchRequested() // bundled search bar + host hook both fire (#99)
 		}
 	}
 }
@@ -521,6 +524,18 @@ func (pv *PrettyView) selectedText() string {
 	a, b, ok := pv.ordered()
 	if !ok {
 		return ""
+	}
+	// In edit mode the displayed projection renders every grid-hostile byte (a tab, any
+	// C0 control, DEL) as a single placeholder rune, so walking the display would put a
+	// lossy copy on the clipboard — a tab/control becomes '·', or (raw projection) a
+	// control byte becomes a literal tab. The projection maps 1:1 onto the edit buffer,
+	// so copy the exact buffer bytes for the selected (line, col) span instead, giving a
+	// byte-faithful round-trip (CODE_BIBLE rule 7); #95. The read-only viewer has no
+	// buffer and keeps the display walk below (which restores real tabs for raw input).
+	if pv.cfg.editable && pv.buf != nil {
+		lo := pv.buf.ByteOffAt(int(a.line), a.col)
+		hi := pv.buf.ByteOffAt(int(b.line), b.col)
+		return string(pv.buf.Slice(lo, hi))
 	}
 	// Walk the visible display lines of the span directly (a.line..b.line, skipping
 	// folded-away lines) instead of resolving every row through the O(log n) Fenwick

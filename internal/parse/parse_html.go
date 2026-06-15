@@ -123,8 +123,13 @@ func (htmlParser) Parse(src []byte, b *model.Builder) error {
 				// Peek one token: a start tag immediately followed by its matching end
 				// tag is an empty element, emitted inline (non-foldable) like the XML
 				// path, rather than a foldable node that collapses to "0 children".
+				// Whitespace-only text in between renders as nothing, so <tag>  </tag>
+				// is still empty and inlines too (#102) — skip blank text first.
 				startOff := tokStart // the start tag's offset, captured before peeking
 				ntt, ntok := nextToken()
+				for ntt == html.TextToken && collapseSpace(ntok.Data) == "" {
+					ntt, ntok = nextToken()
+				}
 				if ntt == html.EndTagToken && ntok.Data == tok.Data {
 					b.Leaf(model.KindEmptyElement, startOff, tokEnd, htmlStartSegs(tok, true))
 				} else {

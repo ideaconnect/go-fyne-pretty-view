@@ -157,7 +157,7 @@ func NewFormatSelect(pv *PrettyView) fyne.CanvasObject {
 			pv.Reparse(parseFormatName(s))
 		}
 	}
-	pv.SetOnDataChanged(func() {
+	pv.addOnDataChangedHook(func() { // internal hook: does not clobber a host SetOnDataChanged (#99)
 		sel.Selected = pv.Format().String()
 		sel.Refresh()
 	})
@@ -284,8 +284,8 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 		entry.SetText("")
 		pv.ClearSearch()
 	}
-	pv.SetOnSearchChanged(update)
-	pv.SetOnSearchRequested(func() { focusObject(entry) })
+	pv.addOnSearchChangedHook(update)                          // internal hooks: do not clobber a host's
+	pv.addOnSearchRequestedHook(func() { focusObject(entry) }) // SetOnSearchChanged/Requested (#99)
 
 	// Case-sensitive and regex toggles: HighImportance highlights the active state,
 	// and toggling re-runs the current query so the result set updates immediately.
@@ -384,13 +384,20 @@ func readCapped(r io.Reader, cap int) (data []byte, tooLarge bool, err error) {
 	return data, false, nil
 }
 
+// registerFindShortcut installs a WINDOW-GLOBAL Ctrl/Cmd+F that focuses the search box even
+// when keyboard focus is elsewhere in the window. It is a convenience on top of the
+// widget-scoped path: PrettyView.TypedShortcut already handles Ctrl+F when the viewer itself
+// is focused (and routes to the correct view when several share a window). Because a canvas
+// holds one handler per shortcut, this assumes a single search-enabled toolbar per window — a
+// second NewToolbar/NewSearchBar with a Window overwrites the first's global handler (each
+// view's own Ctrl+F still works via TypedShortcut), and the handler lives for the window's
+// lifetime (Fyne exposes no per-object shortcut teardown). For multiple views in one window,
+// rely on widget focus rather than this global shortcut (#103).
 func registerFindShortcut(win fyne.Window, pv *PrettyView) {
 	win.Canvas().AddShortcut(
 		&desktop.CustomShortcut{KeyName: fyne.KeyF, Modifier: fyne.KeyModifierShortcutDefault},
 		func(fyne.Shortcut) {
-			if pv.onSearchRequested != nil {
-				pv.onSearchRequested()
-			}
+			pv.notifySearchRequested() // bundled search bar + host hook both fire (#99)
 		},
 	)
 }

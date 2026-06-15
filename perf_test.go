@@ -38,6 +38,55 @@ func TestReflowGridSkipsPrefixWalk(t *testing.T) {
 	}
 }
 
+// TestRebuildMatchesSkipsOffWindowMatches is the #101 guard for the per-sub-row match scan:
+// a single giant wrapped line carrying thousands of matches must, on one reflow, visit only
+// the matches inside the visible sub-rows' windows (binary-search skip + early break), not all
+// matches once per visible sub-row.
+func TestRebuildMatchesSkipsOffWindowMatches(t *testing.T) {
+	long := strings.Repeat("needle ", 5000) // ~5000 matches on ONE logical (string) line
+	pv, win := renderInWindow(t, []byte(`["`+long+`"]`), FormatJSON, 400, 300)
+	defer win.Close()
+	pv.SetWrap(WrapWord)
+	pv.Search(SearchQuery{Text: "needle"})
+	if _, total, _ := pv.SearchStatus(); total < 1000 {
+		t.Fatalf("precondition: expected many matches on the wrapped line, got %d", total)
+	}
+
+	atomic.StoreInt64(&debugMatchVisits, 0)
+	pv.r.reflow() // exactly one reflow over the few currently-visible sub-rows
+	visits := atomic.LoadInt64(&debugMatchVisits)
+
+	t.Logf("rebuildMatches inner-loop visits for one reflow = %d (of %d matches)", visits, len(pv.search.matches))
+	if visits > 500 {
+		t.Errorf("rebuildMatches visited %d matches in one reflow — O(all matches) per sub-row, not O(visible window)", visits)
+	}
+}
+
+// TestReflowNonASCIIWalkIsScrollProportional characterizes the documented limitation behind
+// #101 (8a): the O(visible-window) reflow fast path requires a byte==column grid, so a line
+// containing a multibyte rune takes the decode path and walks O(FirstVisibleCol) per reflow —
+// proportional to the horizontal scroll offset, NOT the visible window. This locks the known
+// behavior (and DESIGN.md's caveat); a future rune-prefix index that fixes it should update
+// this test rather than leave the regression silent.
+func TestReflowNonASCIIWalkIsScrollProportional(t *testing.T) {
+	long := strings.Repeat("é", 200_000) // 2-byte rune throughout -> NOT a byte grid
+	pv, win := renderInWindow(t, []byte(`["`+long+`"]`), FormatJSON, 400, 300)
+	defer win.Close()
+
+	li := pv.doc.LineAtRow(1)
+	if pv.doc.LineIsByteGrid(li) {
+		t.Fatal("precondition: a multibyte line must NOT be a byte grid")
+	}
+	cs := pv.contentSize()
+	atomic.StoreInt64(&debugBytesWalked, 0)
+	pv.r.scrollToOffset(fyne.NewPos(cs.Width/2, 0)) // scroll far right on the long line
+	walked := atomic.LoadInt64(&debugBytesWalked)
+	t.Logf("bytes walked for a non-ASCII line scrolled to mid-width = %d (decode path, O(FirstVisibleCol))", walked)
+	if walked == 0 {
+		t.Error("expected the non-grid decode path to walk bytes proportional to the scroll offset")
+	}
+}
+
 // TestReflowReusesWrapBreaks guards the per-frame wrap-break allocation fix: the soft-wrap
 // row-build loop must fill the PERSISTENT r.reflowBreaks scratch (reused across reflows),
 // not a fresh local that re-allocates the whole line's break list every scroll tick. If it

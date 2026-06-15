@@ -84,13 +84,15 @@ func TestStructuredSelectionCut(t *testing.T) {
 	pv.Reformat()
 	pretty := string(pv.buf.Bytes()) // the prettified buffer (a reformat is its own undo unit)
 	pv.SelectAll()
+	want := pv.SelectedText() // exactly what Cut must place on the clipboard
 	pv.Cut()
 
 	if got := string(pv.buf.Bytes()); got != "" {
 		t.Errorf("Cut(SelectAll) should empty the buffer, got %q", got)
 	}
-	if cb := fyne.CurrentApp().Clipboard().Content(); !strings.Contains(cb, "a") {
-		t.Errorf("Cut clipboard should hold the selected text, got %q", cb)
+	// Equality, not Contains: the whole selection is the prettified buffer, byte-for-byte.
+	if cb := fyne.CurrentApp().Clipboard().Content(); cb != want || cb != pretty {
+		t.Errorf("Cut clipboard = %q, want %q (== pretty %q)", cb, want, pretty)
 	}
 	pv.Undo()
 	if got := string(pv.buf.Bytes()); got != pretty {

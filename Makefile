@@ -20,8 +20,10 @@ RUN         ?= .
 BENCH       ?= .
 COUNT       ?= 1
 # Mutation testing (make mutation): pure logic packages + the minimum test efficacy gate.
-MUT_PKGS     ?= internal/geometry internal/model internal/parse
-MUT_EFFICACY ?= 95
+MUT_PKGS         ?= internal/geometry internal/model internal/parse
+MUT_EFFICACY     ?= 95
+# Pin gremlins (was @latest) so local and CI mutation runs are reproducible (#105).
+GREMLINS_VERSION ?= v0.6.0
 
 .DEFAULT_GOAL := help
 
@@ -84,7 +86,7 @@ shots:
 .PHONY: mutation
 mutation:
 	@GREMLINS="$$($(GO) env GOPATH)/bin/gremlins"; \
-	[ -x "$$GREMLINS" ] || $(GO) install github.com/go-gremlins/gremlins/cmd/gremlins@latest; \
+	[ -x "$$GREMLINS" ] || $(GO) install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION); \
 	for p in $(MUT_PKGS); do \
 		echo "== mutation: $$p (efficacy gate $(MUT_EFFICACY)%) =="; \
 		( cd $$p && "$$GREMLINS" unleash --workers 2 --test-cpu 1 --threshold-efficacy $(MUT_EFFICACY) ) || exit 1; \

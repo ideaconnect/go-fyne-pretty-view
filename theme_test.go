@@ -86,6 +86,40 @@ func TestThemeOverrideApplied(t *testing.T) {
 	}
 }
 
+// TestResetThemeClearsOverrides is the #103 regression: ResetTheme must drop every override
+// for a variant and revert to the built-in defaults (which the additive SetTheme cannot undo,
+// since a nil field keeps the prior override).
+func TestResetThemeClearsOverrides(t *testing.T) {
+	test.NewApp()
+	variant := fyne.CurrentApp().Settings().ThemeVariant()
+	sel := testColor{10, 20, 30, 200}
+	str := testColor{70, 80, 90, 255}
+	pv := New(WithTheme(variant, Theme{Selection: sel}), WithSyntaxColors(variant, SyntaxColors{String: str}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+	pv.Refresh()
+	if pv.selColor != sel || pv.palette[model.RoleString] != str {
+		t.Fatal("precondition: overrides should be applied before reset")
+	}
+
+	def := defaultTheme(variant)
+	pv.ResetTheme(variant)
+	if pv.selColor != def.Selection {
+		t.Errorf("ResetTheme did not restore the default selection: got %v want %v", pv.selColor, def.Selection)
+	}
+	if pv.palette[model.RoleString] != def.String {
+		t.Errorf("ResetTheme did not restore the default string color: got %v want %v", pv.palette[model.RoleString], def.String)
+	}
+	// And it composes with a fresh override afterward (the map entry was cleared, not corrupted).
+	pv.SetSyntaxColors(variant, SyntaxColors{Number: testColor{5, 5, 5, 255}})
+	if pv.palette[model.RoleNumber] != (testColor{5, 5, 5, 255}) {
+		t.Error("override after ResetTheme did not apply")
+	}
+	if pv.palette[model.RoleString] != def.String {
+		t.Error("a post-reset override revived a cleared one")
+	}
+}
+
 // TestRecomputeMetricsMemoized verifies the metrics/palette are rebuilt only on a
 // theme change, not on every data/fold/search refresh, and that a runtime override
 // correctly forces a rebuild.

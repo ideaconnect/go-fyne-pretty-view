@@ -30,7 +30,11 @@ func (d *Document) SetWrapColumns(colsByDepth []int) {
 		return
 	}
 	d.colsByDepth = append(d.colsByDepth[:0], colsByDepth...) // copy; caller may reuse its slice
-	if cap(d.rowsOf) < len(d.Lines) {
+	// rowsOf must be non-nil whenever wrap is enabled, since WrapActive() is a nil check. On a
+	// zero-line document the old `cap(nil) < 0` branch reslices nil to nil, leaving
+	// WrapActive() false despite the caller enabling wrap (#102). make([]int32, 0) is non-nil,
+	// so allocate when rowsOf is nil and reslice (growing if needed) otherwise.
+	if d.rowsOf == nil || cap(d.rowsOf) < len(d.Lines) {
 		d.rowsOf = make([]int32, len(d.Lines))
 	} else {
 		d.rowsOf = d.rowsOf[:len(d.Lines)]

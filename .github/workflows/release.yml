@@ -18,9 +18,64 @@ permissions:
   contents: read
 
 jobs:
+  # Re-assert the authoritative gate on the EXACT released SHA before any artifact is
+  # built. A tag push does not trigger ci.yml (it fires on branches + PRs, not tags), so
+  # without this a release could ship binaries from code whose race detector, >95%
+  # coverage gate, perf guards, and API-freeze golden never ran (#96). build needs this.
+  test:
+    name: Test & coverage (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # On a tag push github.ref is the tag; workflow_dispatch supplies it explicitly.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install Fyne build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev xvfb
+
+      - name: gofmt + vet
+        run: |
+          test -z "$(gofmt -l .)" || { echo 'gofmt needs running on:'; gofmt -l .; exit 1; }
+          go vet ./...
+
+      # The same race + cross-package coverage run ci.yml uses on a push/PR — here it
+      # guards the released commit itself (xvfb-run gives a virtual display safety net).
+      - name: Run tests (race) with cross-package coverage
+        run: xvfb-run -a go test ./... -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out
+
+      - name: Smoke-run benchmarks (one iteration, renderer-backed)
+        run: xvfb-run -a go test -run '^$' -bench . -benchtime=1x ./...
+
+      # Gate the published artifacts on a clean vulnerability scan (run once, here, on the
+      # released SHA rather than per build-matrix leg).
+      - name: govulncheck (fail on reachable vulnerabilities)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Enforce coverage threshold (> 95%)
+        run: |
+          total=$(go tool cover -func=coverage.out | awk 'END { gsub("%","",$3); print $3 }')
+          echo "Total coverage: ${total}%"
+          awk -v c="$total" 'BEGIN {
+            if (c+0 <= 95) { printf "FAIL: coverage %.1f%% is not above 95%%\n", c+0; exit 1 }
+            printf "OK: coverage %.1f%% is above 95%%\n", c+0
+          }'
+
   build:
     name: Build demo (${{ matrix.os }})
+    needs: test # never build/publish an artifact unless the test gate passed on this SHA
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25 # cap a hung CGO link / runner (#105)
     strategy:
       fail-fast: false
       matrix:
@@ -35,12 +90,12 @@ jobs:
             artifact: prettyview-demo-macos-arm64
             binary: prettyview-demo
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # On a tag push github.ref is the tag; workflow_dispatch supplies it explicitly.
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
@@ -51,12 +106,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev
 
-      # Gate the published artifacts on a clean vulnerability scan (run once, on Linux).
-      - name: govulncheck (Linux)
-        if: runner.os == 'Linux'
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+      # (govulncheck + the full race/coverage suite ran in the `test` gate this job
+      # depends on, on the released SHA — see the test job above.)
 
       - name: Show C compiler (Windows)
         if: runner.os == 'Windows'
@@ -100,7 +151,7 @@ jobs:
           Compress-Archive -Path "dist/${{ matrix.artifact }}" -DestinationPath "dist/${{ matrix.artifact }}-${{ github.event.inputs.tag || github.ref_name }}.zip"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}-${{ github.event.inputs.tag || github.ref_name }}.zip
@@ -110,11 +161,12 @@ jobs:
     name: Publish GitHub release
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # cap a stuck upload/release publish (#105)
     permissions:
       contents: write # create the release and upload the zip assets
     steps:
       - name: Download all platform zips
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           merge-multiple: true
@@ -125,7 +177,7 @@ jobs:
         run: (cd dist && sha256sum *.zip > SHA256SUMS)
 
       - name: Create / update the release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: |

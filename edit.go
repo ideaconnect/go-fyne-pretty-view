@@ -312,12 +312,18 @@ func (pv *PrettyView) rerenderProjection() {
 // afterEdit resizes/reflows for the new line count and keeps the caret in view.
 func (pv *PrettyView) afterEdit() {
 	pv.applyGutter() // the line count (and so the gutter digit width) may have changed
+	// An edit reflows the buffer and reassigns line/column coordinates, so an active
+	// search's matches now point at stale positions (Reformat clears for the same reason,
+	// see reformat()). Drop them before the repaint so highlights and SearchStatus can't
+	// drift onto the wrong text as the user types (#97). Guarded so a no-search edit
+	// doesn't fire onSearchChanged spuriously on every keystroke.
+	if pv.search.query.Text != "" || len(pv.search.matches) > 0 {
+		pv.ClearSearch()
+	}
 	pv.refreshContent()
 	pv.revealCaret()
 	pv.scheduleReformat() // a typing pause refreshes live validity + fires onChanged (no reflow)
-	if pv.onDataChanged != nil {
-		pv.onDataChanged()
-	}
+	pv.notifyDataChanged()
 }
 
 // revealCaret scrolls so the caret is visible and repaints the caret/selection.

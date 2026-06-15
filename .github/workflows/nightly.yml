@@ -1,0 +1,73 @@
+name: Nightly (fuzz + mutation)
+
+# Long-running quality gates kept OFF the PR/push critical path (#105): a bounded sweep of
+# every fuzz target, and the gremlins mutation-efficacy gate that CODE_BIBLE documents but CI
+# never enforced. Scheduled + manual only. A scheduled workflow runs from the default branch,
+# so this takes effect once merged to main.
+on:
+  schedule:
+    - cron: "37 4 * * *" # 04:37 UTC daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: ".", target: FuzzReformatJSONSemantics }
+          - { pkg: ".", target: FuzzEditUndoRoundTrip }
+          - { pkg: "./internal/parse", target: FuzzParse }
+          - { pkg: "./internal/parse", target: FuzzEditableCaretCells }
+          - { pkg: "./internal/model", target: FuzzWrapPartition }
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The root + parse fuzz targets link the Fyne widget, so the CGO/GL/X11 headers are
+      # needed to compile (and xvfb is the headless-display safety net), same as ci.yml.
+      - name: Install Fyne build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev xvfb
+
+      - name: Fuzz ${{ matrix.target }} (${{ matrix.pkg }})
+        run: xvfb-run -a go test -run '^$' -fuzz='^${{ matrix.target }}$' -fuzztime=180s ${{ matrix.pkg }}
+
+      # A crash writes its minimized input under <pkg>/testdata/fuzz/<Target>/; surface it so
+      # the failure reproduces locally with `go test -run=<Target>/<hash>`.
+      - name: Upload crashers on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fuzz-crashers-${{ matrix.target }}
+          path: |
+            testdata/fuzz/${{ matrix.target }}/
+            internal/parse/testdata/fuzz/${{ matrix.target }}/
+            internal/model/testdata/fuzz/${{ matrix.target }}/
+          if-no-files-found: ignore
+
+  mutation:
+    name: Mutation efficacy (pure logic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The pure logic packages (geometry/model/parse) don't link Fyne, so no apt deps are
+      # needed. gremlins is pinned by GREMLINS_VERSION in the Makefile.
+      - name: make mutation (test-efficacy gate >= 95%)
+        run: make mutation

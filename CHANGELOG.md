@@ -12,7 +12,94 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
-_Nothing pending._
+From a second pre-alpha deep-review pass (issues #94–#106). No exported API signatures changed;
+the **/v2** surface stays frozen.
+
+### Fixed
+- **Forced-format JSON/JSONC no longer silently drops a container's contents on unrecoverable
+  input.** Under an explicit `FormatJSON`/`FormatJSONC` (e.g. a host passing a known format for a
+  `.json` file), an array element or object member whose first byte can't begin a JSON value/key
+  (`[NaN,1]`, `['a','b']`, `{foo:1,"ok":2}`) collapsed the whole container to an empty `[]`/`{}`
+  with no error marker — discarding the user's bytes. The unparseable run is now surfaced as a
+  visible error-marker line and the parser continues to the following siblings, so every byte stays
+  visible (the project's core contract), matching the existing object-key/trailing-junk recovery.
+  Auto-detect already routed these to raw, so only the forced-format path was affected (#94).
+- **Edit-mode Copy/Cut no longer corrupts tab and control bytes on the clipboard.** In an editable
+  widget, `CopySelection`/`Cut`/`SelectedText` walked the display projection, which renders a tab
+  and every C0/DEL control as a single placeholder rune — so a copied/cut tab became `·` (structured
+  buffers) or a control byte became a literal tab (raw buffers). Copy/Cut now source the exact edit
+  buffer bytes (the projection maps 1:1 onto the buffer), giving a byte-faithful clipboard round-trip
+  (CODE_BIBLE rule 7). The read-only viewer path is unchanged (#95).
+- **An edit in an editable widget now invalidates an active search.** A keystroke reprojects the
+  buffer and reassigns line/column coordinates, but the per-keystroke path never cleared
+  `pv.search`, so highlights and the `SearchStatus` count drifted onto the wrong text as you typed
+  (`Reformat` already cleared for the same reason). Edits now drop stale matches before the repaint
+  (#97).
+- **Regex search no longer drops real matches to zero-width hits under a small `MaxMatches`.** A
+  zero-width-capable pattern (e.g. `o*`) spent the per-line match budget on the skipped empty
+  matches, so real matches past them were lost and the count under-reported with `capped` false.
+  The budget now counts only recorded matches (#98).
+- **Robustness batch (#102):** a whitespace-only XML/HTML element (`<a>   </a>`) now renders as an
+  inline empty element instead of a pointlessly-foldable container; `LineAtRow` clamps an
+  out-of-range row to the last *visible* line (it could return a hidden trailing line);
+  `SetWrapColumns` enables wrap even on a zero-line document (a nil-reslice left `WrapActive()`
+  false); and `MouseOut` clears the fold-triangle hover so the cursor can't stay a pointer after
+  the pointer leaves.
+
+### Added
+- **`ResetTheme(variant)`** clears every color override for a theme variant and reverts it to the
+  built-in defaults — which track the host Fyne theme. The existing `SetTheme`/`SetSyntaxColors`
+  are additive (a nil field keeps the prior override, never reverts), so this was previously
+  impossible. Additive minor; the exported-surface golden is updated accordingly (#103).
+
+### Changed
+- **The built-in controls no longer clobber a host's `SetOnDataChanged` / `SetOnSearchChanged` /
+  `SetOnSearchRequested`.** `NewFormatSelect` and `NewSearchBar` previously registered through those
+  single-slot public setters, so using a bundled control *and* your own callback silently dropped
+  one. They now subscribe through internal hooks that fire **alongside** the public callback, so an
+  app can mix a built-in control with its own hook (as the docs always claimed). No API change (#99).
+
+### Tests
+- **`Reformat` output is now locked by a semantic round-trip + fuzz**, re-parsing the result with the
+  stdlib (`encoding/json` with `UseNumber`, `encoding/xml`) — an oracle independent of the model's own
+  serializer, which the prior `serializePretty`-vs-`Text()` parity check could not be (both share
+  `AppendPrettyLine`). The structured Cut test now asserts clipboard **equality**, not substring (#100).
+  The new fuzz surfaced a separate, pre-existing `Reformat` bug — a raw C0/DEL byte in a JSON string
+  reformats to the invalid `\xNN` display escape — now filed as #106 and excluded from the fuzz's
+  domain until fixed.
+
+### Performance
+- **`rebuildMatches` no longer re-scans every match on a wrapped line for each sub-row it occupies.**
+  Since a line's matches are sorted by column, it now binary-searches to the first match touching the
+  visual row's window and breaks past it — O(visible matches + log K) per sub-row instead of O(K),
+  which matters on a single giant wrapped line carrying thousands of matches (#101). The same change
+  documents (in DESIGN.md, with a characterization test) that the O(visible-window) reflow walk holds
+  only for byte-grid (ASCII) lines; a line with any multibyte rune pays O(FirstVisibleCol) under
+  horizontal scroll — a known limitation, not a regression.
+
+### Documentation
+- **Accuracy sweep (#104):** the threading docs (package doc + README) now mention the edit-mode
+  settle timer alongside the search-debounce timer (both run off the Fyne goroutine); the `Reparse`
+  docstring no longer claims a no-op that can't happen; the `InputConfig.DebounceFor` comment matches
+  the merge semantics (a zero field keeps the default; pass a negative value for immediate); the
+  README context-menu rows list *Copy subtree* and *Copy key path*; and STRUCTURE.md lists the
+  `cmd/prettyview-editor` demo binary.
+
+### CI
+- **The release workflow now runs the full test gate on the released SHA before building any
+  artifact.** A tag push triggers only `release.yml`, which previously built and published binaries
+  without running tests (`ci.yml` fires on branches/PRs, not tags) — so the race detector, the >95%
+  coverage gate, the perf guards, and the API-freeze golden never ran at release time. A `test` job
+  (race + cross-package coverage + the coverage threshold + a benchmark smoke-run + `govulncheck`,
+  mirroring `ci.yml`) now gates the `build` matrix via `needs: test` (#96).
+- **CI hardening sweep (#105):** every GitHub Action is pinned to a commit SHA (with a `# vN`
+  comment; dependabot keeps them current), prioritizing the write-scoped release publisher; `ci.yml`
+  cancels superseded in-flight runs (`concurrency`) and every job has a `timeout-minutes`; the lint
+  step adds `go mod verify` and a `go mod tidy` drift gate; a new **nightly** workflow (cron +
+  manual) runs every fuzz target for a bounded time (uploading any crashers) and the gremlins
+  mutation-efficacy gate that CODE_BIBLE documents but CI never ran; gremlins is version-pinned in
+  the Makefile; and a comment records that the Codecov upload is best-effort (the awk threshold step
+  is the authoritative gate).
 
 ## [v2.1.7-alpha] — 2026-06-13 — markup raw-text fidelity + parse hardening
 

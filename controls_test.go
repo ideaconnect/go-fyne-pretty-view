@@ -7,9 +7,53 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 )
+
+// TestFormatSelectDoesNotClobberHostDataChanged is half of the #99 regression: a bundled
+// control must register its sync through an internal hook that fires ALONGSIDE — not instead
+// of — a host's own SetOnDataChanged. Previously NewFormatSelect called the public
+// SetOnDataChanged, silently overwriting a host callback set earlier.
+func TestFormatSelectDoesNotClobberHostDataChanged(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte(`{"a":1}`), FormatJSON)
+	hostFired := 0
+	pv.SetOnDataChanged(func() { hostFired++ }) // host hook set FIRST
+	sel := NewFormatSelect(pv).(*widget.Select) // then a bundled control is added
+	pv.Reparse(FormatRaw)
+	if hostFired == 0 {
+		t.Error("host SetOnDataChanged was clobbered by NewFormatSelect (#99)")
+	}
+	if sel.Selected != "raw" {
+		t.Errorf("format select shows %q, want \"raw\" (its internal sync hook did not run)", sel.Selected)
+	}
+}
+
+// TestSearchBarDoesNotClobberHostSearchHooks is the other half of #99: NewSearchBar must not
+// overwrite a host's SetOnSearchChanged / SetOnSearchRequested.
+func TestSearchBarDoesNotClobberHostSearchHooks(t *testing.T) {
+	test.NewApp()
+	pv := NewWithData([]byte("alpha alpha"), FormatRaw)
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(400, 200))
+	changed, requested := 0, 0
+	pv.SetOnSearchChanged(func() { changed++ })
+	pv.SetOnSearchRequested(func() { requested++ })
+	_ = NewSearchBar(pv) // registers internal search-changed + search-requested hooks
+
+	pv.Search(SearchQuery{Text: "alpha"}) // fires notifySearch
+	if changed == 0 {
+		t.Error("host SetOnSearchChanged was clobbered by NewSearchBar (#99)")
+	}
+	// Ctrl+F routes through the widget-scoped shortcut -> notifySearchRequested.
+	pv.TypedShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyF, Modifier: fyne.KeyModifierShortcutDefault})
+	if requested == 0 {
+		t.Error("host SetOnSearchRequested was clobbered by NewSearchBar (#99)")
+	}
+}
 
 // findText returns the first *canvas.Text in o's tree (the search bar's match
 // counter), for tests that assert what it displays.

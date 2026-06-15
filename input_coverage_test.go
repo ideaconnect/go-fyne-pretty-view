@@ -39,7 +39,11 @@ func TestInputHandlersSmoke(t *testing.T) {
 		t.Error("FocusLost did not clear focused")
 	}
 	pv.MouseIn(nil)
+	pv.overTriangle = true // MouseOut must clear a stale hover so Cursor() can't stay a pointer (#102)
 	pv.MouseOut()
+	if pv.overTriangle || pv.Cursor() != desktop.TextCursor {
+		t.Errorf("after MouseOut: overTriangle=%v cursor=%v, want cleared / TextCursor", pv.overTriangle, pv.Cursor())
+	}
 	pv.MouseUp(&desktop.MouseEvent{})
 	pv.TypedRune('x')
 

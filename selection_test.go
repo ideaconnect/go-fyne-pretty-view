@@ -150,6 +150,41 @@ func TestSelectedTextPartialRawTabRoundTrip(t *testing.T) {
 	}
 }
 
+// TestEditableSelectedTextRoundTripsControlBytes is the #95 regression: in edit mode
+// Copy/Cut must put the exact buffer bytes on the clipboard, not the lossy display
+// projection (which renders a tab and every C0/DEL control as a single placeholder rune).
+// Previously SelectedText() returned the placeholder '·' for a structured buffer, and a
+// literal tab for a control byte in a raw buffer — corrupting the user's bytes on the one
+// path a host wires to Ctrl+C/Ctrl+X. Source() always round-tripped; only the clipboard
+// path corrupted, so it needs its own coverage (the prior raw-tab test used a read-only viewer).
+func TestEditableSelectedTextRoundTripsControlBytes(t *testing.T) {
+	cases := []struct {
+		name, src string
+		format    Format
+	}{
+		{"json string with tab and control", "{\"a\":\"x\ty\x01z\"}", FormatJSON},
+		{"raw with tab and control", "a\tb\x01c", FormatRaw},
+		{"raw multi-line with tab", "p\tq\nr\ts", FormatRaw},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pv, win := renderEditable(t, nil, 600, 300)
+			defer win.Close()
+			pv.SetData([]byte(c.src), c.format)
+			pv.SelectAll()
+			if got := pv.SelectedText(); got != c.src {
+				t.Errorf("editable SelectedText() = %q, want %q (clipboard must be byte-faithful)", got, c.src)
+			}
+			// Cut must remove exactly those bytes and leave nothing behind.
+			pv.SelectAll()
+			pv.Cut()
+			if got := string(pv.Source()); got != "" {
+				t.Errorf("after Cut(all), Source() = %q, want empty", got)
+			}
+		})
+	}
+}
+
 // TestCopySubtreeIncludesFoldedChildren guards CopySubtree/subtreeText (P7):
 // serializing a node's subtree must include its children regardless of fold state.
 func TestCopySubtreeIncludesFoldedChildren(t *testing.T) {
