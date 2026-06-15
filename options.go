@@ -40,7 +40,7 @@ const (
 // field, so setting one field keeps the defaults for the rest (a zero field means
 // "keep the default"). It only affects editable widgets (see WithEditable).
 type InputConfig struct {
-	DebounceFor time.Duration  // typing-pause settle delay (default 400ms; <=0 = immediate)
+	DebounceFor time.Duration  // typing-pause settle delay (default 400ms; a zero field keeps the default — pass a NEGATIVE value, e.g. -1, for an immediate settle)
 	AutoFormat  AutoFormatMode // when to auto-reformat (default AutoFormatOff — prettify only on demand)
 
 	// MaxEditBytes bounds the edit buffer (0 = no cap, the default). Above it, an edit

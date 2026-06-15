@@ -113,6 +113,35 @@ func TestHTMLEmptyElementInline(t *testing.T) {
 	}
 }
 
+// TestWhitespaceOnlyElementInline is the #102 regression: an element whose only content is
+// insignificant whitespace (which renders as nothing) must inline like <tag></tag>, not open a
+// pointlessly-foldable container that collapses to "0 children". Covers both XML and HTML, and
+// confirms a child or real text still opens a container.
+func TestWhitespaceOnlyElementInline(t *testing.T) {
+	inline := []struct {
+		src    string
+		format Format
+	}{
+		{`<a>   </a>`, FormatXML},
+		{"<a>\n\t</a>", FormatXML},
+		{`<a></a>`, FormatXML},
+		{`<div>   </div>`, FormatHTML},
+		{"<div> \n </div>", FormatHTML},
+	}
+	for _, c := range inline {
+		if got := int(Parse([]byte(c.src), c.format, 0).TotalVisibleRows()); got != 1 {
+			t.Errorf("Parse(%q,%v) = %d visible rows, want 1 (inline empty element)", c.src, c.format, got)
+		}
+	}
+	// Real content (a child / non-blank text) still opens a foldable container.
+	if got := int(Parse([]byte(`<a>  <b/>  </a>`), FormatXML, 0).TotalVisibleRows()); got != 3 {
+		t.Errorf("<a>  <b/>  </a> = %d visible rows, want 3 (<a> / <b/> / </a>)", got)
+	}
+	if got := int(Parse([]byte(`<a>  text  </a>`), FormatXML, 0).TotalVisibleRows()); got != 3 {
+		t.Errorf("<a>  text  </a> = %d visible rows, want 3 (open container with the text)", got)
+	}
+}
+
 // TestDefaultCollapseProjection guards the single-Fenwick-build construction path
 // (P11): a parse with a default-collapse depth must still yield a correct, consistent
 // projection — some lines hidden, lineAtRow/rowOfLine round-trips, and ExpandAll

@@ -75,6 +75,7 @@ prettyview method (*PrettyView) Paste()
 prettyview method (*PrettyView) Redo()
 prettyview method (*PrettyView) Reformat()
 prettyview method (*PrettyView) Reparse(format Format)
+prettyview method (*PrettyView) ResetTheme(variant fyne.ThemeVariant)
 prettyview method (*PrettyView) ScrollOffset() fyne.Position
 prettyview method (*PrettyView) ScrollToLine(line int) bool
 prettyview method (*PrettyView) Search(q SearchQuery)

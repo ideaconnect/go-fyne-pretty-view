@@ -39,6 +39,18 @@ the **/v2** surface stays frozen.
   zero-width-capable pattern (e.g. `o*`) spent the per-line match budget on the skipped empty
   matches, so real matches past them were lost and the count under-reported with `capped` false.
   The budget now counts only recorded matches (#98).
+- **Robustness batch (#102):** a whitespace-only XML/HTML element (`<a>   </a>`) now renders as an
+  inline empty element instead of a pointlessly-foldable container; `LineAtRow` clamps an
+  out-of-range row to the last *visible* line (it could return a hidden trailing line);
+  `SetWrapColumns` enables wrap even on a zero-line document (a nil-reslice left `WrapActive()`
+  false); and `MouseOut` clears the fold-triangle hover so the cursor can't stay a pointer after
+  the pointer leaves.
+
+### Added
+- **`ResetTheme(variant)`** clears every color override for a theme variant and reverts it to the
+  built-in defaults — which track the host Fyne theme. The existing `SetTheme`/`SetSyntaxColors`
+  are additive (a nil field keeps the prior override, never reverts), so this was previously
+  impossible. Additive minor; the exported-surface golden is updated accordingly (#103).
 
 ### Changed
 - **The built-in controls no longer clobber a host's `SetOnDataChanged` / `SetOnSearchChanged` /
@@ -56,6 +68,23 @@ the **/v2** surface stays frozen.
   reformats to the invalid `\xNN` display escape — now filed as #106 and excluded from the fuzz's
   domain until fixed.
 
+### Performance
+- **`rebuildMatches` no longer re-scans every match on a wrapped line for each sub-row it occupies.**
+  Since a line's matches are sorted by column, it now binary-searches to the first match touching the
+  visual row's window and breaks past it — O(visible matches + log K) per sub-row instead of O(K),
+  which matters on a single giant wrapped line carrying thousands of matches (#101). The same change
+  documents (in DESIGN.md, with a characterization test) that the O(visible-window) reflow walk holds
+  only for byte-grid (ASCII) lines; a line with any multibyte rune pays O(FirstVisibleCol) under
+  horizontal scroll — a known limitation, not a regression.
+
+### Documentation
+- **Accuracy sweep (#104):** the threading docs (package doc + README) now mention the edit-mode
+  settle timer alongside the search-debounce timer (both run off the Fyne goroutine); the `Reparse`
+  docstring no longer claims a no-op that can't happen; the `InputConfig.DebounceFor` comment matches
+  the merge semantics (a zero field keeps the default; pass a negative value for immediate); the
+  README context-menu rows list *Copy subtree* and *Copy key path*; and STRUCTURE.md lists the
+  `cmd/prettyview-editor` demo binary.
+
 ### CI
 - **The release workflow now runs the full test gate on the released SHA before building any
   artifact.** A tag push triggers only `release.yml`, which previously built and published binaries
@@ -63,6 +92,14 @@ the **/v2** surface stays frozen.
   coverage gate, the perf guards, and the API-freeze golden never ran at release time. A `test` job
   (race + cross-package coverage + the coverage threshold + a benchmark smoke-run + `govulncheck`,
   mirroring `ci.yml`) now gates the `build` matrix via `needs: test` (#96).
+- **CI hardening sweep (#105):** every GitHub Action is pinned to a commit SHA (with a `# vN`
+  comment; dependabot keeps them current), prioritizing the write-scoped release publisher; `ci.yml`
+  cancels superseded in-flight runs (`concurrency`) and every job has a `timeout-minutes`; the lint
+  step adds `go mod verify` and a `go mod tidy` drift gate; a new **nightly** workflow (cron +
+  manual) runs every fuzz target for a bounded time (uploading any crashers) and the gremlins
+  mutation-efficacy gate that CODE_BIBLE documents but CI never ran; gremlins is version-pinned in
+  the Makefile; and a comment records that the Codecov upload is best-effort (the awk threshold step
+  is the authoritative gate).
 
 ## [v2.1.7-alpha] — 2026-06-13 — markup raw-text fidelity + parse hardening
 

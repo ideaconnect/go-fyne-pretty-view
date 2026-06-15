@@ -27,12 +27,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # On a tag push github.ref is the tag; workflow_dispatch supplies it explicitly.
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
@@ -75,6 +75,7 @@ jobs:
     name: Build demo (${{ matrix.os }})
     needs: test # never build/publish an artifact unless the test gate passed on this SHA
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25 # cap a hung CGO link / runner (#105)
     strategy:
       fail-fast: false
       matrix:
@@ -89,12 +90,12 @@ jobs:
             artifact: prettyview-demo-macos-arm64
             binary: prettyview-demo
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           # On a tag push github.ref is the tag; workflow_dispatch supplies it explicitly.
           ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
@@ -150,7 +151,7 @@ jobs:
           Compress-Archive -Path "dist/${{ matrix.artifact }}" -DestinationPath "dist/${{ matrix.artifact }}-${{ github.event.inputs.tag || github.ref_name }}.zip"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.artifact }}
           path: dist/${{ matrix.artifact }}-${{ github.event.inputs.tag || github.ref_name }}.zip
@@ -160,11 +161,12 @@ jobs:
     name: Publish GitHub release
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10 # cap a stuck upload/release publish (#105)
     permissions:
       contents: write # create the release and upload the zip assets
     steps:
       - name: Download all platform zips
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: dist
           merge-multiple: true
@@ -175,7 +177,7 @@ jobs:
         run: (cd dist && sha256sum *.zip > SHA256SUMS)
 
       - name: Create / update the release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: |

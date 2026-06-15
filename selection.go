@@ -215,7 +215,10 @@ func (pv *PrettyView) autoscrollEdge(local fyne.Position) {
 // --- hover / cursor ---
 
 func (pv *PrettyView) MouseIn(*desktop.MouseEvent) {}
-func (pv *PrettyView) MouseOut()                   {}
+
+// MouseOut clears the fold-triangle hover state on exit, mirroring the FocusLost reset
+// pattern, so Cursor() can't report a stale pointer cursor after the pointer leaves (#102).
+func (pv *PrettyView) MouseOut() { pv.overTriangle = false }
 func (pv *PrettyView) MouseMoved(ev *desktop.MouseEvent) {
 	cx, cy := pv.contentPos(ev.Position)
 	pv.overTriangle = pv.foldNodeAt(cx, cy) != model.NoNode

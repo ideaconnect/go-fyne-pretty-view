@@ -224,6 +224,15 @@ func (fi *foldIndex) lineAtRow(row int32) int32 {
 	if row < 0 {
 		row = 0
 	}
+	// Clamp row >= total to the last VISIBLE line, matching the docstring and the sibling
+	// lineAndSubRow. Without this, kth(row+1) for an out-of-range row walks past the last
+	// visible line and returns a hidden trailing line (#102). The all-hidden total==0 case
+	// is handled explicitly: row = total-1 would underflow to -1 and kth(0) mis-resolves.
+	if total := fi.bit.total(); total == 0 {
+		return n - 1
+	} else if row >= total {
+		row = total - 1
+	}
 	li := int32(fi.bit.kth(row + 1))
 	if li >= n {
 		li = n - 1

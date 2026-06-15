@@ -3,8 +3,8 @@
 A map of `go-fyne-pretty-view` for anyone (human or agent) navigating the code.
 The project is split into packages by layer. Three small leaf/logic packages live
 under `internal/` (`model`, `parse`, `geometry`); the **view** (the importable
-widget + public API) is the repo-root `prettyview` package. A demo binary lives
-under `cmd/`.
+widget + public API) is the repo-root `prettyview` package. Two demo binaries live
+under `cmd/` — a read-only viewer and an editable-mode editor.
 
 ## Layering
 
@@ -85,6 +85,7 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 | Path | Responsibility |
 |---|---|
 | `cmd/prettyview-demo/main.go` | Standalone viewer: file/format pickers, expand/collapse, search box; installs the `fonttheme` typefaces. |
+| `cmd/prettyview-editor/main.go` | Standalone editable-mode demo (`WithEditable`): live syntax coloring while typing, Reformat / Undo / Redo, cut/paste, and a live validity status bar; installs the `fonttheme` typefaces. |
 | `fonttheme/` | **Optional** subpackage bundling JetBrains Mono + Inter (SIL OFL 1.1) as an installable `fyne.Theme` (`New`, `WithFonts`). Fonts are embedded here only, so the core widget bundles none. |
 | `testdata/` | Fixtures: `small.json`, `openapi.json` (~478 KB), `big.json` (~7.5 MB stress), `catalog.xml`, `page.html`. |
 | `docs/DESIGN.md`, `docs/PERFORMANCE.md` | Authoritative architecture + adversarial risk analysis; the performance review. |

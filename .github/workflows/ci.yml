@@ -11,14 +11,22 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded in-flight runs for the same ref so a rapid push sequence doesn't queue
+# stale CI and reclaims runners faster (#105). Deliberately NOT added to release.yml, where an
+# in-flight tag build must always finish.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Test & coverage (Linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 25 # cap a hung xvfb/CGO link so it can't pin a runner (#105)
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
@@ -30,10 +38,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev xvfb
 
-      - name: gofmt + vet
+      - name: gofmt + vet + go.mod hygiene
         run: |
           test -z "$(gofmt -l .)" || { echo 'gofmt needs running on:'; gofmt -l .; exit 1; }
           go vet ./...
+          # Supply-chain + tidy gates (#105): verify the module cache against go.sum, and fail
+          # if go.mod/go.sum are not tidy (a stray/missing require slips through review otherwise).
+          go mod verify
+          go mod tidy
+          git diff --exit-code go.mod go.sum || { echo 'go.mod/go.sum not tidy — run `go mod tidy` and commit'; exit 1; }
 
       # -coverpkg=./... credits cross-package coverage (the root widget tests
       # exercise internal/model, internal/geometry, …); -covermode=atomic is
@@ -67,9 +80,12 @@ jobs:
             printf "OK: coverage %.1f%% is above 95%%\n", c+0
           }'
 
+      # Codecov is best-effort visualization, NOT a gate: the awk threshold step above is the
+      # authoritative coverage source of truth, so fail_ci_if_error stays false on purpose —
+      # the authoritative race+coverage build must not depend on Codecov uptime/token validity (#105).
       - name: Upload coverage to Codecov
         if: always()
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           files: ./coverage.out
           token: ${{ secrets.CODECOV_TOKEN }} # add this repo secret (codecov.io). Public repos can also run tokenless.
@@ -79,6 +95,7 @@ jobs:
   build-demo:
     name: Build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20 # cap a hung CGO link / runner (#105)
     strategy:
       fail-fast: false
       matrix:
@@ -93,9 +110,9 @@ jobs:
             artifact: prettyview-demo-macos-arm64
             binary: prettyview-demo
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           go-version-file: go.mod
           cache: true
@@ -131,7 +148,7 @@ jobs:
       # (GitHub serves it as a single .zip) extracts to the binary alongside
       # testdata/ — the demo's fixture dropdown then loads them out of the box.
       - name: Upload demo (binary + fixtures)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ matrix.artifact }}
           path: |

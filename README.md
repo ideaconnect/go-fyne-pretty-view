@@ -40,7 +40,7 @@ structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 - **Auto-detection** of the input format, with a raw-text fallback for anything else (or malformed input).
 - **Expand / fold** every container, with a collapse summary on folded nodes (`{ 38 items }`, `[ 3 items ]`, `<tag> 5 children`).
 - **True character-level free-text selection** across rows, with exact-substring copy (`Ctrl/Cmd+C`) and select-all (`Ctrl/Cmd+A`).
-- **Right-click context menu** (Copy / Select all) — the standard Fyne pop-up menu, the same one Fyne's own text widgets use.
+- **Right-click context menu** (Copy / Copy subtree / Copy key path [JSON/JSONC] / Select all) — the standard Fyne pop-up menu, the same one Fyne's own text widgets use. *Copy key path* yields the JSONPath accessor for the clicked node (e.g. `$.users[1].name`).
 - **Copy a whole section** (subtree) to the clipboard, regardless of fold state.
 - **Search** with plain or regular-expression matching, case sensitivity, match navigation, and **auto-reveal into folded nodes**.
 - **Soft word-wrap** (toggleable): long lines wrap to the viewport width at word boundaries, or scroll horizontally — selection, search, and copy still operate on whole logical lines.
@@ -129,7 +129,7 @@ matching runtime setters; the on-screen chrome is **entirely opt-in**.
 | Expand / fold a node | On (click the triangle) | Always available; `ExpandAll()` / `CollapseAll()` programmatically. |
 | Initial collapse depth | Fully expanded (`0`) | `WithDefaultCollapseDepth(d)` at build, or `SetDefaultCollapseDepth(d)` at runtime. |
 | Free-text selection & copy | On | Always on; `SelectAll()`, `SelectedText()`, `CopySelection()`, `ClearSelection()`, `Ctrl/Cmd+A`, `Ctrl/Cmd+C`. |
-| Right-click context menu | On | Always on (Copy / Select all). |
+| Right-click context menu | On | Always on (Copy / Copy subtree / Copy key path [JSON/JSONC] / Select all). |
 | Copy a subtree | On demand | `CopySubtree(byteOffset) bool` (any format; copies the pretty-printed subtree). Also a right-click menu item. |
 | Search | On demand | `Search(SearchQuery{Text, Mode, CaseSensitive})`, `SearchNext()`, `SearchPrev()`, `ClearSearch()`, `SearchStatus()`. Tune with `WithSearchConfig(...)`. |
 | Soft word-wrap | Off (`WrapNone`) | `WithWrap(WrapWord)` at build, or `SetWrap(WrapWord)` / `SetWrap(WrapNone)` at runtime; `Wrap()` reads it. |
@@ -402,8 +402,9 @@ go func() {
 }()
 ```
 
-The widget holds no locks by design; its one internal background task — the search
-debounce — already marshals back onto the Fyne goroutine.
+The widget holds no locks by design; its internal background tasks — the search debounce
+and, in edit mode, the post-edit settle timer — each already marshal back onto the Fyne
+goroutine (and drop superseded work), so they never touch widget state concurrently.
 
 ## Limits and production notes
 

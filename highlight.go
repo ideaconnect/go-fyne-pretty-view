@@ -2,11 +2,17 @@ package prettyview
 
 import (
 	"image/color"
+	"sort"
+	"sync/atomic"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
 )
+
+// debugMatchVisits counts inner-loop match iterations in rebuildMatches; used only by tests
+// to assert a reflow visits O(visible matches), not O(all matches on the line) per sub-row (#101).
+var debugMatchVisits int64
 
 // Selection and search-match highlight rectangles are drawn per visible row, on
 // dedicated layers beneath the text. Both intersect their span with the visible
@@ -155,8 +161,23 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 					w1 = lv
 				}
 			}
-			for _, mi := range idxs {
+			// idxs is sorted ascending by ColStart/ColEnd (matches are recorded
+			// left-to-right per line), so skip straight to the first match that can
+			// touch this visual row's window [w0,w1): binary-search the first ColEnd > w0
+			// (anything ending at/before w0 is entirely left of the window) and stop once
+			// ColStart >= w1 (everything after starts even further right). That keeps the
+			// inner loop O(visible matches + log K) instead of O(K) per sub-row — the
+			// difference shows on a single giant wrapped line carrying thousands of matches
+			// across many sub-rows (#101).
+			startIdx := sort.Search(len(idxs), func(i int) bool {
+				return pv.search.matches[idxs[i]].ColEnd > w0
+			})
+			for _, mi := range idxs[startIdx:] {
 				mt := pv.search.matches[mi]
+				if mt.ColStart >= w1 {
+					break // this and every later match start past the window
+				}
+				atomic.AddInt64(&debugMatchVisits, 1)
 				lo := max(clamp(mt.ColStart, 0, runeLen), w0)
 				hi := min(clamp(mt.ColEnd, 0, runeLen), w1)
 				if lo >= hi {
