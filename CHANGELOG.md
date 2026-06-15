@@ -12,8 +12,13 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
-From a second pre-alpha deep-review pass (issues #94–#106). No exported API signatures changed;
-the **/v2** surface stays frozen.
+_Nothing pending._
+
+## [v2.2.0-alpha] — 2026-06-15 — second deep-review pass: correctness, perf, theme-reset, docs & CI hardening
+
+From a second pre-alpha deep-review pass (issues #94–#106). No existing exported signature changed;
+one additive method (`ResetTheme`) makes this a **minor** — the **/v2** surface stays additively
+compatible (the exported-surface golden tracks the addition).
 
 ### Fixed
 - **Forced-format JSON/JSONC no longer silently drops a container's contents on unrecoverable
