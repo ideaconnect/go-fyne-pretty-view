@@ -29,7 +29,9 @@ GREMLINS_VERSION ?= v0.6.0
 GOVULNCHECK_VERSION ?= v1.5.0
 # The mutation/vulncheck targets `go install` the pinned versions UNCONDITIONALLY: an
 # `[ -x binary ] ||` existence guard would silently run a stale preinstalled binary and
-# defeat the pin locally (`go install` of an already-built version is a fast cache hit).
+# defeat the pin. Online this re-resolves an already-built version cheaply; the install is
+# a non-final recipe command (no `make`/sh -e), so if it fails offline the recipe still
+# falls through to the already-installed pinned binary (mutation needs no network to run).
 
 .DEFAULT_GOAL := help
 

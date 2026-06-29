@@ -224,8 +224,10 @@ func (r *prettyViewRenderer) reflow() {
 			// A wrapped line's sub-rows are contiguous visual rows, so the breaks are
 			// computed once per distinct visible line (breaksLine cache), not per row.
 			// Bound the walk to the bottom visible sub-row of this line — last - its top
-			// row — so a single multi-MB wrapped line costs O(visible window), not
-			// O(line length), per reflow (#120).
+			// row — so a single multi-MB wrapped line costs O(scroll-position-into-line +
+			// window) per reflow instead of O(line length): the top-of-line case is
+			// O(window); scrolling deep is O(its start column), since reaching a sub-row in
+			// a word-wrapped line is inherently sequential (#120).
 			if rw.line != breaksLine {
 				maxSub := int32(last) - pv.doc.RowOfLine(rw.line)
 				breaks = pv.doc.WrapBreaksUpTo(rw.line, breaks[:0], maxSub)

@@ -150,8 +150,11 @@ func BenchmarkHorizontalScrollHugeLine(b *testing.B) {
 
 // BenchmarkReflowTopOfWrappedLine / BenchmarkReflowDeepIntoWrappedLine measure one
 // reflow of a soft-wrapped 2 MB single line at sub-row 0 vs. scrolled deep into the
-// line. With the byte==column-grid fast path the per-row build is O(visible window),
-// so the DEEP/TOP ratio stays near 1x; before it, deep paid O(start column).
+// line. The per-row build is O(visible window) (the byte==column-grid fast path), but the
+// soft-wrap break walk is bounded to the bottom visible sub-row (#120): the TOP case is
+// O(window) (microseconds), while DEEP is O(scroll-position-into-line) — reaching a sub-row
+// in a word-wrapped line is inherently sequential — so DEEP is far slower than TOP (the
+// ratio scales with scroll depth), though both are far below the old O(line length).
 func benchReflowWrappedAt(b *testing.B, deep bool) {
 	test.NewApp()
 	long := strings.Repeat("abcdefghij", 200_000) // 2 MB single ASCII line

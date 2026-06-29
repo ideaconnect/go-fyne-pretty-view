@@ -34,9 +34,11 @@ place:
   document size.
 - **No code execution and no ReDoS**: search regular expressions use Go's RE2
   (`regexp`), which matches in time linear in the input.
-- **Continuous checks**: `FuzzParse` across every format runs in CI, and a
-  `govulncheck` gate fails the build (and the release) on any reachable known
-  vulnerability in the toolchain or dependencies.
+- **Continuous checks**: every CI run executes the fuzz seed corpora as deterministic
+  tests and a `govulncheck` gate that fails the build (and the release) on any reachable
+  known vulnerability in the toolchain or dependencies; `FuzzParse` across every format
+  and the other fuzz targets additionally run as scheduled fuzzing (nightly / on demand),
+  uploading any crashers they discover.
 
 Consumers that embed the widget inherit these properties; see the README "Credits and
 third-party licenses" for the assets compiled into a linking binary.

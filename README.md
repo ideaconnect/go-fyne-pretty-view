@@ -576,7 +576,9 @@ Beyond Fyne, the library links two `golang.org/x` modules (both **BSD-3-Clause**
 the HTML parser — and `golang.org/x/image` (a transitive Fyne dependency). Both are pinned
 **ahead** of Fyne's own requests for CVE coverage and are gated by the `govulncheck` step in
 CI and release (which fails on any *reachable* vulnerability). `dweymouth/fyne-tooltip`
-(BSD-3) backs the optional toolbar tooltips. No other direct dependencies are added.
+(BSD-3) backs the optional toolbar tooltips — the only non-Fyne dependency the library links at
+runtime. (The test suite additionally requires `github.com/fyne-io/oksvg` for an icon-rendering
+test; it is otherwise reached transitively through Fyne.)
 
 ### If your software uses this library
 

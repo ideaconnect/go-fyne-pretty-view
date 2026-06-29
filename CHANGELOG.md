@@ -25,6 +25,11 @@ tracks the addition).
   document's status too, so a host can react to malformed input it merely displays (#87).
 
 ### Fixed
+- **`Reformat` no longer corrupts multi-line JSONC block comments.** A `/* … */` comment is shown
+  on a single display row with its interior newlines escaped to a display `\n`; the serializer wrote
+  that escaped form back into the buffer, so reformatting collapsed a multi-line comment (every real
+  newline became the literal two-character `\n`) — silent data loss. Comments are now re-emitted from
+  their source bytes verbatim, mirroring the markup raw-text path; display is unchanged (#121).
 - **HTML `<script>`/`<style>` `Reformat` is now idempotent.** The raw-text body re-emitted its
   source span verbatim, including surrounding whitespace-only lines, so each Reformat accreted a
   blank line unboundedly; the body's whole leading/trailing blank lines are now trimmed once, so a
@@ -34,10 +39,12 @@ tracks the addition).
   JSON; it is now emitted as a proper `\b`/`\t`/`\n`/`\f`/`\r` or `\u00NN` escape that round-trips (#106).
 
 ### Performance
-- **Soft-wrap reflow is now O(visible window), not O(line length).** A single multi-megabyte wrapped
+- **Soft-wrap reflow no longer walks the whole line on every frame.** A single multi-megabyte wrapped
   line recomputed every soft-break to end-of-line on every scroll/resize frame; the per-frame break
-  walk is now bounded to the visible sub-rows (top-of-line reflow ~520× faster on a 2 MB line) — the
-  wrap-axis analogue of the existing horizontal cull (#120).
+  walk is now bounded to the visible sub-rows. The top-of-line case is O(visible window) (~520× faster
+  on a 2 MB line); scrolling deep into one huge wrapped line is O(scroll-position-into-line + window) —
+  reaching a sub-row in a word-wrapped line is inherently sequential — still far below the old
+  O(line length). The wrap-axis analogue of the existing horizontal cull (#120).
 - **Fewer per-keystroke / per-token allocations:** the editable settle path no longer double-copies
   the buffer to a string (`TextBuffer.String`, #114), and the markup grid-breaker check is generic
   over `string`/`[]byte` to drop a per-token allocation (#116).
