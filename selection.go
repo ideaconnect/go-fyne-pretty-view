@@ -444,14 +444,23 @@ func (pv *PrettyView) ClearSelection() {
 	pv.refreshSelectionView()
 }
 
+// setClipboard writes s to the system clipboard, reporting whether it could. There may be no
+// current app (e.g. a headless test that never called test.NewApp), in which case the write is
+// a silent no-op — the single guarded write-side clipboard path for copy/cut and the
+// context-menu items.
+func (pv *PrettyView) setClipboard(s string) bool {
+	app := fyne.CurrentApp()
+	if app == nil {
+		return false
+	}
+	app.Clipboard().SetContent(s)
+	return true
+}
+
 // CopySelection copies SelectedText to the clipboard (no-op if empty).
 func (pv *PrettyView) CopySelection() {
-	txt := pv.selectedText()
-	if txt == "" {
-		return
-	}
-	if app := fyne.CurrentApp(); app != nil {
-		app.Clipboard().SetContent(txt)
+	if txt := pv.selectedText(); txt != "" {
+		pv.setClipboard(txt)
 	}
 }
 
@@ -467,11 +476,7 @@ func (pv *PrettyView) CopySubtree(byteOffset int) bool {
 	if node == model.NoNode {
 		return false
 	}
-	if app := fyne.CurrentApp(); app != nil {
-		app.Clipboard().SetContent(pv.subtreeText(node))
-		return true
-	}
-	return false
+	return pv.setClipboard(pv.subtreeText(node))
 }
 
 // --- selection geometry / text helpers ---
