@@ -139,6 +139,57 @@ func TestReformatPreservesRawText(t *testing.T) {
 	}
 }
 
+// TestReformatIdempotentRawText is the issue #110 regression: repeated Reformat of HTML with a
+// non-empty <script>/<style> body must converge — the second pass byte-identical to the first —
+// rather than appending a blank line to the raw-text body on every pass (the old behavior grew
+// the buffer ~4 bytes per Reformat, reachable via AutoFormatOnPause/OnBlur). The stable controls
+// (CDATA, JSON) guard against the trim over-reaching into formats that were already fixed points.
+func TestReformatIdempotentRawText(t *testing.T) {
+	cases := []struct {
+		name, src string
+		format    Format
+	}{
+		{"html script", `<div><script>x();</script></div>`, FormatHTML},
+		{"html style", `<div><style>a{color:red}</style></div>`, FormatHTML},
+		{"html multiline script", "<section><script>\n  // c\n  run();\n</script></section>", FormatHTML},
+		{"html plain control", `<div><p>hello</p></div>`, FormatHTML},
+		{"xml cdata control", `<root><data><![CDATA[a < b & c]]></data></root>`, FormatXML},
+		{"json control", `{"a":1,"b":[1,2,3]}`, FormatJSON},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
+			defer win.Close()
+			pv.SetData([]byte(c.src), c.format)
+
+			pv.Reformat()
+			first := string(pv.Source())
+			for i := 0; i < 4; i++ {
+				pv.Reformat()
+				got := string(pv.Source())
+				if got != first {
+					t.Fatalf("Reformat is not idempotent (pass %d diverged from the first):\n first  (%d bytes) %q\n pass %d (%d bytes) %q",
+						i+2, len(first), first, i+2, len(got), got)
+				}
+			}
+			// The fix only normalizes the raw-text body's surrounding blank lines; the meaningful
+			// content of every case must survive the first reformat.
+			for _, frag := range map[string][]string{
+				"html script":           {"x();"},
+				"html style":            {"a{color:red}"},
+				"html multiline script": {"// c", "run();"},
+				"html plain control":    {"hello"},
+				"xml cdata control":     {"<![CDATA[a < b & c]]>"},
+				"json control":          {`"a"`, `"b"`},
+			}[c.name] {
+				if !strings.Contains(first, frag) {
+					t.Errorf("Reformat dropped %q:\n%s", frag, first)
+				}
+			}
+		})
+	}
+}
+
 // TestReformatMarkupReencodesEntities is the issue #81 regression: an XML/HTML Reformat must
 // re-encode the reserved characters its parser decoded (& and <, plus a " inside an attribute
 // value) so the rewritten buffer is valid markup that round-trips, rather than emitting a bare

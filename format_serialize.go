@@ -63,12 +63,15 @@ func serializePretty(d *model.Document) (out []byte, spans []srcSpan) {
 func appendMarkupPrettyLine(d *model.Document, li int32, buf []byte) []byte {
 	owner := d.Lines[li].Owner
 	// Opaque raw text — HTML <script>/<style> bodies and XML CDATA — is re-emitted from the
-	// source bytes verbatim: no indent, no whitespace collapse, no entity escaping, so embedded
-	// JS/CSS and CDATA round-trip and stay valid (#85). The display still shows the node's
-	// collapsed segment; only this serialization path reads the raw span.
+	// source bytes verbatim: no indent, no entity escaping, so embedded JS/CSS and CDATA
+	// round-trip and stay valid (#85). The display still shows the node's collapsed segment;
+	// only this serialization path reads the raw span. The one normalization is trimming whole
+	// leading/trailing whitespace-only lines (trimRawTextEdges): the surrounding newlines and
+	// indentation are supplied by the line-join and the head/close lines, so without the trim a
+	// reparsed span would re-absorb them and every Reformat would grow the body (#110).
 	if d.IsRawText(owner) {
 		n := &d.Nodes[owner]
-		return append(buf, d.Src[n.SrcStart:n.SrcEnd]...)
+		return append(buf, trimRawTextEdges(d.Src[n.SrcStart:n.SrcEnd])...)
 	}
 	indent := int(d.Lines[li].Depth) * reformatIndentUnit
 	for k := 0; k < indent; k++ {
@@ -90,6 +93,42 @@ func appendMarkupPrettyLine(d *model.Document, li int32, buf []byte) []byte {
 		buf = append(buf, b...)
 	}
 	return buf
+}
+
+// trimRawTextEdges drops whole leading and trailing whitespace-only lines from a raw-text
+// (script/style/CDATA) body so serializePretty is a FIXED POINT under repeated Reformat (#110).
+// The body's surrounding blank lines are re-supplied on every pass by the line-join plus the
+// indented head/close lines; if the raw span kept the blank lines it absorbed on the previous
+// reparse, each Reformat would add another (the buffer grew ~4 bytes per pass). Inner content —
+// including the body's own line breaks and indentation — is preserved byte-for-byte (#85); only
+// complete whitespace-only lines at the very start and end are removed. A CDATA span starts with
+// "<![CDATA[" and ends with "]]>", so it has no whitespace-only edge lines and is unaffected.
+func trimRawTextEdges(b []byte) []byte {
+	start := 0
+	for start < len(b) { // drop leading whitespace-only lines
+		i := start
+		for i < len(b) && (b[i] == ' ' || b[i] == '\t' || b[i] == '\r') {
+			i++
+		}
+		if i < len(b) && b[i] == '\n' {
+			start = i + 1
+			continue
+		}
+		break
+	}
+	end := len(b)
+	for end > start { // drop trailing whitespace-only lines
+		i := end
+		for i > start && (b[i-1] == ' ' || b[i-1] == '\t' || b[i-1] == '\r') {
+			i--
+		}
+		if i > start && b[i-1] == '\n' {
+			end = i - 1
+			continue
+		}
+		break
+	}
+	return b[start:end]
 }
 
 // appendEscapedMarkupSeg escapes one RoleString segment for markup reserialization. An
