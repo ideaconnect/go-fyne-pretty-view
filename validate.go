@@ -8,8 +8,9 @@ import "github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 // it; OnValidationChanged signals valid<->invalid transitions. It is read-only feedback
 // and never touches the caret.
 
-// ParseStatus is the validity of the most recent structured reformat (Reformat /
-// format-on-pause). OK is true when the structured parse recovered no errors; otherwise
+// ParseStatus is the validity of the current document: for an editable widget the most
+// recent structured reformat (Reformat / format-on-pause), and for a read-only viewer the
+// load passed to SetData (#87). OK is true when the parse recovered no errors; otherwise
 // ErrorLine is the first error marker's display-line index (it is -1 when OK).
 type ParseStatus struct {
 	OK        bool
@@ -21,9 +22,27 @@ type ParseStatus struct {
 func (pv *PrettyView) ParseStatus() ParseStatus { return pv.parseStatus }
 
 // SetOnValidationChanged registers a callback fired (on the Fyne goroutine) whenever the
-// structured parse flips between valid and invalid. Setting it replaces any previous
-// callback. Only meaningful for editable widgets.
+// parse flips between valid and invalid — on each Reformat / format-on-pause for an editable
+// widget, and on each SetData for a read-only viewer (#87). Setting it replaces any previous
+// callback.
 func (pv *PrettyView) SetOnValidationChanged(fn func(ParseStatus)) { pv.onValidation = fn }
+
+// statusOfDoc computes parse validity from an already-parsed read-only Document: OK unless
+// the tolerant parser left a KindError marker, with ErrorLine the display-line index of the
+// first such marker. It reuses the same KindError scan as lineIsError but reports the first
+// hit, and needs no edit buffer (the editable path uses statusFor, which maps the error to a
+// buffer line). SetData wires it so ParseStatus()/SetOnValidationChanged work for viewers (#87).
+func statusOfDoc(d *model.Document) ParseStatus {
+	if d != nil {
+		for li := range d.Lines {
+			o := d.Lines[li].Owner
+			if o != model.NoNode && int(o) < len(d.Nodes) && d.Nodes[o].Kind == model.KindError {
+				return ParseStatus{OK: false, ErrorLine: li}
+			}
+		}
+	}
+	return ParseStatus{OK: true, ErrorLine: -1}
+}
 
 // setParseStatus records a freshly-computed status and fires OnValidationChanged when
 // the valid/invalid state flipped.

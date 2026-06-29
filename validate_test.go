@@ -29,6 +29,37 @@ func TestParseStatusReportsErrorLine(t *testing.T) {
 	}
 }
 
+// TestReadOnlyParseStatus is the #87 regression: a read-only viewer (no WithEditable) must
+// surface tolerant-parse validity via ParseStatus()/SetOnValidationChanged, not just on
+// screen. Previously SetData skipped setParseStatus for viewers, so a recovered-error load
+// reported the {OK:true} construction default.
+func TestReadOnlyParseStatus(t *testing.T) {
+	pv := New() // read-only
+	var fired []ParseStatus
+	pv.SetOnValidationChanged(func(st ParseStatus) { fired = append(fired, st) })
+
+	pv.SetData([]byte(`[1 bogus]`), FormatJSON) // tolerant parse leaves a KindError marker
+	st := pv.ParseStatus()
+	if st.OK {
+		t.Fatal("read-only load of recoverable-but-invalid JSON should report OK == false")
+	}
+	if st.ErrorLine < 0 || st.ErrorLine >= pv.doc.TotalLines() || !pv.lineIsError(int32(st.ErrorLine)) {
+		t.Errorf("ErrorLine = %d is not a KindError display line", st.ErrorLine)
+	}
+	if len(fired) != 1 || fired[0].OK {
+		t.Errorf("SetOnValidationChanged should fire once with OK=false for a read-only load; got %+v", fired)
+	}
+
+	// A subsequent valid load flips back to OK and fires the transition.
+	pv.SetData([]byte(`[1,2,3]`), FormatJSON)
+	if got := pv.ParseStatus(); !got.OK || got.ErrorLine != -1 {
+		t.Errorf("valid read-only load ParseStatus = %+v, want {OK:true ErrorLine:-1}", got)
+	}
+	if len(fired) != 2 || !fired[1].OK {
+		t.Errorf("fixing the data should fire OK=true; transitions = %+v", fired)
+	}
+}
+
 func TestValidationMarkerNoCaretMove(t *testing.T) {
 	pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
 	defer win.Close()
