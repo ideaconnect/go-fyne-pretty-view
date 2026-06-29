@@ -12,7 +12,51 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
-_Nothing pending._
+Third and fourth pre-alpha deep-review passes (issues #87–#92, #106, #110–#120). No existing
+exported signature changed; one additive method (`AcceptsTab`, from the editor Tab support) keeps
+this a **minor** — the **/v2** surface stays additively compatible (the exported-surface golden
+tracks the addition).
+
+### Added
+- **The editor inserts a literal tab on `Tab`** instead of moving focus: an editable widget now
+  reports `AcceptsTab() bool` (true when editable) so Fyne routes the key to the buffer (#90).
+- **Read-only viewers now surface parse status.** `ParseStatus()` / `SetOnValidationChanged`
+  previously updated only in editable mode; a non-editable viewer fed via `SetData` now reports the
+  document's status too, so a host can react to malformed input it merely displays (#87).
+
+### Fixed
+- **HTML `<script>`/`<style>` `Reformat` is now idempotent.** The raw-text body re-emitted its
+  source span verbatim, including surrounding whitespace-only lines, so each Reformat accreted a
+  blank line unboundedly; the body's whole leading/trailing blank lines are now trimmed once, so a
+  second Reformat is a fixed point (#110).
+- **Reformatting a JSON string holding a raw control byte now produces valid JSON.** A C0/DEL byte
+  in a string value/key was written to the buffer as its display escape (`\xNN`), which is not valid
+  JSON; it is now emitted as a proper `\b`/`\t`/`\n`/`\f`/`\r` or `\u00NN` escape that round-trips (#106).
+
+### Performance
+- **Soft-wrap reflow is now O(visible window), not O(line length).** A single multi-megabyte wrapped
+  line recomputed every soft-break to end-of-line on every scroll/resize frame; the per-frame break
+  walk is now bounded to the visible sub-rows (top-of-line reflow ~520× faster on a 2 MB line) — the
+  wrap-axis analogue of the existing horizontal cull (#120).
+- **Fewer per-keystroke / per-token allocations:** the editable settle path no longer double-copies
+  the buffer to a string (`TextBuffer.String`, #114), and the markup grid-breaker check is generic
+  over `string`/`[]byte` to drop a per-token allocation (#116).
+
+### Security
+- **Bumped `golang.org/x/image` to v0.43.0** to clear two reachable tiff tile-size DoS advisories
+  (GO-2026-5062 + sibling) reachable through Fyne's window-icon decode, and **pinned the `govulncheck`
+  binary** (new `GOVULNCHECK_VERSION`, run via `make vulncheck` in CI/release) so the scanner version
+  is reproducible while its advisory database stays live (#119). `golang.org/x/net` was also bumped (#33).
+
+### Changed
+- **The bundled file picker now defaults to a 64 MiB read ceiling** (overridable), and the O(size)
+  cost of `Reformat`/`Text`/`ShowOpenDialog` is documented (#88).
+- Documentation accuracy: corrected the redo keybinding (`Ctrl/Cmd+Y`) and the `fonttheme` import path
+  in the README, and reconciled the documented method table and memory figures with the code (#92, #112).
+- Internal refactors with no behavior change: shared edit-commit (`commitEdit`/`commitBufferState`,
+  #113), split `parseContainer` + shared parse-error recovery (#115), a single clipboard helper (#117),
+  and a model DRY/naming pass (`isFoldNode`, `clampRow`, `segRange`; #118). Test coverage was tightened
+  with direct geometry-culling tests and runnable examples (#111, #91).
 
 ## [v2.2.0-alpha] — 2026-06-15 — second deep-review pass: correctness, perf, theme-reset, docs & CI hardening
 

@@ -27,6 +27,9 @@ GREMLINS_VERSION ?= v0.6.0
 # Pin the govulncheck *binary* (was @latest) so a scanner release can't flip a green
 # SHA red on re-run; the advisory database it queries stays live (#119).
 GOVULNCHECK_VERSION ?= v1.5.0
+# The mutation/vulncheck targets `go install` the pinned versions UNCONDITIONALLY: an
+# `[ -x binary ] ||` existence guard would silently run a stale preinstalled binary and
+# defeat the pin locally (`go install` of an already-built version is a fast cache hit).
 
 .DEFAULT_GOAL := help
 
@@ -89,7 +92,7 @@ shots:
 .PHONY: mutation
 mutation:
 	@GREMLINS="$$($(GO) env GOPATH)/bin/gremlins"; \
-	[ -x "$$GREMLINS" ] || $(GO) install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION); \
+	$(GO) install github.com/go-gremlins/gremlins/cmd/gremlins@$(GREMLINS_VERSION); \
 	for p in $(MUT_PKGS); do \
 		echo "== mutation: $$p (efficacy gate $(MUT_EFFICACY)%) =="; \
 		( cd $$p && "$$GREMLINS" unleash --workers 2 --test-cpu 1 --threshold-efficacy $(MUT_EFFICACY) ) || exit 1; \
@@ -100,7 +103,7 @@ mutation:
 .PHONY: vulncheck
 vulncheck:
 	@GOVC="$$($(GO) env GOPATH)/bin/govulncheck"; \
-	[ -x "$$GOVC" ] || $(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION); \
+	$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION); \
 	"$$GOVC" ./...
 
 ## vet: run go vet
