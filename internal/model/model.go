@@ -183,16 +183,23 @@ func (d *Document) SegBytes(s Segment) []byte {
 	return d.Src[s.Start:s.End]
 }
 
+// segRange returns the count segments of the Segs arena starting at first. It is the one place
+// the "[first : first+uint32(count)]" slice idiom lives, shared by the line-segment accessors
+// and the builder's collapsed-rendering pass.
+func (d *Document) segRange(first uint32, count uint16) []Segment {
+	return d.Segs[first : first+uint32(count)]
+}
+
 // LineSegs returns the expanded-rendering segments for a display line.
 func (d *Document) LineSegs(li int32) []Segment {
 	l := &d.Lines[li]
-	return d.Segs[l.SegFirst : l.SegFirst+uint32(l.SegCount)]
+	return d.segRange(l.SegFirst, l.SegCount)
 }
 
 // CollapsedSegs returns the collapsed-rendering segments for a fold-head line.
 func (d *Document) CollapsedSegs(li int32) []Segment {
 	l := &d.Lines[li]
-	return d.Segs[l.CollFirst : l.CollFirst+uint32(l.CollCount)]
+	return d.segRange(l.CollFirst, l.CollCount)
 }
 
 // LineString builds the full display text of a line's expanded rendering. It
