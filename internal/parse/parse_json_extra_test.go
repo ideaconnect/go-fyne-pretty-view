@@ -3,7 +3,42 @@ package parse
 import (
 	"strings"
 	"testing"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
+
+// TestEscapeJSONControls covers the #106 fix: raw control bytes in a JSON string token escape
+// to VALID JSON (short \b/\t/\n/\f/\r escapes, else \u00NN), and everything else — quotes,
+// text, multi-byte UTF-8, and existing source \-escapes — passes through verbatim.
+func TestEscapeJSONControls(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"clean", `"abc"`, `"abc"`},
+		{"short escapes", "\"a\b\t\n\f\rb\"", `"a\b\t\n\f\rb"`},
+		{"u00NN forms", "\"\x00\x01\x1f\x7f\"", `"\u0000\u0001\u001f\u007f"`},
+		{"utf8 passthrough", "\"é😀\"", "\"é😀\""},
+		{"keeps source escapes", `"a\"b\\c"`, `"a\"b\\c"`},
+	}
+	for _, c := range cases {
+		if got := escapeJSONControls([]byte(c.in)); got != c.want {
+			t.Errorf("%s: escapeJSONControls(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+// TestCleanJSONStringSeg covers both arms: a clean token stays a zero-copy SrcSeg (empty Lit);
+// a control-bearing token becomes a synthesized literal (non-empty Lit) with a valid JSON escape.
+func TestCleanJSONStringSeg(t *testing.T) {
+	if seg := cleanJSONStringSeg([]byte(`"ok"`), model.RoleString, 0, 4); seg.Lit != "" {
+		t.Errorf("clean token should be zero-copy (empty Lit), got Lit=%q", seg.Lit)
+	}
+	seg := cleanJSONStringSeg([]byte("\"\x01\""), model.RoleString, 0, 3)
+	if seg.Lit == "" {
+		t.Fatal("control-bearing token should be a synthesized literal (non-empty Lit)")
+	}
+	if seg.Lit != `"\u0001"` {
+		t.Errorf("synthesized literal = %q, want %q", seg.Lit, `"\u0001"`)
+	}
+}
 
 // TestParseJSONCFormatTag covers jsonParser.Format()'s JSONC branch: parsing under
 // FormatJSONC must tag the document JSONC (not plain JSON).

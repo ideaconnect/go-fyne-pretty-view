@@ -3,11 +3,58 @@ package parse
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
+
+// cleanJSONStringSeg builds a display segment for a JSON string token src[start:end] (a key or a
+// string value, including its surrounding quotes). It stays a zero-copy SrcSeg unless the token
+// holds a raw control byte — a char a strict JSON encoder must escape, which the tolerant scanner
+// accepts raw — in which case it falls back to a synthesized literal escaped as VALID JSON
+// (\n/\t/\b/\f/\r or \u00NN), NOT the display-only \xNN that the generic cleanSrcSeg/escapeGridBreakers
+// would emit. serializePretty writes a segment's bytes straight back into the edit buffer on
+// Reformat, so a \xNN there would be invalid JSON (#106); a JSON \u00NN escape round-trips to the
+// same string value. The escapes are plain ASCII, so the row grid stays intact exactly as \xNN did.
+func cleanJSONStringSeg(src []byte, role model.ColorRole, start, end int) model.Seg {
+	if !hasGridBreaker(src[start:end]) {
+		return model.SrcSeg(role, start, end)
+	}
+	return model.LitSeg(role, escapeJSONControls(src[start:end]))
+}
+
+// escapeJSONControls rewrites the raw control bytes in a JSON string token to their valid JSON
+// escapes: \b \t \n \f \r for those five, and \u00NN for every other C0 control and DEL. All
+// other bytes — the quotes, ordinary text, multi-byte UTF-8, and existing \"/\\/\uXXXX source
+// escapes — pass through verbatim, so the result is valid JSON denoting the same string value.
+func escapeJSONControls(b []byte) string {
+	const hexDigits = "0123456789abcdef"
+	var sb strings.Builder
+	sb.Grow(len(b) + 8)
+	for _, c := range b {
+		switch {
+		case c == '\b':
+			sb.WriteString(`\b`)
+		case c == '\t':
+			sb.WriteString(`\t`)
+		case c == '\n':
+			sb.WriteString(`\n`)
+		case c == '\f':
+			sb.WriteString(`\f`)
+		case c == '\r':
+			sb.WriteString(`\r`)
+		case c < 0x20 || c == 0x7f:
+			sb.WriteString(`\u00`)
+			sb.WriteByte(hexDigits[c>>4])
+			sb.WriteByte(hexDigits[c&0xf])
+		default:
+			sb.WriteByte(c)
+		}
+	}
+	return sb.String()
+}
 
 // jsonParser is a hand-written, zero-copy JSON / JSONC scanner. It walks the
 // source byte-by-byte and drives a model.Builder, keeping the actual data tokens
@@ -315,7 +362,7 @@ func (s *jsonScanner) parseValue(prefix []model.Seg, isMember bool, srcStart int
 			s.emitComments(lead)
 			return model.NoNode, false
 		}
-		node = s.emitScalar(prefix, isMember, srcStart, s.pos, cleanSrcSeg(s.src, model.RoleString, start, s.pos))
+		node = s.emitScalar(prefix, isMember, srcStart, s.pos, cleanJSONStringSeg(s.src, model.RoleString, start, s.pos))
 	case c == '-' || (c >= '0' && c <= '9'):
 		start := s.scanNumber()
 		node = s.emitScalar(prefix, isMember, srcStart, s.pos, model.SrcSeg(model.RoleNumber, start, s.pos))
@@ -383,7 +430,7 @@ func (s *jsonScanner) parseObjectKey(childStart int, close byte) (childPrefix []
 		return nil, nil, keyRecover
 	}
 	s.pos++
-	childPrefix = []model.Seg{cleanSrcSeg(s.src, model.RoleKey, keyStart, keyEnd), model.LitSeg(model.RolePunct, ": ")}
+	childPrefix = []model.Seg{cleanJSONStringSeg(s.src, model.RoleKey, keyStart, keyEnd), model.LitSeg(model.RolePunct, ": ")}
 	return childPrefix, keyComments, keyOK
 }
 

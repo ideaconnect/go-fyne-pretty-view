@@ -440,7 +440,7 @@ func TestNoControlCharsInDisplayLines(t *testing.T) {
 	}{
 		{"json string with raw newline", FormatJSON, "{\"a\":\"line1\nline2\"}", []string{`line1\nline2`}},
 		{"json string with raw tab", FormatJSON, "{\"a\":\"col1\tcol2\"}", []string{`col1\tcol2`}},
-		{"json string with raw escape byte", FormatJSON, "{\"a\":\"x\x1by\"}", []string{`x\x1by`}},
+		{"json string with raw escape byte", FormatJSON, "{\"a\":\"x\x1by\"}", []string{`x\u001by`}}, // #106: JSON strings escape controls as valid \u00NN, not display \xNN
 		{"json multibyte beside control", FormatJSON, "{\"a\":\"é\tü\"}", []string{"é", "ü", `\t`}},
 		{"json key with raw newline", FormatJSON, "{\"k\ney\":1}", nil},
 		{"json in-container junk with newline", FormatJSON, "[true bogus\nmore]", nil},
