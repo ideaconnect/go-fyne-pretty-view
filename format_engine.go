@@ -46,6 +46,10 @@ func (pv *PrettyView) fireOnChanged() {
 // reformatted markup buffer stays valid and round-trips (issue #81). It runs regardless of
 // the AutoFormat mode and never panics. No-op for a read-only widget. Call it on the Fyne
 // goroutine.
+//
+// Cost: synchronous and O(buffer) — a full re-parse, serialize, and whole-buffer splice — so
+// on a multi-MB buffer it briefly blocks the Fyne goroutine. WithMaxEditBytes only caps
+// auto-format-on-pause, not an explicit Reformat; gate large buffers in the host if needed.
 func (pv *PrettyView) Reformat() {
 	if !pv.cfg.editable {
 		return

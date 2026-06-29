@@ -97,6 +97,10 @@ func (pv *PrettyView) editKey(ev *fyne.KeyEvent) bool {
 	switch ev.Name {
 	case fyne.KeyReturn, fyne.KeyEnter:
 		pv.editInsert([]byte{'\n'})
+	case fyne.KeyTab:
+		// Insert a literal tab at the caret. AcceptsTab routes Tab here (an editor captures it
+		// as input); it renders as one placeholder cell live and expands via Reformat (#90).
+		pv.editInsert([]byte{'\t'})
 	case fyne.KeyBackspace:
 		pv.editDelete(false)
 	case fyne.KeyDelete:

@@ -165,3 +165,23 @@ func TestOpenDialogRefusesOversizeFile(t *testing.T) {
 		t.Error("an over-cap file must be refused, not loaded")
 	}
 }
+
+// TestOpenDialogDefaultCap is the #88 regression: the bundled file picker bounds its read even
+// when the host set no WithMaxInputBytes (the Open button is on by default and reads + parses
+// synchronously on the Fyne goroutine), so it can't read a multi-GB selection whole into memory
+// and freeze the UI. With an explicit cap it honors that instead.
+func TestOpenDialogDefaultCap(t *testing.T) {
+	if got := openDialogCap(defaultConfig()); got != defaultOpenDialogCap || got <= 0 {
+		t.Errorf("picker cap with no WithMaxInputBytes = %d, want the default %d (>0)", got, defaultOpenDialogCap)
+	}
+	cfg := defaultConfig()
+	cfg.maxInputBytes = 100
+	if got := openDialogCap(cfg); got != 100 {
+		t.Errorf("picker cap with WithMaxInputBytes(100) = %d, want 100", got)
+	}
+	// The cap is enforced: an over-cap reader is flagged tooLarge with the data capped.
+	data, tooLarge, err := readCapped(strings.NewReader(strings.Repeat("x", 250)), openDialogCap(cfg))
+	if err != nil || !tooLarge || len(data) != 100 {
+		t.Errorf("over-cap read: data=%d tooLarge=%v err=%v, want 100/true/nil", len(data), tooLarge, err)
+	}
+}

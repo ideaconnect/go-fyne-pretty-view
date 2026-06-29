@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/test"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
 )
 
 // TestScheduleReformatGuards covers scheduleReformat's two early paths: an unshown widget
@@ -77,24 +78,40 @@ func TestSnapClamps(t *testing.T) {
 	}
 }
 
-// TestKeyExtendUnderWrap drives keyExtend across the soft-wrapped sub-rows of one long
-// line, exercising the wrap-aware vertical-move branch (subRowOfCol / LineAndSubRowAtRow).
+// TestKeyExtendUnderWrap drives keyExtend across the soft-wrapped sub-rows of one long line,
+// exercising the wrap-aware vertical-move branch (SubRowOfCol / LineAndSubRowAtRow). It has
+// teeth: it asserts the focus lands exactly 2 visual rows below the start (3 Shift+Down minus
+// 1 Shift+Up), so a regression that moves the wrong number of sub-rows fails (#91).
 func TestKeyExtendUnderWrap(t *testing.T) {
-	long := strings.Repeat("word ", 80) // ~400 chars: wraps to several sub-rows
+	long := strings.Repeat("word ", 80) // ~400 chars: wraps to many sub-rows
 	pv, win := renderInWindow(t, []byte(`["`+long+`"]`), FormatJSON, 300, 220)
 	defer win.Close()
 	pv.SetWrap(WrapWord)
 	pv.Refresh()
 	pv.FocusGained()
 
-	pv.SetCaret(1, 5) // somewhere on the wrapped value line
+	// visualRow maps a caret position to its absolute visual row (the top visual row of its
+	// line, plus the wrapped sub-row holding its column).
+	visualRow := func(p modelPos) int32 {
+		return pv.doc.RowOfLine(p.line) + int32(geometry.SubRowOfCol(pv.doc.WrapBreaks(p.line, nil), p.col))
+	}
+
+	pv.SetCaret(1, 5) // on the first sub-row of the wrapped value line
+	startRow := visualRow(pv.sel.focus)
 	pv.shiftHeld = true
 	for i := 0; i < 3; i++ {
 		pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyDown}) // extend down across sub-rows
 	}
 	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyUp})
 	pv.shiftHeld = false
+
 	if !pv.sel.active {
-		t.Error("shift+Down across wrapped sub-rows should make an active selection")
+		t.Fatal("shift+Down across wrapped sub-rows should make an active selection")
+	}
+	if got, want := visualRow(pv.sel.focus), startRow+2; got != want {
+		t.Errorf("focus visual row after 3×Down−1×Up = %d, want %d (net +2 sub-rows)", got, want)
+	}
+	if pv.sel.focus.line != 1 {
+		t.Errorf("focus left the wrapped line: line %d, want 1", pv.sel.focus.line)
 	}
 }

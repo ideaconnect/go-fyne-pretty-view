@@ -218,6 +218,10 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 		pv.setParseStatus(pv.statusFor(nil, pv.buf.Bytes())) // initial validity for the gutter/status
 	} else {
 		pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
+		// Surface validity to read-only hosts too: a tolerant parse that recovered errors
+		// (KindError markers) or a forced format that fell back to raw is otherwise visible
+		// only as on-screen tint, unreachable by host code (#87). Mirrors the editable branch.
+		pv.setParseStatus(statusOfDoc(pv.doc))
 	}
 	pv.ClearSearch()
 	pv.ClearSelection() // a selection from the old document is meaningless against the new one
@@ -267,6 +271,10 @@ func (pv *PrettyView) Source() []byte {
 // read-only mode it is the viewer's pretty-printed (depth-indented) rendering. Folding does
 // not truncate it. Note: control bytes render as a placeholder rune here; for the literal
 // bytes (including controls) use Source.
+//
+// Cost: synchronous and O(document) — it walks every display line and allocates the whole
+// string, so on a multi-MB document it briefly blocks the calling (Fyne) goroutine. Call it
+// off a hot path, like SetData (whose parse is also O(size)).
 func (pv *PrettyView) Text() string {
 	if pv.doc == nil {
 		return ""

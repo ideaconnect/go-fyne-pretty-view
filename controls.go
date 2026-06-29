@@ -331,6 +331,11 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 // auto-detecting the format. Exposed so hosts can trigger it from their own
 // menu/button. A host that wants the platform-native dialog should instead set
 // ToolbarConfig.OnOpen (or call its own picker) and feed the bytes to pv.SetData.
+//
+// The chosen file is read and parsed SYNCHRONOUSLY on the Fyne goroutine (an O(size) read +
+// SetData), so the read is bounded: the host's WithMaxInputBytes when set, else a built-in
+// default ceiling (defaultOpenDialogCap), refusing an over-cap file rather than freezing the
+// UI on a huge selection (#88).
 func ShowOpenDialog(pv *PrettyView, win fyne.Window) {
 	if win == nil {
 		return
@@ -340,12 +345,29 @@ func ShowOpenDialog(pv *PrettyView, win fyne.Window) {
 	}, win)
 }
 
+// defaultOpenDialogCap bounds the bundled file picker's read when the host set no explicit
+// WithMaxInputBytes. The Open button is on by default, and reading + parsing happens
+// synchronously on the Fyne goroutine, so an unbounded read of a multi-gigabyte selection
+// would freeze the UI; this ceiling keeps the convenience path safe while comfortably covering
+// ordinary viewer use. A host that needs more (or less) sets WithMaxInputBytes explicitly (#88).
+const defaultOpenDialogCap = 64 << 20 // 64 MiB
+
+// openDialogCap is the byte ceiling the bundled picker enforces: the host's explicit
+// WithMaxInputBytes when set, else defaultOpenDialogCap.
+func openDialogCap(cfg config) int {
+	if cfg.maxInputBytes > 0 {
+		return cfg.maxInputBytes
+	}
+	return defaultOpenDialogCap
+}
+
 // loadFromReader handles a file-open dialog result: a picker error is surfaced (not
 // swallowed), a cancel (nil reader, no error) is silent, otherwise the file is read
-// (surfacing any read error) and loaded with auto-detection. The read is bounded by the
-// configured WithMaxInputBytes, so the bundled loader can never read a multi-gigabyte file
-// whole into memory (#73): an over-cap file is refused with an error rather than silently
-// truncated, since a file open is an explicit user action.
+// (surfacing any read error) and loaded with auto-detection. The read is bounded by
+// openDialogCap — the host's WithMaxInputBytes or, when unset, a default ceiling — so the
+// bundled loader can never read a multi-gigabyte file whole into memory and freeze the UI
+// (#73, #88): an over-cap file is refused with an error rather than silently truncated, since a
+// file open is an explicit user action.
 func loadFromReader(pv *PrettyView, win fyne.Window, rc fyne.URIReadCloser, err error) {
 	if err != nil {
 		dialog.ShowError(err, win)
@@ -355,13 +377,18 @@ func loadFromReader(pv *PrettyView, win fyne.Window, rc fyne.URIReadCloser, err 
 		return // user cancelled
 	}
 	defer rc.Close()
-	data, tooLarge, err := readCapped(rc, pv.cfg.maxInputBytes)
+	cap := openDialogCap(pv.cfg)
+	data, tooLarge, err := readCapped(rc, cap)
 	if err != nil {
 		dialog.ShowError(err, win)
 		return
 	}
 	if tooLarge {
-		dialog.ShowError(fmt.Errorf("file exceeds the %d-byte limit set via WithMaxInputBytes", pv.cfg.maxInputBytes), win)
+		if pv.cfg.maxInputBytes > 0 {
+			dialog.ShowError(fmt.Errorf("file exceeds the %d-byte limit set via WithMaxInputBytes", cap), win)
+		} else {
+			dialog.ShowError(fmt.Errorf("file exceeds the bundled picker's default %d-byte limit; set WithMaxInputBytes to change it", cap), win)
+		}
 		return
 	}
 	pv.SetData(data, FormatAuto)

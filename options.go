@@ -201,6 +201,9 @@ func WithLineNumbers() Option {
 // changeable"; see docs/DESIGN.md §12.3). Read Editable to query the constructed mode;
 // a host-only runtime flip is a deferred future feature. Off by default, so a read-only
 // widget behaves byte-for-byte like a v1 viewer.
+//
+// For a large editable buffer, pair this with WithMaxEditBytes (via WithInputConfig) to cap
+// the per-pause auto-format work; an explicit Reformat is still synchronous and O(buffer).
 func WithEditable() Option {
 	return func(c *config) { c.editable = true }
 }

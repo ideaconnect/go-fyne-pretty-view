@@ -43,6 +43,7 @@ prettyview func WithTabWidth(n int) Option
 prettyview func WithTheme(v fyne.ThemeVariant, t Theme) Option
 prettyview func WithUndoLimit(n int) Option
 prettyview func WithWrap(m WrapMode) Option
+prettyview method (*PrettyView) AcceptsTab() bool
 prettyview method (*PrettyView) Caret() (line, col int)
 prettyview method (*PrettyView) ClearSearch()
 prettyview method (*PrettyView) ClearSelection()

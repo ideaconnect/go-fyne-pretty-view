@@ -1,8 +1,11 @@
 package prettyview_test
 
 import (
+	"fmt"
+
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/test"
 	prettyview "github.com/ideaconnect/go-fyne-pretty-view/v2"
 )
 
@@ -24,14 +27,17 @@ func ExampleNew() {
 	w.ShowAndRun()
 }
 
-// ExamplePrettyView_Search runs a regular-expression search, reads the live match
-// counter, and steps to the next match.
+// ExamplePrettyView_Search runs a regular-expression search and reads the live match
+// counter. Search is synchronous, so the count is available immediately.
 func ExamplePrettyView_Search() {
+	test.NewApp() // self-contained: provides the fyne.CurrentApp the widget reads
 	pv := prettyview.NewWithData([]byte(`{"a":"x1","b":"x2","c":"yy"}`), prettyview.FormatJSON)
 
 	pv.Search(prettyview.SearchQuery{Text: `x\d`, Mode: prettyview.SearchRegex})
-	pv.SearchStatus() // -> (active, total, capped); total is 2 here
-	pv.SearchNext()   // advance to the next match (wraps at the end)
+	_, total, _ := pv.SearchStatus() // (active, total, capped)
+	pv.SearchNext()                  // advance to the next match (wraps at the end)
+	fmt.Println(total)
+	// Output: 2
 }
 
 // ExamplePrettyView_CopySubtree copies a node's whole subtree to the clipboard by its
@@ -39,8 +45,10 @@ func ExamplePrettyView_Search() {
 // JSONC, XML and HTML — so it resolves a node on all of them (only the raw view, which
 // has no nodes, returns false). The right-click "Copy subtree" menu item does the same.
 func ExamplePrettyView_CopySubtree() {
+	test.NewApp() // self-contained: CopySubtree writes to the clipboard via the current app
 	pv := prettyview.NewWithData([]byte(`{"user":{"name":"ada","id":1}}`), prettyview.FormatJSON)
 
 	// Byte offset of the '{' opening the "user" object in the source.
-	pv.CopySubtree(8) // -> true; the "user" subtree is now on the clipboard
+	fmt.Println(pv.CopySubtree(8)) // true; the "user" subtree is now on the clipboard
+	// Output: true
 }
