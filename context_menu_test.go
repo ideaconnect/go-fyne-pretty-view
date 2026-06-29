@@ -9,6 +9,36 @@ import (
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
 
+// TestTextAndCopyPreserveMultilineJSONCComment is the #123 regression (sibling of #121): a
+// multi-line JSONC /* */ comment renders on one display row with its interior newlines escaped to
+// a display "\n", but Text() and CopySubtree (the clipboard) must carry the comment's ORIGINAL
+// bytes — real newlines, not the literal two-character backslash-n — since both share the same
+// pretty-line routine the Reformat serializer uses (the never-corrupt-bytes contract, rule 7).
+func TestTextAndCopyPreserveMultilineJSONCComment(t *testing.T) {
+	test.NewApp()
+	src := "{\n  /* multi\n     line note */\n  \"k\": 1\n}"
+	pv := NewWithData([]byte(src), FormatJSONC)
+
+	txt := pv.Text()
+	if strings.Contains(txt, `\n`) {
+		t.Errorf("Text() escaped a comment newline to a literal \\n:\n%q", txt)
+	}
+	if !strings.Contains(txt, "multi\n     line") { // the real newline must survive
+		t.Errorf("Text() dropped the comment's real newline:\n%q", txt)
+	}
+
+	if !pv.CopySubtree(0) {
+		t.Fatal("CopySubtree(0) returned false")
+	}
+	clip := fyne.CurrentApp().Clipboard().Content()
+	if strings.Contains(clip, `\n`) {
+		t.Errorf("CopySubtree put a literal \\n on the clipboard (comment corrupted):\n%q", clip)
+	}
+	if !strings.Contains(clip, "multi\n     line") {
+		t.Errorf("CopySubtree dropped the comment's real newline:\n%q", clip)
+	}
+}
+
 // TestContextMenuItems checks the right-click menu's items, their enabled state,
 // keyboard accelerators, and that their actions drive the public selection and
 // clipboard API.
