@@ -21,20 +21,29 @@ func (rawParser) Format() Format { return FormatRaw }
 func (rawParser) Detect([]byte) int { return 0 }
 
 func (p rawParser) Parse(src []byte, b *model.Builder) error {
+	forEachLine(src, false, func(start, end int) {
+		b.Leaf(model.KindRawLine, start, end, rawLineSegs(src, start, end, p.tabWidth))
+	})
+	return nil
+}
+
+// forEachLine calls fn(start, end) for each line of src split on '\n' (end excludes the '\n').
+// A trailing '\n' yields a final empty line only when includeTrailingEmpty is set: the raw
+// (read-only) projection omits it, while the editable projection keeps it as the caret's home
+// row. Shared by rawParser.Parse and editColorParser.Parse so the line-split walk lives once.
+func forEachLine(src []byte, includeTrailingEmpty bool, fn func(start, end int)) {
 	start := 0
-	for start <= len(src) {
+	for {
 		nl := bytes.IndexByte(src[start:], '\n')
 		if nl < 0 {
-			if start < len(src) {
-				b.Leaf(model.KindRawLine, start, len(src), rawLineSegs(src, start, len(src), p.tabWidth))
+			if start < len(src) || includeTrailingEmpty {
+				fn(start, len(src))
 			}
-			break
+			return
 		}
-		end := start + nl
-		b.Leaf(model.KindRawLine, start, end, rawLineSegs(src, start, end, p.tabWidth))
-		start = end + 1
+		fn(start, start+nl)
+		start += nl + 1
 	}
-	return nil
 }
 
 // rawLineSegs builds the segments for one raw line, trimming a trailing carriage

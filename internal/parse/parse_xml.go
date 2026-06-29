@@ -60,16 +60,8 @@ func (xmlParser) Parse(src []byte, b *model.Builder) error {
 		switch tok := t.(type) {
 		case xml.StartElement:
 			s.parseElement(tok, s.tokStart)
-		case xml.Comment:
-			b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
-		case xml.ProcInst:
-			b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{procInstSeg(tok)})
-		case xml.Directive:
-			b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!"+collapseSpace(string(tok))+">")})
-		case xml.CharData:
-			if txt := collapseSpace(string(tok)); txt != "" {
-				s.markIfCDATA(b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)}))
-			}
+		default:
+			s.emitTrivia(tok) // comments / PIs / directives / char-data, shared with parseElement
 		}
 	}
 	return nil
@@ -173,14 +165,28 @@ func (s *xmlScanner) parseElement(start xml.StartElement, srcStart int) {
 		case xml.EndElement:
 			s.b.Close(s.tokEnd, endSegs(start.Name.Local))
 			return
-		case xml.CharData:
-			if txt := collapseSpace(string(tok)); txt != "" {
-				s.markIfCDATA(s.b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)}))
-			}
-		case xml.Comment:
-			s.b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(tok))+" -->")})
-		case xml.ProcInst:
-			s.b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{procInstSeg(tok)})
+		default:
+			s.emitTrivia(tok) // comments / PIs / directives / char-data, shared with the top-level scan
+		}
+	}
+}
+
+// emitTrivia emits the non-structural XML tokens — comments, processing instructions, directives,
+// and non-blank character data — as leaf nodes. The top-level scan and parseElement share it (from
+// their switch `default:`, after handling StartElement/EndElement) so the two dispatch trivia
+// identically; only procInstSeg had been extracted before. Any other token type is a no-op, matching
+// the old switches (a stray EndElement at the top level was already ignored there).
+func (s *xmlScanner) emitTrivia(tok xml.Token) {
+	switch t := tok.(type) {
+	case xml.Comment:
+		s.b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!-- "+collapseSpace(string(t))+" -->")})
+	case xml.ProcInst:
+		s.b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{procInstSeg(t)})
+	case xml.Directive:
+		s.b.Leaf(model.KindComment, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleComment, "<!"+collapseSpace(string(t))+">")})
+	case xml.CharData:
+		if txt := collapseSpace(string(t)); txt != "" {
+			s.markIfCDATA(s.b.Leaf(model.KindText, s.tokStart, s.tokEnd, []model.Seg{model.LitSeg(model.RoleString, txt)}))
 		}
 	}
 }
