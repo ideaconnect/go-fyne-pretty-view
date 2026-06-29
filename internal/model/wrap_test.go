@@ -1,6 +1,21 @@
 package model
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func equalInt32(a, b []int32) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
 
 // rawDoc builds a small raw document (one Leaf per line) for projection tests.
 func rawDoc(lines ...string) *Document {
@@ -111,6 +126,69 @@ func TestWrapFoldUnfoldRoundTrip(t *testing.T) {
 	if d.TotalVisibleRows() != incTotal || !equalRows(snapshotRows(d), incRows) {
 		t.Errorf("incremental fold projection != rebuild projection")
 	}
+}
+
+// TestWrapBreaksUpToBounded drives #120: WrapBreaksUpTo(li, _, maxSub) must return a
+// PREFIX of the full WrapBreaks list — identical entries for sub-rows [0,maxSub] so
+// geometry.SpanOfSub/SubRowOfCol resolve the same span — while stopping the walk early
+// (a line with more rows than the bound yields exactly maxSub+2 entries, never the
+// whole line). The length assertion is the regression teeth: re-introducing the
+// unbounded walk would make a bounded call return the entire R+1-entry list and fail.
+func TestWrapBreaksUpToBounded(t *testing.T) {
+	d := rawDoc(
+		"word", // padding so the wrapping line isn't index 0
+		"aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm", // word-wraps to many rows
+		"0123456789012345678901234567890123456789",                         // 40 cols unbreakable -> char-wrap
+		"x", // a single-row line
+	)
+	const cols = 10
+	d.SetWrapColumns([]int{cols})
+
+	var full, bnd []int32
+	for li := int32(0); li < int32(d.TotalLines()); li++ {
+		full = d.WrapBreaks(li, full[:0]) // unbounded reference: [0, b1, …, lineLen]
+		R := int32(len(full) - 1)         // number of visual rows
+
+		// maxSub < 0 reproduces the full list exactly (it IS WrapBreaks).
+		if bnd = d.WrapBreaksUpTo(li, bnd[:0], -1); !equalInt32(bnd, full) {
+			t.Fatalf("line %d: WrapBreaksUpTo(-1)=%v != WrapBreaks=%v", li, bnd, full)
+		}
+
+		// Every in-range bound yields a correct prefix of the right (bounded) length.
+		for maxSub := int32(0); maxSub <= R+2; maxSub++ {
+			bnd = d.WrapBreaksUpTo(li, bnd[:0], maxSub)
+			wantLen := maxSub + 2
+			if wantLen > R+1 { // can't exceed the line's own row count
+				wantLen = R + 1
+			}
+			if int32(len(bnd)) != wantLen {
+				t.Errorf("line %d maxSub %d: len=%d, want %d (R=%d rows)", li, maxSub, len(bnd), wantLen, R)
+			}
+			if !equalInt32(bnd, full[:len(bnd)]) {
+				t.Errorf("line %d maxSub %d: %v is not a prefix of %v", li, maxSub, bnd, full)
+			}
+		}
+	}
+}
+
+// BenchmarkWrapBreaksUpToHugeLine proves the O(window) bound directly: bounding a
+// 2 MB single wrapped line to 40 sub-rows must be orders of magnitude cheaper than
+// the full-line walk it replaced on the per-reflow path (#120).
+func BenchmarkWrapBreaksUpToHugeLine(b *testing.B) {
+	d := rawDoc(strings.Repeat("abcdefghij", 200_000)) // 2 MB single line
+	d.SetWrapColumns([]int{80})
+	var dst []int32
+	b.ReportAllocs()
+	b.Run("Bounded40", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			dst = d.WrapBreaksUpTo(0, dst[:0], 40)
+		}
+	})
+	b.Run("FullLine", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			dst = d.WrapBreaks(0, dst[:0])
+		}
+	})
 }
 
 // TestWeightGeneralizationNoOp pins the M-W0 invariant: under WrapNone the fold

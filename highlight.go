@@ -43,14 +43,18 @@ func (r *prettyViewRenderer) placeSpanRect(pool *[]*canvas.Rectangle, n int, m g
 
 // subSpan returns the displayed-column window [w0,w1) and text base for visual row
 // `row` showing (li, sub). Under WrapNone it is the whole line [0,runeLen) at base
-// 0 (the absolute layout). The breaks slice is cached by line across calls.
+// 0 (the absolute layout). The breaks slice is cached by line across calls, and the
+// walk is bounded to the bottom visible sub-row of the line (last - its top row), so
+// a single multi-MB wrapped line carrying a selection/match costs O(visible window),
+// not O(line length), per reflow (#120).
 func (r *prettyViewRenderer) subSpan(li, sub int32, runeLen int, wrapOn bool,
-	breaks *[]int32, breaksLine *int32) (w0, w1, colBase int) {
+	breaks *[]int32, breaksLine *int32, last int) (w0, w1, colBase int) {
 	if !wrapOn {
 		return 0, runeLen, 0
 	}
 	if li != *breaksLine {
-		*breaks = r.pv.doc.WrapBreaks(li, (*breaks)[:0])
+		maxSub := int32(last) - r.pv.doc.RowOfLine(li)
+		*breaks = r.pv.doc.WrapBreaksUpTo(li, (*breaks)[:0], maxSub)
 		*breaksLine = li
 	}
 	start, end := geometry.SpanOfSub(*breaks, sub)
@@ -105,7 +109,7 @@ func (r *prettyViewRenderer) rebuildSelection(first, last int) {
 			selE = clamp(b.col, 0, runeLen)
 		}
 
-		w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &r.selBreaks, &breaksLine)
+		w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &r.selBreaks, &breaksLine, last)
 		lo, hi := max(selS, w0), min(selE, w1)
 		// Trailing-newline bleed: shown when the line is selected through its end,
 		// another selected line follows, and this is the line's last visual row.
@@ -147,7 +151,7 @@ func (r *prettyViewRenderer) rebuildMatches(first, last int) {
 			}
 			depth := pv.doc.Lines[li].Depth
 			runeLen := pv.doc.LineRuneLen(li)
-			w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &r.matchBreaks, &breaksLine)
+			w0, w1, colBase := r.subSpan(li, sub, runeLen, wrapOn, &r.matchBreaks, &breaksLine, last)
 			if !wrapOn {
 				// Under WrapNone subSpan returns the whole line, so K matches on one
 				// visible line would each emit a rect even when most are horizontally
