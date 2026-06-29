@@ -34,4 +34,13 @@ func TestLineNumbersHorizontalScrollRender(t *testing.T) {
 	if !gutterShown {
 		t.Error("the line-number gutter should still render while the wide line is scrolled")
 	}
+
+	// The load-bearing M-1 invariant this test's name advertises: the wide string line (display
+	// line 1; line 0 is "[") must be horizontally CULLED — only its visible column window renders,
+	// far shorter than the full ~1200-char line — not painted in full.
+	if got, ok := rowText(pv.r, pv.doc.LineAtRow(1)); !ok {
+		t.Error("the wide line has no live row after scrolling")
+	} else if len(got) == 0 || len(got) >= len(long) {
+		t.Errorf("horizontal cull failed: rendered %d chars of the %d-char line, want a bounded window", len(got), len(long))
+	}
 }

@@ -15,18 +15,25 @@ func TestSearchVariantsAndReveal(t *testing.T) {
 	pv, win := renderInWindow(t, []byte(src), FormatJSON, 400, 300)
 	defer win.Close()
 
-	// Case-insensitive plain search exercises the lowercase-needle path.
+	// Case-insensitive plain search: "Hello hello HELLO world" has 3 + "hello" has 1 = exactly 4.
 	pv.Search(SearchQuery{Text: "hello", CaseSensitive: false})
-	if _, total, _ := pv.SearchStatus(); total < 3 {
-		t.Errorf("case-insensitive 'hello' total = %d, want >= 3", total)
+	if active, total, _ := pv.SearchStatus(); total != 4 || active != 1 {
+		t.Errorf("case-insensitive 'hello': active=%d total=%d, want active=1 total=4", active, total)
 	}
-	pv.SearchNext() // step forward -> revealActive centers on a match
+	pv.SearchNext() // step forward -> active advances, revealActive centers on it
+	if active, _, _ := pv.SearchStatus(); active != 2 {
+		t.Errorf("after SearchNext active = %d, want 2", active)
+	}
 	pv.SearchPrev()
+	if active, _, _ := pv.SearchStatus(); active != 1 {
+		t.Errorf("after SearchPrev active = %d, want 1", active)
+	}
 
-	// A regex with a literal head ("Hel") drives the LiteralPrefix prefilter.
+	// A case-sensitive regex with a literal head ("Hel") drives the LiteralPrefix prefilter; only
+	// the capital-H "Hello" matches case-sensitively, so exactly 1 (not "hello"/"HELLO").
 	pv.Search(SearchQuery{Text: "Hel+o", Mode: SearchRegex, CaseSensitive: true})
-	if _, total, _ := pv.SearchStatus(); total < 1 {
-		t.Errorf("regex 'Hel+o' total = %d, want >= 1", total)
+	if _, total, _ := pv.SearchStatus(); total != 1 {
+		t.Errorf("regex 'Hel+o' (case-sensitive) total = %d, want 1", total)
 	}
 	// A regex with no literal head still runs (prefilter disabled).
 	pv.Search(SearchQuery{Text: ".ello", Mode: SearchRegex})

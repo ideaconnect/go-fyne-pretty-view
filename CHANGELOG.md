@@ -12,10 +12,9 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
-Third and fourth pre-alpha deep-review passes (issues #87–#92, #106, #110–#120). No existing
-exported signature changed; one additive method (`AcceptsTab`, from the editor Tab support) keeps
-this a **minor** — the **/v2** surface stays additively compatible (the exported-surface golden
-tracks the addition).
+Pre-alpha deep-review passes 3–8 (issues #87–#92, #106, #110–#123). No existing exported signature
+changed; one additive method (`AcceptsTab`, from the editor Tab support) keeps this a **minor** — the
+**/v2** surface stays additively compatible (the exported-surface golden tracks the addition).
 
 ### Added
 - **The editor inserts a literal tab on `Tab`** instead of moving focus: an editable widget now
@@ -25,11 +24,13 @@ tracks the addition).
   document's status too, so a host can react to malformed input it merely displays (#87).
 
 ### Fixed
-- **`Reformat` no longer corrupts multi-line JSONC block comments.** A `/* … */` comment is shown
-  on a single display row with its interior newlines escaped to a display `\n`; the serializer wrote
-  that escaped form back into the buffer, so reformatting collapsed a multi-line comment (every real
-  newline became the literal two-character `\n`) — silent data loss. Comments are now re-emitted from
-  their source bytes verbatim, mirroring the markup raw-text path; display is unchanged (#121).
+- **`Reformat`, `Text()`, and `CopySubtree` no longer corrupt multi-line JSONC block comments.** A
+  `/* … */` comment is shown on a single display row with its interior newlines escaped to a display
+  `\n`; the shared pretty-line routine wrote that escaped form into the rewritten buffer, `Text()`,
+  and the clipboard, so a multi-line comment collapsed (every real newline became the literal
+  two-character `\n`) — silent data loss (rule 7). Comments are now re-emitted from their source
+  bytes verbatim by the one routine that backs all three paths, scoped to JSONC (XML/HTML comments
+  keep their canonical whitespace-collapsed form); display is unchanged (#121, #123).
 - **HTML `<script>`/`<style>` `Reformat` is now idempotent.** The raw-text body re-emitted its
   source span verbatim, including surrounding whitespace-only lines, so each Reformat accreted a
   blank line unboundedly; the body's whole leading/trailing blank lines are now trimmed once, so a
