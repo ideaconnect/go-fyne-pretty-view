@@ -167,7 +167,7 @@ ed.SetData(jsonBytes, prettyview.FormatAuto)
 | Prettify on demand | `Reformat()` | Pretty-prints the buffer in place and **keeps the caret on the same token**. This is the only thing that reflows the text. |
 | Auto-reformat | **Off** | `WithInputConfig(InputConfig{AutoFormat: …})` / `SetInputConfig(...)`: `AutoFormatOff` (default — prettify only on `Reformat`), `AutoFormatOnPause` (after a typing pause), or `AutoFormatOnBlur` (on focus loss). `DebounceFor` tunes the pause (400 ms). |
 | Live parse validity | On | `ParseStatus()` (`OK` + `ErrorLine`) and `SetOnValidationChanged(fn)`; the error line is flagged in the gutter. `SetOnChanged(fn)` delivers the settled text. |
-| Undo / redo | On | `Undo()` / `Redo()` (and `Ctrl/Cmd+Z` / `Ctrl/Cmd+Shift+Z`); a typed word coalesces into one step. Cap the history with `WithUndoLimit(n)` (200 default). |
+| Undo / redo | On | `Undo()` / `Redo()` (and `Ctrl/Cmd+Z` / `Ctrl/Cmd+Y`); a typed word coalesces into one step. Cap the history with `WithUndoLimit(n)` (200 default). |
 | Cut / copy / paste | On | `Cut()` / `CopySelection()` / `Paste()` (and the standard `Ctrl/Cmd+X/C/V`); pasted control bytes render as visible placeholders, never raw. |
 | Caret control | On | `Caret()` / `SetCaret(line, col)`; `Source()` returns the live buffer bytes (the pretty bytes after a `Reformat`), `Text()` the displayed text. |
 | Edit-buffer cap | Off | `InputConfig.MaxEditBytes` (set via `WithInputConfig`/`SetInputConfig`): an edit that would grow the buffer past the cap is rejected and auto-reformat-on-pause is suppressed (an explicit `Reformat` still runs), keeping the gap-buffer delta bounded. `WithMaxInputBytes(n)` is a *separate* knob that truncates `SetData`/`SetText` input — it does **not** cap live edits. |
@@ -362,7 +362,7 @@ wraps them as a `fyne.Theme` you install on your app:
 import (
     "fyne.io/fyne/v2/app"
     "fyne.io/fyne/v2/theme"
-    "github.com/ideaconnect/go-fyne-pretty-view/fonttheme"
+    "github.com/ideaconnect/go-fyne-pretty-view/v2/fonttheme"
 )
 
 a := app.New()

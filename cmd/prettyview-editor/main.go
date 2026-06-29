@@ -95,7 +95,7 @@ func buildUI(w fyne.Window, start string) fyne.CanvasObject {
 	)
 
 	hint := widget.NewLabel("Click in, then type or paste — syntax highlighting is live as you type. " +
-		"Reformat pretty-prints in place (the caret stays put); Undo/Redo (or Ctrl/Cmd+Z / Shift+Z) walk the history.")
+		"Reformat pretty-prints in place (the caret stays put); Undo/Redo (or Ctrl/Cmd+Z / Ctrl/Cmd+Y) walk the history.")
 	hint.Wrapping = fyne.TextWrapWord
 
 	top := container.NewVBox(controls, hint)
