@@ -37,8 +37,10 @@ const maxColorLineBytes = 16384
 // the dropped-frame threshold measured at 7.5 MB and covers the common editor case.
 const LiveColorBudgetBytes = 2 << 20 // 2 MiB
 
-// WithinLiveColorBudget reports whether a buffer of n bytes is colorized live (issue #65).
-// reprojectRaw uses it to also skip the whole-buffer AutoDetect scan above budget.
+// WithinLiveColorBudget reports whether a buffer of n bytes is colorized live (issue #65):
+// at or below the budget the editable projection lexes + colors; above it, color is skipped
+// (the monochrome edit-raw split). It gates only the colorizer — format auto-detection is a
+// separate, already-bounded sniff (AutoDetect reads at most a few KiB), so it always runs.
 func WithinLiveColorBudget(n int) bool { return n <= LiveColorBudgetBytes }
 
 // editColorParser is the editable-mode projection parser. format selects the colorizer;
