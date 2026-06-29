@@ -216,22 +216,37 @@ func (fi *foldIndex) TotalVisibleRows() int32 { return fi.bit.total() }
 // lineAtRow maps a 0-based visible row to its display-line index. An out-of-range
 // row is clamped (row < 0 -> first line, row >= total -> last line) so a misuse
 // returns a valid index rather than a fake one-past-last that panics downstream.
-func (fi *foldIndex) lineAtRow(row int32) int32 {
-	n := int32(len(fi.vis))
+// clampRow clamps a 0-based visual row into the currently-visible range, shared by lineAtRow
+// and lineAndSubRow so the out-of-range handling stays identical. It returns the clamped row,
+// the line count n, and allHidden when lines exist but none are visible. Clamping row >= total
+// to the last visible row stops kth(row+1) from walking past the last visible line into a
+// hidden trailing one (#102); the all-hidden case is flagged separately because row = total-1
+// would underflow to -1. fi.bit.total() is read exactly once here.
+func (fi *foldIndex) clampRow(row int32) (clamped, n int32, allHidden bool) {
+	n = int32(len(fi.vis))
 	if n == 0 {
-		return 0
+		return 0, 0, false
 	}
 	if row < 0 {
 		row = 0
 	}
-	// Clamp row >= total to the last VISIBLE line, matching the docstring and the sibling
-	// lineAndSubRow. Without this, kth(row+1) for an out-of-range row walks past the last
-	// visible line and returns a hidden trailing line (#102). The all-hidden total==0 case
-	// is handled explicitly: row = total-1 would underflow to -1 and kth(0) mis-resolves.
-	if total := fi.bit.total(); total == 0 {
-		return n - 1
-	} else if row >= total {
+	total := fi.bit.total()
+	if total == 0 {
+		return 0, n, true
+	}
+	if row >= total {
 		row = total - 1
+	}
+	return row, n, false
+}
+
+func (fi *foldIndex) lineAtRow(row int32) int32 {
+	row, n, allHidden := fi.clampRow(row)
+	if n == 0 {
+		return 0
+	}
+	if allHidden {
+		return n - 1
 	}
 	li := int32(fi.bit.kth(row + 1))
 	if li >= n {
@@ -242,24 +257,16 @@ func (fi *foldIndex) lineAtRow(row int32) int32 {
 
 // lineAndSubRow maps a 0-based visible visual row to its display line and the
 // 0-based sub-row within that line (0 unless the line is soft-wrapped). O(log n).
-// Out-of-range rows clamp, matching lineAtRow.
+// Out-of-range rows clamp, matching lineAtRow (shared clampRow). The all-hidden case
+// returns the last line / sub-row 0; it is unreachable through the public fold
+// projection today (root and fold-head lines stay visible), so it is hardening.
 func (fi *foldIndex) lineAndSubRow(visualRow int32) (line, sub int32) {
-	n := int32(len(fi.vis))
+	visualRow, n, allHidden := fi.clampRow(visualRow)
 	if n == 0 {
 		return 0, 0
 	}
-	if fi.bit.total() == 0 {
-		// Lines exist but all are hidden: clamp to the last line / sub-row 0 to match
-		// lineAtRow, rather than letting the (total-1 == -1) clamp below yield a
-		// negative sub. Unreachable through the public fold projection today (the root
-		// and fold-head lines always stay visible), so this is hardening.
+	if allHidden {
 		return n - 1, 0
-	}
-	if visualRow < 0 {
-		visualRow = 0
-	}
-	if total := fi.bit.total(); visualRow >= total {
-		visualRow = total - 1
 	}
 	line = int32(fi.bit.kth(visualRow + 1))
 	if line >= n {

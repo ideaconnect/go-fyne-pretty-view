@@ -280,10 +280,10 @@ func (b *Builder) buildCollapsedRenderings() {
 		clo := &d.Lines[n.CloseLine]
 
 		collFirst := uint32(len(d.Segs))
-		d.Segs = append(d.Segs, d.Segs[head.SegFirst:head.SegFirst+uint32(head.SegCount)]...)
+		d.Segs = append(d.Segs, d.segRange(head.SegFirst, head.SegCount)...)
 		ss, se := b.intern(" " + summaryFor(n.Kind, int(n.ChildCount)) + " ")
 		d.Segs = append(d.Segs, Segment{Start: ss, End: se, Role: RoleMuted, Buf: BufAux})
-		d.Segs = append(d.Segs, d.Segs[clo.SegFirst:clo.SegFirst+uint32(clo.SegCount)]...)
+		d.Segs = append(d.Segs, d.segRange(clo.SegFirst, clo.SegCount)...)
 		head.CollFirst = collFirst
 		head.CollCount = clampSegCount(uint32(len(d.Segs)) - collFirst)
 	}
@@ -334,7 +334,7 @@ func (b *Builder) computeExtent() {
 			d.MaxDepth = l.Depth
 		}
 		runes, bytesN := 0, 0
-		for _, s := range d.Segs[l.SegFirst : l.SegFirst+uint32(l.SegCount)] {
+		for _, s := range d.segRange(l.SegFirst, l.SegCount) {
 			sb := d.SegBytes(s)
 			runes += utf8.RuneCount(sb)
 			bytesN += len(sb)
@@ -349,7 +349,7 @@ func (b *Builder) computeExtent() {
 		// A collapsed fold-head can be wider than its expanded head line.
 		if l.Fold != NoNode {
 			cr := 0
-			for _, s := range d.Segs[l.CollFirst : l.CollFirst+uint32(l.CollCount)] {
+			for _, s := range d.segRange(l.CollFirst, l.CollCount) {
 				cr += utf8.RuneCount(d.SegBytes(s))
 			}
 			if cr > runes {

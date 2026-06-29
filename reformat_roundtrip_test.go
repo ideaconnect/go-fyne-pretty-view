@@ -20,23 +20,6 @@ import (
 // mis-bounded value segment, a garbled escape, or a dropped/mis-nested tag fails even though
 // Text() shares the same routine.
 
-// hasRawCtlByte reports whether s holds a raw control byte that escapeGridBreakers renders
-// as a \xNN display escape (every C0 control except \t/\n/\r, plus DEL). Such a byte inside a
-// JSON string literal currently reformats to the invalid \xNN form (#106), so the round-trip
-// fuzz skips it; \t/\n/\r are excluded because their display escapes are valid JSON.
-func hasRawCtlByte(s string) bool {
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == '\t' || c == '\n' || c == '\r' {
-			continue
-		}
-		if c < 0x20 || c == 0x7f {
-			return true
-		}
-	}
-	return false
-}
-
 // jsonValue decodes b into a comparable value using json.Number (UseNumber), so numeric
 // literals compare by their exact text — a reformat that mangled a digit, a big integer, or
 // an exponent is caught, not silently widened to float64.
@@ -63,6 +46,7 @@ func TestReformatJSONSemanticRoundTrip(t *testing.T) {
 		`[true,false,null,"",[],{}]`,
 		`{"nested":{"x":[1,{"y":2}]},"arr":[[1,2],[3,4]],"empty":{}}`,
 		`{"unicode key é 😀":"value","dupkeyless":[1]}`,
+		"\"a\x7fb\"", // #106: a raw DEL is valid raw JSON; Reformat must keep it valid (now \u007f)
 	}
 	for _, src := range inputs {
 		pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
@@ -84,6 +68,44 @@ func TestReformatJSONSemanticRoundTrip(t *testing.T) {
 		}
 		win.Close()
 	}
+}
+
+// TestReformatControlBytesValidJSON is the #106 regression: a JSON string token (key or value)
+// holding a raw control byte — which the tolerant scanner accepts but encoding/json rejects, so
+// it can't go through the strict-validity round-trip above — must Reformat to VALID JSON via a
+// \u00NN / \t-style escape, not the display-only \xNN that used to leak into the buffer. The
+// reformatted output must decode (encoding/json) to a string carrying the same runes.
+func TestReformatControlBytesValidJSON(t *testing.T) {
+	reformat := func(t *testing.T, src string) []byte {
+		t.Helper()
+		pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
+		defer win.Close()
+		pv.SetData([]byte(src), FormatJSON)
+		pv.Reformat()
+		out := pv.Source()
+		if strings.Contains(string(out), `\x`) {
+			t.Errorf("Reformat leaked a display \\xNN escape into the buffer: %q", out)
+		}
+		return out
+	}
+	t.Run("value with raw C0", func(t *testing.T) {
+		var v string
+		if err := json.Unmarshal(reformat(t, "\"a\x01b\""), &v); err != nil {
+			t.Fatalf("output is not valid JSON: %v", err)
+		}
+		if v != "a\x01b" {
+			t.Errorf("decoded value = %q, want a<U+0001>b", v)
+		}
+	})
+	t.Run("key C0 and value DEL", func(t *testing.T) {
+		var m map[string]string
+		if err := json.Unmarshal(reformat(t, "{\"k\x02\":\"v\x7fw\"}"), &m); err != nil {
+			t.Fatalf("output is not valid JSON: %v", err)
+		}
+		if v, ok := m["k\x02"]; !ok || v != "v\x7fw" {
+			t.Errorf("decoded map = %#v, want key k<U+0002> -> v<U+007F>w", m)
+		}
+	})
 }
 
 // TestReformatXMLWellFormed locks that XML Reformat output is well-formed (parses to EOF via
@@ -187,14 +209,11 @@ func FuzzReformatJSONSemantics(f *testing.F) {
 		if dec.Decode(&want) != nil || dec.More() {
 			return
 		}
-		// Out of this property's domain: a RAW C0/DEL byte inside a string literal is escaped
-		// for display as \xNN, and Reformat currently writes that display form into the buffer,
-		// producing invalid JSON — a known, separate Reformat bug (#106). \t/\n/\r are fine
-		// (their display escapes are valid JSON escapes), so only the \xNN-producing bytes are
-		// excluded here; once #106 is fixed, drop this guard.
-		if hasRawCtlByte(src) {
-			return
-		}
+		// A raw DEL (0x7f) is valid raw JSON that encoding/json accepts, so it reaches here; #106
+		// is fixed (cleanJSONStringSeg escapes controls to \u00NN), so no guard is needed — the
+		// reformatted buffer must still be valid, same-value JSON. (Raw C0 bytes 0x00-0x1f in a
+		// string are rejected by the validity gate above and never reach this point; their fix is
+		// covered by TestReformatControlBytesValidJSON.)
 		pv.SetData([]byte(src), FormatJSON)
 		pv.Reformat()
 		got := pv.Source()
