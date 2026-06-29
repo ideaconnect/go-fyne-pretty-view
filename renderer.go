@@ -221,10 +221,14 @@ func (r *prettyViewRenderer) reflow() {
 		// fires the build rather than no-opping on an already-visible row.
 		rw.line, rw.sub = pv.lineSubAtRow(idx, wrapOn)
 		if wrapOn {
-			// A wrapped line's sub-rows are contiguous visual rows, so WrapBreaks is
+			// A wrapped line's sub-rows are contiguous visual rows, so the breaks are
 			// computed once per distinct visible line (breaksLine cache), not per row.
+			// Bound the walk to the bottom visible sub-row of this line — last - its top
+			// row — so a single multi-MB wrapped line costs O(visible window), not
+			// O(line length), per reflow (#120).
 			if rw.line != breaksLine {
-				breaks = pv.doc.WrapBreaks(rw.line, breaks[:0])
+				maxSub := int32(last) - pv.doc.RowOfLine(rw.line)
+				breaks = pv.doc.WrapBreaksUpTo(rw.line, breaks[:0], maxSub)
 				breaksLine = rw.line
 			}
 			rw.startCol, rw.endCol = geometry.SpanOfSub(breaks, rw.sub)

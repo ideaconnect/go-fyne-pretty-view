@@ -53,6 +53,26 @@ func FuzzWrapPartition(f *testing.F) {
 					t.Fatalf("line %d row %d span %d > budget %d", li, k, span, cols)
 				}
 			}
+			// #120: a bounded WrapBreaksUpTo must be the full list truncated to the same
+			// length (so SpanOfSub/SubRowOfCol resolve identically for sub<=maxSub), and a
+			// bound below the line's row count must stop the walk early (shorter slice).
+			R := int32(len(breaks) - 1)
+			for _, maxSub := range []int32{0, R / 2, R - 1, R, R + 1} {
+				if maxSub < 0 {
+					continue
+				}
+				bnd := d.WrapBreaksUpTo(li, nil, maxSub)
+				wantLen := maxSub + 2
+				if wantLen > R+1 {
+					wantLen = R + 1
+				}
+				if int32(len(bnd)) != wantLen {
+					t.Fatalf("line %d maxSub %d: bounded len %d != %d (R=%d, cols=%d)", li, maxSub, len(bnd), wantLen, R, cols)
+				}
+				if !equalInt32(bnd, breaks[:len(bnd)]) {
+					t.Fatalf("line %d maxSub %d: bounded %v not a prefix of %v (cols=%d)", li, maxSub, bnd, breaks, cols)
+				}
+			}
 		}
 	})
 }

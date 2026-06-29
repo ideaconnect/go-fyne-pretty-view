@@ -52,7 +52,7 @@ func (d *Document) computeWrapRows() {
 	}
 	for li := range d.Lines {
 		cols := wrapColsAt(d.colsByDepth, d.Lines[li].Depth)
-		d.rowsOf[li] = d.wrapWalk(int32(li), cols, nil)
+		d.rowsOf[li] = d.wrapWalk(int32(li), cols, 0, nil) // 0: unbounded — need the true row count
 	}
 }
 
@@ -63,7 +63,7 @@ func (d *Document) reweightLine(li int32) {
 		return
 	}
 	cols := wrapColsAt(d.colsByDepth, d.Lines[li].Depth)
-	d.rowsOf[li] = d.wrapWalk(li, cols, nil)
+	d.rowsOf[li] = d.wrapWalk(li, cols, 0, nil) // 0: unbounded — need the true row count
 }
 
 // wrapColsAt returns the column budget for depth from the per-depth table: deeper
@@ -90,11 +90,20 @@ func wrapColsAt(colsByDepth []int, depth uint8) int {
 // boundaries (the column right after a space) are preferred; an unbreakable run
 // wider than cols falls back to a char-break so a visual row is never wider than
 // cols — this is what preserves the no-texture-wider-than-the-viewport invariant.
-func (d *Document) wrapWalk(li int32, cols int, emit func(col int32)) int32 {
+//
+// maxBreaks bounds the walk: once that many breaks have been emitted the walk
+// returns immediately, so a caller that only needs the first k visual rows of a
+// pathologically long wrapped line pays O(start column of row k) instead of
+// O(line length). maxBreaks <= 0 means "walk the whole line" (the unbounded count
+// the projection needs); see WrapBreaksUpTo (#120). When the walk stops early the
+// returned row count is the partial count reached, not the line's true total — so
+// only nil-emit callers that pass maxBreaks <= 0 may rely on the return value.
+func (d *Document) wrapWalk(li int32, cols int, maxBreaks int32, emit func(col int32)) int32 {
 	rows := int32(1)
 	col := 0      // current rune column
 	rowStart := 0 // column where the current visual row begins
 	lastOpp := -1 // latest break opportunity (column just after a space) in this row
+	emitted := int32(0)
 	flush := func(at int) {
 		brk := at
 		if lastOpp > rowStart {
@@ -104,6 +113,7 @@ func (d *Document) wrapWalk(li int32, cols int, emit func(col int32)) int32 {
 			emit(int32(brk))
 		}
 		rows++
+		emitted++
 		rowStart = brk
 		lastOpp = -1
 	}
@@ -113,6 +123,9 @@ func (d *Document) wrapWalk(li int32, cols int, emit func(col int32)) int32 {
 		for i < len(b) {
 			for col-rowStart >= cols { // row full: break before placing this rune
 				flush(col)
+				if maxBreaks > 0 && emitted >= maxBreaks {
+					return rows // bound reached: prefix already covers the caller's rows
+				}
 			}
 			var r rune
 			if b[i] < utf8.RuneSelf {
@@ -136,14 +149,45 @@ func (d *Document) wrapWalk(li int32, cols int, emit func(col int32)) int32 {
 // each visual row's [startCol, endCol) in displayed rune columns. With wrap off it
 // is simply [0, lineLen] (one row). The budget is the retained per-depth table.
 func (d *Document) WrapBreaks(li int32, dst []int32) []int32 {
+	return d.WrapBreaksUpTo(li, dst, -1) // -1: the whole line
+}
+
+// WrapBreaksUpTo is WrapBreaks bounded to the visual rows a caller will actually
+// read. It appends a prefix [0, b1, …] sufficient to resolve every sub-row in
+// [0, maxSub] via geometry.SpanOfSub / SubRowOfCol, and stops walking the rest of
+// the line. For a single multi-megabyte wrapped line this turns the per-reflow break
+// walk from O(line length) into O(start column of maxSub) — the wrap-axis analogue of
+// the O(window) horizontal cull row.go's build() already applies (#120).
+//
+// maxSub < 0 means "the whole line" and reproduces WrapBreaks exactly (terminal entry
+// is lineLen). When the bound stops the walk before end-of-line the returned slice
+// OMITS the terminal lineLen — its last entry is a real break column (the start of the
+// row just past maxSub), which is exactly the endCol SpanOfSub needs for sub == maxSub.
+// SpanOfSub/SubRowOfCol clamp to the slice's final pair, so any query for a sub-row in
+// [0, maxSub] is identical to the unbounded result; the caller must not ask beyond maxSub.
+func (d *Document) WrapBreaksUpTo(li int32, dst []int32, maxSub int32) []int32 {
 	dst = append(dst, 0)
 	n := int32(d.LineRuneLen(li))
 	if d.colsByDepth == nil {
-		return append(dst, n)
+		return append(dst, n) // wrap off: one row [0, lineLen]
 	}
 	cols := wrapColsAt(d.colsByDepth, d.Lines[li].Depth)
-	d.wrapWalk(li, cols, func(c int32) { dst = append(dst, c) })
-	return append(dst, n)
+	// To resolve sub-rows [0, maxSub] we need breaks b1..b_{maxSub+1}; emit that many
+	// then stop. maxSub < 0 → maxBreaks 0 → unbounded.
+	maxBreaks := int32(0)
+	if maxSub >= 0 {
+		maxBreaks = maxSub + 1
+	}
+	before := len(dst)
+	d.wrapWalk(li, cols, maxBreaks, func(c int32) { dst = append(dst, c) })
+	// Append the terminal lineLen only when the walk reached EOL (unbounded, or the
+	// line has fewer rows than the bound). If it stopped early on the bound, the last
+	// emitted break is the prefix's terminal endCol and lineLen must NOT be appended
+	// (doing so would fabricate a spurious final row).
+	if maxBreaks <= 0 || int32(len(dst)-before) < maxBreaks {
+		dst = append(dst, n)
+	}
+	return dst
 }
 
 // RowsOfLine reports how many visual rows line li currently occupies (1 under
