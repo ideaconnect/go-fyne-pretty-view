@@ -234,10 +234,10 @@ func (pv *PrettyView) FocusLost() {
 		pv.r.dragArmed = false
 	}
 	if pv.cfg.editable && pv.cfg.input.AutoFormat == AutoFormatOnBlur {
-		pv.reformat() // reformat-on-blur: pretty-print the buffer when focus leaves
-		if pv.onChanged != nil {
-			pv.onChanged(string(pv.buf.Bytes()))
-		}
+		// reformat-on-blur: pretty-print the buffer when focus leaves. Reformat() is exactly
+		// reformat()+fireOnChanged (editable is already true here), so delegate rather than
+		// re-implement its body — the blur path can't drift from the explicit Reformat path.
+		pv.Reformat()
 	}
 	pv.refreshSelectionView()
 }

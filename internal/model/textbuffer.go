@@ -1,6 +1,9 @@
 package model
 
-import "unicode/utf8"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // TextBuffer is the mutable source-of-truth for v2 edit mode (docs/DESIGN.md §12).
 // It is a classic gap buffer over a single []byte: the bytes before the caret live
@@ -46,6 +49,18 @@ func (b *TextBuffer) Bytes() []byte {
 	n := copy(out, b.buf[:b.gapStart])
 	copy(out[n:], b.buf[b.gapEnd:])
 	return out
+}
+
+// String returns the content as a string, collapsing the gap. Unlike string(b.Bytes()) — two
+// full-buffer allocations and copies — it materializes straight into one buffer (strings.Builder
+// converts its backing array to the result without re-copying), so the per-settle onChanged hot
+// path copies the buffer once, not twice.
+func (b *TextBuffer) String() string {
+	var sb strings.Builder
+	sb.Grow(b.Len())
+	sb.Write(b.buf[:b.gapStart])
+	sb.Write(b.buf[b.gapEnd:])
+	return sb.String()
 }
 
 // BytesInto materializes the buffer into dst, reusing dst's backing array (growing it only

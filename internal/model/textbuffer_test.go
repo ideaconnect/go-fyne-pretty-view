@@ -88,6 +88,24 @@ func TestTextBufferBytesIsSnapshot(t *testing.T) {
 	}
 }
 
+// TestTextBufferString checks String() reads the content through the gap exactly like
+// string(Bytes()), including with the gap sitting MID-content (an insert in the middle, the
+// onChanged hot-path shape) — so the single-allocation String() can't drift from Bytes().
+func TestTextBufferString(t *testing.T) {
+	tb := NewTextBuffer([]byte("hello world"))
+	tb.Insert(5, []byte(" BIG")) // gap now sits after "hello BIG", before " world"
+	const want = "hello BIG world"
+	if got := tb.String(); got != want {
+		t.Errorf("String() = %q, want %q", got, want)
+	}
+	if got, b := tb.String(), string(tb.Bytes()); got != b {
+		t.Errorf("String() = %q diverged from string(Bytes()) = %q", got, b)
+	}
+	if got := NewTextBuffer(nil).String(); got != "" {
+		t.Errorf("empty buffer String() = %q, want \"\"", got)
+	}
+}
+
 // TestTextBufferDeleteClamps exercises Delete's two clamp paths (n past the end, and
 // clampOff's lower/upper bounds) — all must mutate safely without panicking.
 func TestTextBufferDeleteClamps(t *testing.T) {
