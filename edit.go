@@ -54,8 +54,8 @@ func (pv *PrettyView) SetCaret(line, col int) bool {
 // aboveEditCap reports whether the edit buffer has exceeded the configured MaxEditBytes,
 // above which auto-format-on-pause is suppressed (explicit Reformat still runs).
 func (pv *PrettyView) aboveEditCap() bool {
-	cap := pv.cfg.input.MaxEditBytes
-	return cap > 0 && pv.buf != nil && pv.buf.Len() > cap
+	maxEdit := pv.cfg.input.MaxEditBytes
+	return maxEdit > 0 && pv.buf != nil && pv.buf.Len() > maxEdit
 }
 
 // Paste inserts the clipboard text at the caret, replacing any active selection. Line

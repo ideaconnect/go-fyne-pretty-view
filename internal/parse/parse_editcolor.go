@@ -1,7 +1,6 @@
 package parse
 
 import (
-	"bytes"
 	"math"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
@@ -64,17 +63,11 @@ func (p editColorParser) Parse(src []byte, b *model.Builder) error {
 		spans = lexColorSpans(src, p.format)
 	}
 	si := 0
-	start := 0
-	for {
-		nl := bytes.IndexByte(src[start:], '\n')
-		if nl < 0 {
-			appendColorLine(b, src, start, len(src), spans, &si, p.scratch)
-			return nil
-		}
-		end := start + nl
+	// includeTrailingEmpty: the editable projection keeps a final empty line for the caret.
+	forEachLine(src, true, func(start, end int) {
 		appendColorLine(b, src, start, end, spans, &si, p.scratch)
-		start = end + 1
-	}
+	})
+	return nil
 }
 
 // appendColorLine emits the segments for src[start:end] as a KindRawLine leaf: runs of

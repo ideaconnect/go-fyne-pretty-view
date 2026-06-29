@@ -412,10 +412,10 @@ const (
 // error marker via recoverBadMember and reported keyRecover so the caller continues to the
 // next member instead of collapsing the whole object (#94); an unterminated key string at EOF
 // is keyEOF. Factored out of parseContainer's member loop.
-func (s *jsonScanner) parseObjectKey(childStart int, close byte) (childPrefix []model.Seg, keyComments []commentSpan, r keyParse) {
+func (s *jsonScanner) parseObjectKey(childStart int, closeByte byte) (childPrefix []model.Seg, keyComments []commentSpan, r keyParse) {
 	if s.peek() != '"' {
 		// A non-string where a key is expected (an unquoted / garbage key, e.g. {foo: 1}).
-		s.recoverBadMember(childStart, childStart, nil, close)
+		s.recoverBadMember(childStart, childStart, nil, closeByte)
 		return nil, nil, keyRecover
 	}
 	keyStart, ok := s.scanString()
@@ -426,7 +426,7 @@ func (s *jsonScanner) parseObjectKey(childStart int, close byte) (childPrefix []
 	keyComments = s.scanTrivia() // JSONC comments between the key and its colon
 	if s.peek() != ':' {
 		// A key with no following colon (e.g. {"a" 1}): surface the key + run as an error.
-		s.recoverBadMember(childStart, childStart, nil, close)
+		s.recoverBadMember(childStart, childStart, nil, closeByte)
 		return nil, nil, keyRecover
 	}
 	s.pos++
@@ -434,7 +434,7 @@ func (s *jsonScanner) parseObjectKey(childStart int, close byte) (childPrefix []
 	return childPrefix, keyComments, keyOK
 }
 
-func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart int, open, close byte, kind model.Kind, lead []commentSpan) (model.NodeID, bool) {
+func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart int, open, closeByte byte, kind model.Kind, lead []commentSpan) (model.NodeID, bool) {
 	// Bound recursion: refuse to descend past the nesting cap so adversarial input
 	// can't overflow the stack. The error routes to the tolerant partial render (or
 	// raw fallback if nothing was recovered at all).
@@ -448,11 +448,11 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 	// buffered first, so `{}` stays a leaf but `{ /* c */ }` / `"a": /* c */ {}` is a
 	// real (foldable) container with the comment as its first child.
 	comments := append(lead, s.scanTrivia()...)
-	if s.peek() == close && len(comments) == 0 {
+	if s.peek() == closeByte && len(comments) == 0 {
 		s.pos++
 		segs := make([]model.Seg, 0, len(prefix)+1)
 		segs = append(segs, prefix...)
-		segs = append(segs, model.LitSeg(model.RolePunct, string(open)+string(close)))
+		segs = append(segs, model.LitSeg(model.RolePunct, string(open)+string(closeByte)))
 		kv := model.KindScalar
 		if isMember {
 			kv = model.KindKeyValue
@@ -472,10 +472,10 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			s.fail("unterminated container")
 			break
 		}
-		if s.peek() == close {
+		if s.peek() == closeByte {
 			closeOff := s.pos + 1
 			s.pos++
-			s.b.Close(closeOff, []model.Seg{model.LitSeg(model.RolePunct, string(close))})
+			s.b.Close(closeOff, []model.Seg{model.LitSeg(model.RolePunct, string(closeByte))})
 			break
 		}
 
@@ -484,7 +484,7 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 		childStart := s.pos
 		if kind == model.KindObject {
 			var r keyParse
-			childPrefix, keyComments, r = s.parseObjectKey(childStart, close)
+			childPrefix, keyComments, r = s.parseObjectKey(childStart, closeByte)
 			if r == keyRecover {
 				continue // a bad key was surfaced; the member and its siblings stay visible (#94)
 			}
@@ -501,7 +501,7 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			// object key prefix, if any — and continue to the next sibling rather than
 			// dropping the rest of the container. This preserves the every-byte-stays-
 			// visible contract on the forced-format path that auto-detect routes to raw (#94).
-			s.recoverBadMember(childStart, s.pos, childPrefix, close)
+			s.recoverBadMember(childStart, s.pos, childPrefix, closeByte)
 			continue
 		}
 		// Either the value parsed, or a partial nested node was emitted (childID !=
@@ -521,8 +521,8 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 		// stops at the first foreign byte without a delimiter check. Surface it as an error
 		// marker (shared with recoverBadMember via emitErrorRun) and continue when a comma
 		// follows, else stop the loop — rather than silently dropping the container tail.
-		if s.pos < len(s.src) && s.peek() != close {
-			if s.emitErrorRun(s.pos, s.pos, nil, close, "unexpected content after value") {
+		if s.pos < len(s.src) && s.peek() != closeByte {
+			if s.emitErrorRun(s.pos, s.pos, nil, closeByte, "unexpected content after value") {
 				continue
 			}
 			break
@@ -540,8 +540,8 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 // the following member still renders, keeping every byte visible — so `[NaN,1]` keeps
 // both, `{foo:1,"ok":2}` keeps "ok", and `[[1,2],[@,9],[3,4]]` keeps all three (#94).
 // It is the trailing-junk recovery in parseContainer, sharing emitErrorRun.
-func (s *jsonScanner) recoverBadMember(markerStart, rawStart int, prefix []model.Seg, close byte) {
-	s.emitErrorRun(markerStart, rawStart, prefix, close, "unexpected content in container")
+func (s *jsonScanner) recoverBadMember(markerStart, rawStart int, prefix []model.Seg, closeByte byte) {
+	s.emitErrorRun(markerStart, rawStart, prefix, closeByte, "unexpected content in container")
 }
 
 // emitErrorRun surfaces a junk run as a visible KindError marker and records a parse error.
@@ -551,9 +551,9 @@ func (s *jsonScanner) recoverBadMember(markerStart, rawStart int, prefix []model
 // whether a comma was consumed (so a caller can decide to keep parsing siblings or stop). It
 // is the one error-recovery primitive behind both recoverBadMember and parseContainer's
 // trailing-junk handling, keeping every byte visible (#94).
-func (s *jsonScanner) emitErrorRun(markerStart, rawStart int, prefix []model.Seg, close byte, msg string) bool {
+func (s *jsonScanner) emitErrorRun(markerStart, rawStart int, prefix []model.Seg, closeByte byte, msg string) bool {
 	end := s.pos
-	for end < len(s.src) && s.src[end] != ',' && s.src[end] != close {
+	for end < len(s.src) && s.src[end] != ',' && s.src[end] != closeByte {
 		end++
 	}
 	segs := append([]model.Seg(nil), prefix...)
