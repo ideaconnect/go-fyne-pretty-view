@@ -271,6 +271,10 @@ func (pv *PrettyView) Source() []byte {
 // read-only mode it is the viewer's pretty-printed (depth-indented) rendering. Folding does
 // not truncate it. Note: control bytes render as a placeholder rune here; for the literal
 // bytes (including controls) use Source.
+//
+// Cost: synchronous and O(document) — it walks every display line and allocates the whole
+// string, so on a multi-MB document it briefly blocks the calling (Fyne) goroutine. Call it
+// off a hot path, like SetData (whose parse is also O(size)).
 func (pv *PrettyView) Text() string {
 	if pv.doc == nil {
 		return ""
