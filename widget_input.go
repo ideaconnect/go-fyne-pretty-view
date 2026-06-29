@@ -23,7 +23,13 @@ var (
 	_ fyne.Focusable         = (*PrettyView)(nil)
 	_ fyne.Shortcutable      = (*PrettyView)(nil)
 	_ desktop.Keyable        = (*PrettyView)(nil) // KeyDown/KeyUp track Shift for keyboard selection
+	_ fyne.Tabbable          = (*PrettyView)(nil) // AcceptsTab — an editor captures Tab as input (#90)
 )
+
+// AcceptsTab reports whether a Tab key press is delivered to TypedKey (true) or moves focus to
+// the next widget (false). An editable widget captures Tab so it can insert a tab at the caret
+// (#90); a read-only viewer declines it, keeping the normal focus-traversal behavior.
+func (pv *PrettyView) AcceptsTab() bool { return pv.cfg.editable }
 
 // contentPos converts a widget-local pixel (as delivered to input handlers) into
 // content space by adding the scroll offset. The scroll fills the widget, so the

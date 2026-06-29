@@ -11,6 +11,27 @@ import (
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
 )
 
+// TestTabKeyInsertsTab is the #90 regression: with an editable widget focused, the Tab key
+// inserts a literal tab at the caret rather than moving focus away. AcceptsTab routes Tab to
+// TypedKey for an editor and declines it (normal focus traversal) for a read-only viewer.
+func TestTabKeyInsertsTab(t *testing.T) {
+	pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
+	defer win.Close()
+
+	typeStr(pv, "ab")
+	pv.TypedKey(&fyne.KeyEvent{Name: fyne.KeyTab})
+	typeStr(pv, "c")
+	if got := string(pv.Source()); got != "ab\tc" {
+		t.Errorf("Source after a,b,<Tab>,c = %q, want \"ab\\tc\"", got)
+	}
+	if !pv.AcceptsTab() {
+		t.Error("an editable widget must AcceptsTab()==true so Tab is delivered as input")
+	}
+	if New().AcceptsTab() {
+		t.Error("a read-only viewer must AcceptsTab()==false (Tab traverses focus)")
+	}
+}
+
 // renderEditable puts an editable PrettyView (optionally seeded with src) in a test
 // window and forces a layout pass.
 func renderEditable(t *testing.T, src []byte, w, h float32) (*PrettyView, fyne.Window) {
