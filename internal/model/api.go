@@ -119,9 +119,31 @@ func (d *Document) AppendDisplayLine(li int32, buf []byte, restoreTabs bool) []b
 // This is the single routine behind PrettyView.Text, the copy-subtree text, and the
 // Reformat byte-serializer: the "indent two spaces per depth, then the expanded line text"
 // convention lives here so those three can never drift.
+//
+// A JSONC comment line is the one exception to "expanded segment bytes": its display segment has
+// its interior newlines escaped to a one-row display "\n" (cleanSrcSeg), so re-emitting that into
+// Text/copy/Reformat bytes would corrupt a multi-line /* */ comment (a real newline becomes the
+// literal two-character backslash-n). It is re-emitted from its source bytes verbatim instead, and
+// records NO span: a comment that precedes a scalar value is emitted on a display line AFTER that
+// value (parseValue), so its source bytes precede an already-recorded span — a span here would put
+// the Reformat caret-remap spans out of ascending order. A caret inside a comment therefore clamps
+// to the nearest token. Display/selection still use the escaped one-row segments (#121, #123).
+//
+// This verbatim path is scoped to FormatJSONC: it is the only format whose comments are stored
+// display-ESCAPED. XML/HTML comments, doctypes, and processing instructions are KindComment leaves
+// too, but their display segment is the whitespace-COLLAPSED canonical form the markup serializer
+// (appendMarkupPrettyLine) also emits, and DESIGN's contract is that markup Text/copy reconstruct
+// that canonical form — so for markup the normal LineSegs walk below is correct, and emitting raw
+// source would diverge Text/copy from both the on-screen display and Reformat (#123 review).
 func (d *Document) AppendPrettyLine(li int32, indent int, buf []byte, spanCb func(srcStart, srcEnd uint32, outStart int)) []byte {
 	for k := 0; k < indent; k++ {
 		buf = append(buf, ' ')
+	}
+	if d.Format == FormatJSONC {
+		if owner := d.Lines[li].Owner; owner != NoNode && int(owner) < len(d.Nodes) && d.Nodes[owner].Kind == KindComment {
+			n := &d.Nodes[owner]
+			return append(buf, d.Src[n.SrcStart:n.SrcEnd]...)
+		}
 	}
 	for _, s := range d.LineSegs(li) {
 		if spanCb != nil && s.Buf == BufSrc {

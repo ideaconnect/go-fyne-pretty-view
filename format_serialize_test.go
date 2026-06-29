@@ -99,6 +99,32 @@ func TestPrettyLineConventionConsistency(t *testing.T) {
 	}
 }
 
+// TestTextEqualsReformatForMarkupComments locks the #123-review fix: an XML/HTML comment, doctype,
+// or processing instruction is a KindComment leaf whose display segment is the whitespace-collapsed
+// canonical form, so Text()/CopySubtree must emit that form — the same bytes Reformat emits — not
+// the raw source. The JSONC verbatim-comment branch must stay scoped to FormatJSONC; if it fired for
+// markup, Text/copy would emit raw source and diverge from both the display and serializePretty.
+func TestTextEqualsReformatForMarkupComments(t *testing.T) {
+	cases := []struct {
+		name, src string
+		f         Format
+	}{
+		{"xml comment ws", "<root>\n  <!--   spaced   out   -->\n</root>", FormatXML},
+		{"xml doctype ws", "<!DOCTYPE   html>\n<root/>", FormatXML},
+		{"xml procinst ws", "<?xml   version=\"1.0\"?>\n<root/>", FormatXML},
+		{"html comment ws", "<div>\n  <!--   hi   there   -->\n</div>", FormatHTML},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pv := NewWithData([]byte(c.src), c.f)
+			out, _ := serializePretty(pv.doc)
+			if got, want := strings.TrimSuffix(pv.Text(), "\n"), string(out); got != want {
+				t.Errorf("Text() and Reformat diverge for a markup comment:\n Text   %q\n Reflow %q", got, want)
+			}
+		})
+	}
+}
+
 func TestRemapCaretOffset(t *testing.T) {
 	spans := []srcSpan{{oldStart: 0, oldEnd: 1, newStart: 0}, {oldStart: 5, oldEnd: 8, newStart: 2}}
 	cases := []struct{ off, want int }{

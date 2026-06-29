@@ -44,51 +44,17 @@ func serializePretty(d *model.Document) (out []byte, spans []srcSpan) {
 			out = appendMarkupPrettyLine(d, int32(li), out)
 			continue
 		}
-		// A JSONC comment is shown as a single display line with its interior newlines escaped
-		// to a display "\n" (cleanSrcSeg) so a multi-line /* */ comment stays on one row. Writing
-		// that escaped form back into the buffer would corrupt the comment — every real newline
-		// becomes the two-character literal backslash-n — so Reformat re-emits the comment from
-		// its source bytes verbatim, indented like any other line, mirroring the markup raw-text
-		// branch above (#121). Reformat-only: display/Text keep the escaped, single-row form.
-		//
-		// No caret-remap srcSpan is recorded for the comment. A comment that sits before a scalar
-		// value is emitted by the parser on a display line AFTER that value (parseValue runs
-		// emitScalar then emitComments), yet the comment's source bytes PRECEDE the scalar's — so
-		// appending a span here would put `spans` out of oldStart order and break remapCaretOffset's
-		// binary search (the ascending-spans invariant documented at the top of this file). A caret
-		// inside a comment instead clamps to the nearest token, exactly as before this fix, when a
-		// multi-line comment was a synthesized BufAux segment that recorded no span either (#121).
-		if cs, ce, ok := commentSrcSpan(d, int32(li)); ok {
-			indent := int(d.Lines[li].Depth) * reformatIndentUnit
-			for k := 0; k < indent; k++ {
-				out = append(out, ' ')
-			}
-			out = append(out, d.Src[cs:ce]...)
-			continue
-		}
+		// JSONC comments are re-emitted from source verbatim (real newlines preserved) and record
+		// no caret span — that logic now lives in model.AppendPrettyLine so Text, copy-subtree, and
+		// this Reformat serializer all stay consistent and none corrupt a multi-line comment
+		// (#121, #123). The span callback below is therefore never invoked for a comment line, so
+		// `spans` stays ascending by oldStart for remapCaretOffset.
 		out = d.AppendPrettyLine(int32(li), int(d.Lines[li].Depth)*reformatIndentUnit, out,
 			func(srcStart, srcEnd uint32, outStart int) {
 				spans = append(spans, srcSpan{oldStart: int(srcStart), oldEnd: int(srcEnd), newStart: outStart})
 			})
 	}
 	return out, spans
-}
-
-// commentSrcSpan reports the original source byte range of a JSONC comment display line so the
-// Reformat serializer can re-emit it verbatim instead of from its display-escaped segment (#121).
-// A comment is parsed as a single KindComment leaf whose [SrcStart,SrcEnd) is the exact "/* … */"
-// (or "// …") source; cleanSrcSeg escapes its interior newlines only for the one-row display.
-// Returns ok=false for every non-comment line (the normal pretty-line path then handles it).
-func commentSrcSpan(d *model.Document, li int32) (start, end uint32, ok bool) {
-	owner := d.Lines[li].Owner
-	if owner == model.NoNode || int(owner) >= len(d.Nodes) {
-		return 0, 0, false
-	}
-	n := &d.Nodes[owner]
-	if n.Kind != model.KindComment {
-		return 0, 0, false
-	}
-	return n.SrcStart, n.SrcEnd, true
 }
 
 // appendMarkupPrettyLine serializes one display line of an XML/HTML document for Reformat,
