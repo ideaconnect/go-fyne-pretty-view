@@ -350,6 +350,43 @@ func (s *jsonScanner) emitScalar(prefix []model.Seg, isMember bool, srcStart, sr
 	return s.b.Leaf(kind, srcStart, srcEnd, segs)
 }
 
+// keyParse signals how parseObjectKey resolved an object member's key.
+type keyParse int
+
+const (
+	keyOK      keyParse = iota // childPrefix/keyComments are valid; parse the value next
+	keyRecover                 // a bad key was surfaced as an error marker; skip to the next member
+	keyEOF                     // an unterminated key string ran to EOF; stop the member loop
+)
+
+// parseObjectKey scans an object member's `"key":` prefix at the current position. On success
+// it returns the value's prefix segs (the key + ": ") and any JSONC comments between the key
+// and its colon (keyOK). A non-string key or a key with no colon is surfaced as a visible
+// error marker via recoverBadMember and reported keyRecover so the caller continues to the
+// next member instead of collapsing the whole object (#94); an unterminated key string at EOF
+// is keyEOF. Factored out of parseContainer's member loop.
+func (s *jsonScanner) parseObjectKey(childStart int, close byte) (childPrefix []model.Seg, keyComments []commentSpan, r keyParse) {
+	if s.peek() != '"' {
+		// A non-string where a key is expected (an unquoted / garbage key, e.g. {foo: 1}).
+		s.recoverBadMember(childStart, childStart, nil, close)
+		return nil, nil, keyRecover
+	}
+	keyStart, ok := s.scanString()
+	if !ok {
+		return nil, nil, keyEOF
+	}
+	keyEnd := s.pos
+	keyComments = s.scanTrivia() // JSONC comments between the key and its colon
+	if s.peek() != ':' {
+		// A key with no following colon (e.g. {"a" 1}): surface the key + run as an error.
+		s.recoverBadMember(childStart, childStart, nil, close)
+		return nil, nil, keyRecover
+	}
+	s.pos++
+	childPrefix = []model.Seg{cleanSrcSeg(s.src, model.RoleKey, keyStart, keyEnd), model.LitSeg(model.RolePunct, ": ")}
+	return childPrefix, keyComments, keyOK
+}
+
 func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart int, open, close byte, kind model.Kind, lead []commentSpan) (model.NodeID, bool) {
 	// Bound recursion: refuse to descend past the nesting cap so adversarial input
 	// can't overflow the stack. The error routes to the tolerant partial render (or
@@ -399,28 +436,14 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 		var keyComments []commentSpan
 		childStart := s.pos
 		if kind == model.KindObject {
-			if s.peek() != '"' {
-				// A non-string where a key is expected (an unquoted / garbage key, e.g.
-				// {foo: 1}). Surface the bad run as a visible error marker and continue so
-				// the member — and every member after it — stays visible instead of the
-				// whole object collapsing to an empty {} (#94).
-				s.recoverBadMember(childStart, childStart, nil, close)
-				continue
+			var r keyParse
+			childPrefix, keyComments, r = s.parseObjectKey(childStart, close)
+			if r == keyRecover {
+				continue // a bad key was surfaced; the member and its siblings stay visible (#94)
 			}
-			keyStart, ok := s.scanString()
-			if !ok {
-				break // an unterminated key string runs to EOF — nothing left to recover
+			if r == keyEOF {
+				break // an unterminated key string ran to EOF — nothing left to recover
 			}
-			keyEnd := s.pos
-			keyComments = s.scanTrivia() // JSONC comments between the key and its colon
-			if s.peek() != ':' {
-				// A key with no following colon (e.g. {"a" 1}): surface the key plus the
-				// run up to the next delimiter as an error marker and continue (#94).
-				s.recoverBadMember(childStart, childStart, nil, close)
-				continue
-			}
-			s.pos++
-			childPrefix = []model.Seg{cleanSrcSeg(s.src, model.RoleKey, keyStart, keyEnd), model.LitSeg(model.RolePunct, ": ")}
 		}
 
 		childID, ok := s.parseValue(childPrefix, kind == model.KindObject, childStart, keyComments)
@@ -446,20 +469,13 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 			}
 			continue
 		}
-		// A complete value followed by neither ',' nor the close byte (nor EOF) is
-		// trailing junk, e.g. the "X" in "[trueX]" or "abc" in "[123abc]" — a bare
-		// literal/number scan stops at the first foreign byte without a delimiter
-		// check. Surface it as an error marker and continue (consuming a following comma)
-		// rather than silently dropping the rest of the container.
+		// A complete value followed by neither ',' nor the close byte (nor EOF) is trailing
+		// junk, e.g. the "X" in "[trueX]" or "abc" in "[123abc]" — a bare literal/number scan
+		// stops at the first foreign byte without a delimiter check. Surface it as an error
+		// marker (shared with recoverBadMember via emitErrorRun) and continue when a comma
+		// follows, else stop the loop — rather than silently dropping the container tail.
 		if s.pos < len(s.src) && s.peek() != close {
-			junkStart := s.pos
-			for s.pos < len(s.src) && s.src[s.pos] != ',' && s.src[s.pos] != close {
-				s.pos++
-			}
-			s.b.Leaf(model.KindError, junkStart, s.pos, []model.Seg{cleanSrcSeg(s.src, model.RolePlain, junkStart, s.pos)})
-			s.fail("unexpected content after value")
-			if s.peek() == ',' {
-				s.pos++ // keep the element after the trailing junk visible too
+			if s.emitErrorRun(s.pos, s.pos, nil, close, "unexpected content after value") {
 				continue
 			}
 			break
@@ -476,8 +492,19 @@ func (s *jsonScanner) parseContainer(prefix []model.Seg, isMember bool, srcStart
 // the raw run from rawStart. It records the parse error and consumes a trailing comma so
 // the following member still renders, keeping every byte visible — so `[NaN,1]` keeps
 // both, `{foo:1,"ok":2}` keeps "ok", and `[[1,2],[@,9],[3,4]]` keeps all three (#94).
-// It mirrors the trailing-junk recovery in parseContainer.
+// It is the trailing-junk recovery in parseContainer, sharing emitErrorRun.
 func (s *jsonScanner) recoverBadMember(markerStart, rawStart int, prefix []model.Seg, close byte) {
+	s.emitErrorRun(markerStart, rawStart, prefix, close, "unexpected content in container")
+}
+
+// emitErrorRun surfaces a junk run as a visible KindError marker and records a parse error.
+// It scans from the current position to the next ',' or close byte (or EOF), emits a marker
+// spanning [markerStart, end) carrying prefix (any already-parsed key segs) followed by the
+// raw run from rawStart, advances past the run, and consumes a trailing comma — returning
+// whether a comma was consumed (so a caller can decide to keep parsing siblings or stop). It
+// is the one error-recovery primitive behind both recoverBadMember and parseContainer's
+// trailing-junk handling, keeping every byte visible (#94).
+func (s *jsonScanner) emitErrorRun(markerStart, rawStart int, prefix []model.Seg, close byte, msg string) bool {
 	end := s.pos
 	for end < len(s.src) && s.src[end] != ',' && s.src[end] != close {
 		end++
@@ -490,8 +517,10 @@ func (s *jsonScanner) recoverBadMember(markerStart, rawStart int, prefix []model
 		s.b.Leaf(model.KindError, markerStart, end, segs)
 	}
 	s.pos = end
+	s.fail(msg)
 	if s.pos < len(s.src) && s.src[s.pos] == ',' {
 		s.pos++ // consume the delimiter so the next member is still parsed
+		return true
 	}
-	s.fail("unexpected content in container")
+	return false
 }
