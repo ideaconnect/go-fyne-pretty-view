@@ -305,6 +305,7 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 		return
 	}
 
+	const hScrollCols = 4 // a Left/Right arrow scrolls this many columns (vertical steps are one RowH)
 	switch ev.Name {
 	case fyne.KeyEscape:
 		pv.ClearSelection()
@@ -315,9 +316,9 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 	case fyne.KeyUp:
 		pv.r.scrollBy(0, -pv.met.RowH)
 	case fyne.KeyLeft:
-		pv.r.scrollBy(-4*pv.met.CharWidth, 0)
+		pv.r.scrollBy(-hScrollCols*pv.met.CharWidth, 0)
 	case fyne.KeyRight:
-		pv.r.scrollBy(4*pv.met.CharWidth, 0)
+		pv.r.scrollBy(hScrollCols*pv.met.CharWidth, 0)
 	case fyne.KeyPageDown, fyne.KeySpace:
 		pv.r.scrollBy(0, vpH)
 	case fyne.KeyPageUp:

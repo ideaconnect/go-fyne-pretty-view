@@ -361,8 +361,10 @@ func (fi *foldIndex) applyDefaults(d *Document) bool {
 	return any
 }
 
-// foldable reports whether node id is a collapsible container.
-func foldable(d *Document, id NodeID) bool {
+// isFoldNode reports whether node id is a collapsible container — i.e. a node that owns a
+// distinct head and close line and whose Kind can fold. Named to not collide with the
+// Kind.Foldable() method it calls (that reports only whether the KIND can fold).
+func isFoldNode(d *Document, id NodeID) bool {
 	n := &d.Nodes[id]
 	return n.HeadLine >= 0 && n.HeadLine != n.CloseLine && n.Kind.Foldable()
 }
@@ -372,7 +374,7 @@ func foldable(d *Document, id NodeID) bool {
 func (fi *foldIndex) collapseAll(d *Document) {
 	for id := range d.Nodes {
 		nid := NodeID(id)
-		if foldable(d, nid) && d.Nodes[nid].Depth >= 1 {
+		if isFoldNode(d, nid) && d.Nodes[nid].Depth >= 1 {
 			fi.collapsed.set(nid)
 		}
 	}
@@ -395,7 +397,7 @@ func (fi *foldIndex) setDepth(d *Document, depth int, collapse bool) {
 	changed := false
 	for id := range d.Nodes {
 		nid := NodeID(id)
-		if !foldable(d, nid) {
+		if !isFoldNode(d, nid) {
 			continue
 		}
 		dp := int(d.Nodes[id].Depth)

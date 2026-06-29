@@ -272,7 +272,7 @@ func (b *Builder) buildCollapsedRenderings() {
 	d := b.doc
 	for id := range d.Nodes {
 		nid := NodeID(id)
-		if !foldable(d, nid) {
+		if !isFoldNode(d, nid) {
 			continue
 		}
 		n := &d.Nodes[id]

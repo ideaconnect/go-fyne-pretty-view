@@ -9,7 +9,7 @@ import (
 
 // This file is the v2 LIVE edit projection: a tolerant, layout-preserving syntax
 // colorizer (issue: real-time highlighting while typing). It produces the same display
-// shape as the monochrome edit-raw segmentation (editRawLineSegs) — one display line per
+// shape as the monochrome edit-raw segmentation (editRawLineSegsInto) — one display line per
 // physical line, a trailing empty line for the caret, and a single placeholder rune per
 // grid-hostile byte so display-runes equal buffer-runes (the caret stays an exact buffer
 // position) — but it ALSO assigns a syntax color role to each run by lexing in place.
