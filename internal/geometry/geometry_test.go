@@ -108,6 +108,75 @@ func TestColAtXHalfGlyphRounding(t *testing.T) {
 	}
 }
 
+// TestVisibleColumnCulling pins FirstVisibleCol / LastVisibleCol directly. These bound the
+// per-row horizontal text window — the culling that keeps every canvas.Text within the
+// viewport (CODE_BIBLE rule 1; an un-culled long line would allocate a giant bitmap). They are
+// otherwise exercised only indirectly through the root rendering tests, so without a direct
+// test their mutants land in gremlins' excluded "Not covered" bucket (#111). The asserts pin
+// the Floor (first) vs Ceil (last) rounding and the rel<=0 clamp so a flipped rounding or a
+// dropped guard fails here.
+func TestVisibleColumnCulling(t *testing.T) {
+	m := testMetrics() // CharWidth 9, TextOriginX(0) = 19
+	const cw = 9
+	origin0 := m.TextOriginX(0)
+	if origin0 != 19 {
+		t.Fatalf("precondition: TextOriginX(0) = %v, want 19", origin0)
+	}
+	tests := []struct {
+		name                string
+		depth               uint8
+		x0, x1              float32
+		wantFirst, wantLast int
+	}{
+		// A window at/left of the text origin clamps to column 0 on both ends.
+		{"at origin", 0, origin0, origin0, 0, 0},
+		// Edge-aligned window [col2, col5): first floors to 2, last ceils to 5.
+		{"edge aligned", 0, origin0 + 2*cw, origin0 + 5*cw, 2, 5},
+		// Partial glyphs: first FLOORS (the partly-visible left column 3 is included),
+		// last CEILS (the partly-visible right column 6 is included).
+		{"partial glyphs", 0, origin0 + 3*cw + 5, origin0 + 5*cw + 1, 3, 6},
+		// Depth shifts the origin right by depth*indentStep, so the same x maps earlier.
+		{"depth shifts origin", 1, m.TextOriginX(1) + 4*cw, m.TextOriginX(1) + 9*cw, 4, 9},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := m.FirstVisibleCol(tc.depth, tc.x0); got != tc.wantFirst {
+				t.Errorf("FirstVisibleCol(%d, %.1f) = %d, want %d", tc.depth, tc.x0, got, tc.wantFirst)
+			}
+			if got := m.LastVisibleCol(tc.depth, tc.x1); got != tc.wantLast {
+				t.Errorf("LastVisibleCol(%d, %.1f) = %d, want %d", tc.depth, tc.x1, got, tc.wantLast)
+			}
+		})
+	}
+	// Left of the origin the relative x is negative; both must clamp to 0 rather than
+	// returning a negative column from floor(neg) — guards the rel<=0 branch.
+	if got := m.FirstVisibleCol(0, origin0-cw); got != 0 {
+		t.Errorf("FirstVisibleCol left of origin = %d, want 0", got)
+	}
+	if got := m.LastVisibleCol(0, origin0-cw); got != 0 {
+		t.Errorf("LastVisibleCol left of origin = %d, want 0", got)
+	}
+}
+
+// TestRowAndTriangleMetrics pins TextY and TriangleX directly (same #111 mutation-gate gap as
+// the column-culling pair: used only by the root row renderer, never the geometry tests).
+func TestRowAndTriangleMetrics(t *testing.T) {
+	m := testMetrics() // RowH 22, textH 18 -> TextY 2; triangleSlot 13, leftPad 6
+	if got := m.TextY(); got != 2 {
+		t.Errorf("TextY() = %v, want 2 (an 18px glyph centered in a 22px row)", got)
+	}
+	// The fold triangle sits exactly one triangleSlot left of the text origin at every depth,
+	// so text aligns at TextOriginX whether or not the row is foldable.
+	for _, depth := range []uint8{0, 1, 5} {
+		if gap := m.TextOriginX(depth) - m.TriangleX(depth); gap != m.triangleSlot {
+			t.Errorf("depth %d: TextOriginX-TriangleX = %v, want triangleSlot %v", depth, gap, m.triangleSlot)
+		}
+	}
+	if got := m.TriangleX(0); got != m.leftPad {
+		t.Errorf("TriangleX(0) = %v, want leftPad %v (gutter off, depth 0)", got, m.leftPad)
+	}
+}
+
 // TestHitTestGoldenRoundTrip is the single most important correctness guard: for
 // a variety of (line, col) positions it computes the content-space cell origin
 // and checks HitTest maps it back exactly. Any missing-origin / offset bug shows
