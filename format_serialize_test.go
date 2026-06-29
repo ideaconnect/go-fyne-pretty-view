@@ -28,6 +28,34 @@ func TestSerializePrettyJSON(t *testing.T) {
 	}
 }
 
+// TestSerializePrettyJSONCCommentSpansAscending guards the #121 invariant that
+// TestSerializePrettyJSON could not (it has no comments): a JSONC comment sitting before a
+// scalar value is emitted on a display line AFTER that value, but its source bytes precede
+// the value's, so re-emitting the comment must NOT record a caret-remap span — otherwise
+// `spans` goes out of oldStart order and remapCaretOffset's binary search teleports the
+// caret. The output must also keep the comment's real newlines (no display "\n" escape).
+func TestSerializePrettyJSONCCommentSpansAscending(t *testing.T) {
+	cases := []string{
+		"{\n  \"b\": /* mid\nline */ 2\n}",  // multi-line comment between ':' and the scalar
+		`{ "k": /* short */ 42 }`,           // single-line inline comment before the scalar
+		"/*\n a\n b\n */\n{\n  \"x\": 1\n}", // leading multi-line comment
+		"{// head\n\"a\": 1, // tail\n\"b\": 2\n}",
+	}
+	for _, src := range cases {
+		d := parse.Parse([]byte(src), parse.FormatJSONC, 0)
+		out, spans := serializePretty(d)
+		for i := 1; i < len(spans); i++ {
+			if spans[i].oldStart < spans[i-1].oldStart {
+				t.Errorf("src %q: spans not ascending at %d: %+v before %+v", src, i, spans[i-1], spans[i])
+				break
+			}
+		}
+		if strings.Contains(string(out), `\n`) {
+			t.Errorf("src %q: serialized output contains a literal \\n (comment newline escaped):\n%q", src, out)
+		}
+	}
+}
+
 // TestAppendPrettyLine covers the shared model routine directly: it appends after the
 // existing buffer, emits `indent` leading spaces, and invokes the span callback for
 // source-backed segments with offsets that point into the appended region.

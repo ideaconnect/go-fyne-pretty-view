@@ -190,6 +190,53 @@ func TestReformatIdempotentRawText(t *testing.T) {
 	}
 }
 
+// TestReformatJSONCMultilineCommentVerbatim is the #121 regression (distinct from the #60
+// TestReformatJSONCPreservesComments, which only covers single-line comments): a JSONC comment is
+// shown as a single display row with its interior newlines escaped to a display "\n" (to stay on
+// one row), but Reformat must rewrite the buffer with the comment's ORIGINAL bytes — real newlines
+// intact — not the escaped display form, which would collapse a multi-line /* */ comment and
+// corrupt the user's text (the never-corrupt-bytes contract, CODE_BIBLE rule 7). It must also be
+// idempotent and the rewritten buffer must still parse as valid JSONC.
+func TestReformatJSONCMultilineCommentVerbatim(t *testing.T) {
+	cases := []struct{ name, src string }{
+		{"multiline block", "/*\n * Config file\n * v1.2\n */\n{\n  \"port\": 8080\n}"},
+		{"inline block", "{\n  \"a\": 1, /* the a value\n     spans two lines */\n  \"b\": 2\n}"},
+		{"line comment", "// a single-line note\n{\n  \"k\": true\n}"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			pv, win := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
+			defer win.Close()
+			pv.SetData([]byte(c.src), FormatJSONC)
+			if st := pv.ParseStatus(); !st.OK {
+				t.Fatalf("precondition: source must parse as valid JSONC, got %+v", st)
+			}
+			pv.Reformat()
+			first := string(pv.Source())
+
+			// No comment newline may survive as the two-character literal backslash-n: none of
+			// these cases has a string value carrying an escape, so a "\n" in the output is the
+			// corruption bug (a real comment newline rewritten to its display escape).
+			if strings.Contains(first, `\n`) {
+				t.Errorf("Reformat escaped a comment newline to a literal \\n:\n%q", first)
+			}
+			for i := 0; i < 4; i++ { // idempotent: the comment span re-parses to the same bytes
+				pv.Reformat()
+				if got := string(pv.Source()); got != first {
+					t.Fatalf("Reformat not idempotent (pass %d):\n first %q\n now   %q", i+2, first, got)
+				}
+			}
+			// The rewritten buffer must still be valid JSONC (the comment round-trips).
+			pv2, win2 := newEditPV(t, InputConfig{AutoFormat: AutoFormatOff})
+			defer win2.Close()
+			pv2.SetData([]byte(first), FormatJSONC)
+			if st := pv2.ParseStatus(); !st.OK {
+				t.Errorf("reformatted JSONC no longer parses (%+v):\n%q", st, first)
+			}
+		})
+	}
+}
+
 // TestReformatMarkupReencodesEntities is the issue #81 regression: an XML/HTML Reformat must
 // re-encode the reserved characters its parser decoded (& and <, plus a " inside an attribute
 // value) so the rewritten buffer is valid markup that round-trips, rather than emitting a bare
