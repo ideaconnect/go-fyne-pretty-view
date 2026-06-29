@@ -6,6 +6,7 @@ import (
 
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/widget"
 )
 
 // TestSearchBarCappedAndToggleOff covers three NewSearchBar branches the existing tests do
@@ -33,13 +34,21 @@ func TestSearchBarCappedAndToggleOff(t *testing.T) {
 	if caseBtn == nil {
 		t.Fatal("search bar has no case toggle")
 	}
-	caseBtn.OnTapped() // on
+	caseBtn.OnTapped() // on  -> HighImportance
 	caseBtn.OnTapped() // off -> toggleImportance(false)
+	if caseBtn.Importance != widget.LowImportance {
+		t.Errorf("case toggle turned off: Importance = %v, want LowImportance", caseBtn.Importance)
+	}
 
 	// Shift+Enter with a query different from the applied one re-applies it, then steps back.
 	se := findSearchEntry(bar)
-	entry.Text = "a" // differs from the applied "l", without going through OnChanged
-	se.onPrev()      // query changed -> pv.Search(new) + pv.SearchPrev()
+	entry.Text = "z" // absent from the doc and != the applied "l", set without OnChanged
+	se.onPrev()      // query changed -> pv.Search("z") + pv.SearchPrev()
+	// onPrev re-ran with the new query "z" (absent) -> 0 matches; had it not re-applied, the prior
+	// "l" search's 1 match would remain. So total==0 proves the re-apply actually happened.
+	if _, total, _ := pv.SearchStatus(); total != 0 {
+		t.Errorf("after onPrev re-apply 'z' (absent from the doc): total = %d, want 0 (re-applied)", total)
+	}
 }
 
 // TestFocusObjectNonFocusable covers focusObject's not-Focusable early return.
