@@ -57,11 +57,13 @@ visible in the viewport ever exist as live canvas objects.** Everything else
 lives in a compact, pointer-free, struct-of-arrays model, and selection, search
 and copy all operate on that model rather than on widgets.
 
-Measured on the included fixtures:
+Measured on the included fixtures — a snapshot from the test suite's software-rendered
+viewport (the live-widget count tracks the viewport height, not the document), illustrative
+rather than a pinned guarantee; the model-size ratio below is the figure CI actually guards:
 
 | Input | Visible rows | Live row widgets | Heap after scrolling the whole file |
 |---|---|---|---|
-| `big.json` (7.5 MB) | 440,005 | **31** | **~80–90 MB** |
+| `big.json` (7.5 MB) | 440,005 | **~31** | **~78 MB** |
 
 The parsed model is roughly **5× to over 7× the source size** — about 4.85× for
 typical pretty-printed JSON (the ~478 KB `openapi.json` → ~2.2 MB, guarded by
@@ -301,18 +303,19 @@ search box, e.g. on `Ctrl/Cmd+F`).
 |---|---|
 | `SetData(src, format)` / `SetText(s)` | load content |
 | `Reparse(format)` / `Source()` / `Format()` | re-parse the current bytes / read them back / current format |
-| `ExpandAll()` / `CollapseAll()` / `SetDefaultCollapseDepth(d)` | fold control |
+| `ExpandAll()` / `CollapseAll()` / `CollapseToDepth(d)` / `ExpandToDepth(d)` / `SetDefaultCollapseDepth(d)` | fold control (all, to a nesting depth at runtime, or the load-time default) |
 | `ExpandTo(byteOffset) bool` / `ScrollToLine(line) bool` | reveal & scroll to a node by source offset (any structured format) or to a display line (any format) |
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
 | `CopySelection()` / `CopySubtree(byteOffset) bool` | clipboard (CopySubtree copies the pretty-printed subtree for any format) |
-| `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` | search |
+| `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` / `Matches()` / `SearchError()` | search (drive it, read the `[]Match` list, or read the last regex-compile error) |
 | `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
 | `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
 | `Editable()` / `Reformat()` | report the constructed mode / pretty-print the edit buffer in place (caret-preserving) — *editing (v2)* |
 | `Undo()` / `Redo()` / `Cut()` / `Paste()` | edit history & clipboard (no-ops on a read-only viewer) — *editing (v2)* |
 | `Caret()` / `SetCaret(line, col)` | read / move the caret — *editing (v2)* |
-| `ParseStatus()` / `SetOnValidationChanged(fn)` / `SetOnChanged(fn)` | live parse validity & settled-text hooks — *editing (v2)* |
+| `ParseStatus()` / `SetOnValidationChanged(fn)` | parse validity of the current content — works for a read-only viewer (per `SetData`) and the editor (per `Reformat`/format-on-pause) |
+| `SetOnChanged(fn)` | settled edited-text hook — *editing (v2)* |
 | `SetInputConfig(c)` | change the edit-mode formatting knobs at runtime — *editing (v2)* |
 | `ShowOpenDialog(pv, win)` *(package func)* | pop the built-in file-open dialog and load the picked file (auto-detected; bounded by `WithMaxInputBytes`). The à-la-carte alternative to the toolbar's `ShowOpen`. |
 
