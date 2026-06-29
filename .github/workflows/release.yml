@@ -58,9 +58,7 @@ jobs:
       # Gate the published artifacts on a clean vulnerability scan (run once, here, on the
       # released SHA rather than per build-matrix leg).
       - name: govulncheck (fail on reachable vulnerabilities)
-        run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
-          govulncheck ./...
+        run: make vulncheck   # pinned binary (GOVULNCHECK_VERSION), live advisory DB (#119)
 
       - name: Enforce coverage threshold (> 95%)
         run: |

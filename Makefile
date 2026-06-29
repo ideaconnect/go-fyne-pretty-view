@@ -24,6 +24,9 @@ MUT_PKGS         ?= internal/geometry internal/model internal/parse
 MUT_EFFICACY     ?= 95
 # Pin gremlins (was @latest) so local and CI mutation runs are reproducible (#105).
 GREMLINS_VERSION ?= v0.6.0
+# Pin the govulncheck *binary* (was @latest) so a scanner release can't flip a green
+# SHA red on re-run; the advisory database it queries stays live (#119).
+GOVULNCHECK_VERSION ?= v1.5.0
 
 .DEFAULT_GOAL := help
 
@@ -92,6 +95,13 @@ mutation:
 		( cd $$p && "$$GREMLINS" unleash --workers 2 --test-cpu 1 --threshold-efficacy $(MUT_EFFICACY) ) || exit 1; \
 	done
 	@echo "mutation: all packages >= $(MUT_EFFICACY)% test efficacy"
+
+## vulncheck: scan for reachable known vulnerabilities (govulncheck, pinned binary / live DB)
+.PHONY: vulncheck
+vulncheck:
+	@GOVC="$$($(GO) env GOPATH)/bin/govulncheck"; \
+	[ -x "$$GOVC" ] || $(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION); \
+	"$$GOVC" ./...
 
 ## vet: run go vet
 .PHONY: vet
