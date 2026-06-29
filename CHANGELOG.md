@@ -12,8 +12,12 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
+_Nothing pending._
+
+## [v2.3.0-alpha] — 2026-06-29 — deep-review passes 3–8: lossless JSONC comments, O(window) soft-wrap, security & docs/CI hardening
+
 Pre-alpha deep-review passes 3–8 (issues #87–#92, #106, #110–#123). No existing exported signature
-changed; one additive method (`AcceptsTab`, from the editor Tab support) keeps this a **minor** — the
+changed; one additive method (`AcceptsTab`, from the editor Tab support) makes this a **minor** — the
 **/v2** surface stays additively compatible (the exported-surface golden tracks the addition).
 
 ### Added
