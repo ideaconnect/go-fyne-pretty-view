@@ -26,6 +26,16 @@ func (pv *PrettyView) SetInputConfig(c InputConfig) { c.mergeInto(&pv.cfg.input)
 // into the host. Setting it replaces any previous callback. Fires only for editable widgets.
 func (pv *PrettyView) SetOnChanged(fn func(string)) { pv.onChanged = fn }
 
+// fireOnChanged delivers the settled buffer text to the host's onChanged callback, if one is
+// registered. It materializes the buffer once via buf.String() (a single allocation) where the
+// call sites previously did string(buf.Bytes()), copying the whole buffer twice on this
+// per-settle / per-reformat / per-blur hot path.
+func (pv *PrettyView) fireOnChanged() {
+	if pv.onChanged != nil {
+		pv.onChanged(pv.buf.String())
+	}
+}
+
 // Reformat pretty-prints the edit buffer NOW: it re-parses under the active format and, if
 // the parse is structured and valid, rewrites the buffer to the indented form and remaps
 // the caret to the same token (so the caret "stays in place"). Raw or invalid input is left
@@ -41,9 +51,7 @@ func (pv *PrettyView) Reformat() {
 		return
 	}
 	pv.reformat()
-	if pv.onChanged != nil {
-		pv.onChanged(string(pv.buf.Bytes()))
-	}
+	pv.fireOnChanged()
 }
 
 // scheduleReformat debounces the settle after an edit, mirroring the search debounce
@@ -84,9 +92,7 @@ func (pv *PrettyView) editSettled() {
 			pv.refreshParseStatus()
 		}
 	}
-	if pv.onChanged != nil {
-		pv.onChanged(string(pv.buf.Bytes()))
-	}
+	pv.fireOnChanged()
 }
 
 // reformat re-parses the edit buffer and, for a structured & valid parse, rewrites the
@@ -131,10 +137,13 @@ func (pv *PrettyView) reformat() {
 	})
 	pv.buf.Delete(0, pv.buf.Len())
 	pv.buf.Insert(0, pretty)
+	// Not commitBufferState/afterEdit on purpose: a whole-buffer reformat clears search
+	// unconditionally (every match position moved) and must not schedule another settle or
+	// re-fire onChanged (Reformat handles that), so it runs its own reproject->caret->repaint tail.
 	pv.reprojectRaw()
 	pv.setCaretOff(newOff)
 	pv.applyGutter()
-	pv.ClearSearch() // matches from the pre-reformat layout are stale
+	pv.ClearSearch()
 	pv.refreshContent()
 	pv.revealCaret()
 }

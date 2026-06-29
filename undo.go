@@ -72,9 +72,7 @@ func (pv *PrettyView) Undo() {
 	pv.buf.Insert(op.at, op.removed)
 	pv.hist.redo = append(pv.hist.redo, op)
 	pv.coalesceBreak = true
-	pv.reprojectRaw()
-	pv.setCaretOff(op.caretBefore)
-	pv.afterEdit()
+	pv.commitBufferState(op.caretBefore) // reproject -> caret -> afterEdit, same tail as an edit
 }
 
 // Redo re-applies the most recently undone edit. No-op in read-only mode or on an empty
@@ -89,9 +87,7 @@ func (pv *PrettyView) Redo() {
 	pv.buf.Insert(op.at, op.inserted)
 	pv.hist.undo = append(pv.hist.undo, op)
 	pv.coalesceBreak = true
-	pv.reprojectRaw()
-	pv.setCaretOff(op.caretAfter)
-	pv.afterEdit()
+	pv.commitBufferState(op.caretAfter) // reproject -> caret -> afterEdit, same tail as an edit
 }
 
 // isSingleRune reports whether s is exactly one UTF-8 rune.

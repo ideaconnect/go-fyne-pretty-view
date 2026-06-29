@@ -37,8 +37,13 @@ make mutation MUT_PKGS=internal/geometry MUT_EFFICACY=100
 `make mutation` runs [gremlins](https://github.com/go-gremlins/gremlins) over
 `internal/{geometry,model,parse}` (installing it on first use), mutating the source and
 re-running each package's tests — a **surviving** mutant is covered-but-not-actually-tested
-code. It gates on test efficacy (`MUT_EFFICACY`, default 95 %; the pure packages are at
-100 %). It's a manual/periodic check, not part of `make check` (it runs the suite once per
+code. It gates on test efficacy — *killed ÷ covered* mutants (`MUT_EFFICACY`, default 95 %;
+the pure packages are at 100 %). Efficacy **excludes** gremlins' "Not covered" bucket, so a
+function reached only by the root rendering tests (which a per-package mutation run never
+executes) is invisible to the gate — keep pure-package logic directly unit-tested *in its own
+package* so it enters the denominator (the culling/Y math is pinned by
+`TestVisibleColumnCulling`/`TestRowAndTriangleMetrics`, #111). It's a manual/periodic check,
+not part of `make check` (it runs the suite once per
 mutant — minutes, not seconds). The widget (root) package needs a Fyne app per run, so
 mutation testing is scoped to the headless logic packages. Many byte-scanner mutations
 (`i++`→`i--`) cause infinite loops that gremlins records as "timed out" = killed; that's

@@ -202,17 +202,13 @@ func (pv *PrettyView) contextMenu(node model.NodeID) *fyne.Menu {
 	if !empty && node != model.NoNode && node != 0 {
 		n := node
 		items = append(items, fyne.NewMenuItem("Copy subtree", func() {
-			if app := fyne.CurrentApp(); app != nil {
-				app.Clipboard().SetContent(pv.subtreeText(n))
-			}
+			pv.setClipboard(pv.subtreeText(n))
 		}))
 		// "Copy key path" (JSON/JSONC) gives the JSONPath-style accessor of the node,
 		// e.g. $.users[2].name, walking Parent links in the node arena.
 		if pv.Format() == FormatJSON || pv.Format() == FormatJSONC {
 			items = append(items, fyne.NewMenuItem("Copy key path", func() {
-				if app := fyne.CurrentApp(); app != nil {
-					app.Clipboard().SetContent(pv.keyPath(n))
-				}
+				pv.setClipboard(pv.keyPath(n))
 			}))
 		}
 	}

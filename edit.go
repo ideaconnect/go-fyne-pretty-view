@@ -185,7 +185,7 @@ func (pv *PrettyView) editInsert(s []byte) {
 		at = selLo
 	}
 	pv.buf.Insert(at, s)
-	pv.recordEdit(editOp{
+	pv.commitEdit(editOp{
 		at:          at,
 		removed:     removed,
 		inserted:    append([]byte(nil), s...),
@@ -193,9 +193,6 @@ func (pv *PrettyView) editInsert(s []byte) {
 		caretAfter:  at + len(s),
 		coalescable: removed == nil && isSingleRune(s) && s[0] != '\n',
 	})
-	pv.reprojectRaw()
-	pv.setCaretOff(at + len(s))
-	pv.afterEdit()
 }
 
 // editDelete removes the active selection, or one rune before (Backspace) / at
@@ -210,10 +207,7 @@ func (pv *PrettyView) editDelete(forward bool) {
 	if hasSel {
 		removed := pv.bufRange(selLo, selHi)
 		pv.buf.Delete(selLo, selHi-selLo)
-		pv.recordEdit(editOp{at: selLo, removed: removed, caretBefore: caretBefore, caretAfter: selLo})
-		pv.reprojectRaw()
-		pv.setCaretOff(selLo)
-		pv.afterEdit()
+		pv.commitEdit(editOp{at: selLo, removed: removed, caretBefore: caretBefore, caretAfter: selLo})
 		return
 	}
 	at := caretBefore
@@ -224,9 +218,7 @@ func (pv *PrettyView) editDelete(forward bool) {
 		}
 		removed := pv.buf.Slice(at, at+n)
 		pv.buf.Delete(at, n)
-		pv.recordEdit(editOp{at: at, removed: removed, caretBefore: caretBefore, caretAfter: at})
-		pv.reprojectRaw()
-		pv.setCaretOff(at)
+		pv.commitEdit(editOp{at: at, removed: removed, caretBefore: caretBefore, caretAfter: at})
 	} else {
 		_, n := pv.buf.RuneBefore(at)
 		if n == 0 {
@@ -234,11 +226,8 @@ func (pv *PrettyView) editDelete(forward bool) {
 		}
 		removed := pv.buf.Slice(at-n, at)
 		pv.buf.Delete(at-n, n)
-		pv.recordEdit(editOp{at: at - n, removed: removed, caretBefore: caretBefore, caretAfter: at - n})
-		pv.reprojectRaw()
-		pv.setCaretOff(at - n)
+		pv.commitEdit(editOp{at: at - n, removed: removed, caretBefore: caretBefore, caretAfter: at - n})
 	}
-	pv.afterEdit()
 }
 
 // caretStepRune moves the caret one rune left/right, collapsing any selection. It walks
@@ -279,6 +268,29 @@ func (pv *PrettyView) keyMoveCaret(dRows, col int, toLineStart, toLineEnd bool) 
 	pv.sel.anchor = pv.sel.focus
 	pv.sel.active = false
 	pv.refreshSelectionView()
+}
+
+// commitEdit is the ordered tail every forward edit (insert/delete) runs after it has mutated
+// the buffer: record the op for undo, then commit the new buffer state with the caret at the
+// edit's end (op.caretAfter). Centralizing it means a new edit path cannot silently skip the
+// record or, worse, the reproject (which would leave the displayed lines aliasing pre-edit
+// bytes — CODE_BIBLE rule 7). Undo/Redo manage the history stacks themselves and restore a
+// different caret end, so they call commitBufferState directly.
+func (pv *PrettyView) commitEdit(op editOp) {
+	pv.recordEdit(op)
+	pv.commitBufferState(op.caretAfter)
+}
+
+// commitBufferState rebuilds the colorized-raw projection from the just-mutated buffer, places
+// the caret at byte offset caretOff, and runs the post-edit reflow/search/notify pass. The
+// order is load-bearing: the display lines and the caret are both derived from the buffer, so
+// reprojectRaw must precede setCaretOff, and afterEdit must follow both. (reformat() has its
+// own tail — it rewrites the whole buffer and clears search unconditionally without scheduling
+// another settle — so it does not route through here.)
+func (pv *PrettyView) commitBufferState(caretOff int) {
+	pv.reprojectRaw()
+	pv.setCaretOff(caretOff)
+	pv.afterEdit()
 }
 
 // reprojectRaw rebuilds the displayed document as the syntax-colored, layout-preserving

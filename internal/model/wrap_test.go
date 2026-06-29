@@ -74,7 +74,7 @@ func TestWrapFoldUnfoldRoundTrip(t *testing.T) {
 
 	var dst []int32
 	for id := int32(0); id < int32(len(d.Nodes)); id++ {
-		if !foldable(d, id) {
+		if !isFoldNode(d, id) {
 			continue
 		}
 		d.Fold(id)
@@ -96,7 +96,7 @@ func TestWrapFoldUnfoldRoundTrip(t *testing.T) {
 	// Incremental fold of the inner (depth-1) object must equal a full rebuild.
 	var inner int32 = -1
 	for id := int32(0); id < int32(len(d.Nodes)); id++ {
-		if foldable(d, id) && d.Nodes[id].Depth == 1 {
+		if isFoldNode(d, id) && d.Nodes[id].Depth == 1 {
 			inner = id
 			break
 		}

@@ -66,10 +66,12 @@ func stripBOM(src []byte) []byte { return bytes.TrimPrefix(src, utf8BOM) }
 // Multi-byte UTF-8 is safe: its lead/continuation bytes are all >= 0x80.
 func isGridHostile(c byte) bool { return c < 0x20 || c == 0x7f }
 
-// hasGridBreaker reports whether b contains a grid-hostile control byte.
-func hasGridBreaker(b []byte) bool {
-	for _, c := range b {
-		if isGridHostile(c) {
+// hasGridBreaker reports whether b contains a grid-hostile control byte. It is generic over
+// string and []byte (indexing both yields bytes) so the per-token markup display path can scan
+// a string without a string->[]byte copy on the common clean case.
+func hasGridBreaker[T string | []byte](b T) bool {
+	for i := 0; i < len(b); i++ {
+		if isGridHostile(b[i]) {
 			return true
 		}
 	}
@@ -83,7 +85,7 @@ func hasGridBreaker(b []byte) bool {
 // already clean. (A valid escape sequence in the source is already two display
 // characters and never reaches here as a raw control byte.)
 func escapeGridBreakers(s string) string {
-	if !hasGridBreaker([]byte(s)) {
+	if !hasGridBreaker(s) {
 		return s
 	}
 	const hexDigits = "0123456789abcdef"

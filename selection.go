@@ -234,10 +234,10 @@ func (pv *PrettyView) FocusLost() {
 		pv.r.dragArmed = false
 	}
 	if pv.cfg.editable && pv.cfg.input.AutoFormat == AutoFormatOnBlur {
-		pv.reformat() // reformat-on-blur: pretty-print the buffer when focus leaves
-		if pv.onChanged != nil {
-			pv.onChanged(string(pv.buf.Bytes()))
-		}
+		// reformat-on-blur: pretty-print the buffer when focus leaves. Reformat() is exactly
+		// reformat()+fireOnChanged (editable is already true here), so delegate rather than
+		// re-implement its body — the blur path can't drift from the explicit Reformat path.
+		pv.Reformat()
 	}
 	pv.refreshSelectionView()
 }
@@ -305,6 +305,7 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 		return
 	}
 
+	const hScrollCols = 4 // a Left/Right arrow scrolls this many columns (vertical steps are one RowH)
 	switch ev.Name {
 	case fyne.KeyEscape:
 		pv.ClearSelection()
@@ -315,9 +316,9 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 	case fyne.KeyUp:
 		pv.r.scrollBy(0, -pv.met.RowH)
 	case fyne.KeyLeft:
-		pv.r.scrollBy(-4*pv.met.CharWidth, 0)
+		pv.r.scrollBy(-hScrollCols*pv.met.CharWidth, 0)
 	case fyne.KeyRight:
-		pv.r.scrollBy(4*pv.met.CharWidth, 0)
+		pv.r.scrollBy(hScrollCols*pv.met.CharWidth, 0)
 	case fyne.KeyPageDown, fyne.KeySpace:
 		pv.r.scrollBy(0, vpH)
 	case fyne.KeyPageUp:
@@ -444,14 +445,23 @@ func (pv *PrettyView) ClearSelection() {
 	pv.refreshSelectionView()
 }
 
+// setClipboard writes s to the system clipboard, reporting whether it could. There may be no
+// current app (e.g. a headless test that never called test.NewApp), in which case the write is
+// a silent no-op — the single guarded write-side clipboard path for copy/cut and the
+// context-menu items.
+func (pv *PrettyView) setClipboard(s string) bool {
+	app := fyne.CurrentApp()
+	if app == nil {
+		return false
+	}
+	app.Clipboard().SetContent(s)
+	return true
+}
+
 // CopySelection copies SelectedText to the clipboard (no-op if empty).
 func (pv *PrettyView) CopySelection() {
-	txt := pv.selectedText()
-	if txt == "" {
-		return
-	}
-	if app := fyne.CurrentApp(); app != nil {
-		app.Clipboard().SetContent(txt)
+	if txt := pv.selectedText(); txt != "" {
+		pv.setClipboard(txt)
 	}
 }
 
@@ -467,11 +477,7 @@ func (pv *PrettyView) CopySubtree(byteOffset int) bool {
 	if node == model.NoNode {
 		return false
 	}
-	if app := fyne.CurrentApp(); app != nil {
-		app.Clipboard().SetContent(pv.subtreeText(node))
-		return true
-	}
-	return false
+	return pv.setClipboard(pv.subtreeText(node))
 }
 
 // --- selection geometry / text helpers ---
