@@ -137,10 +137,13 @@ func (pv *PrettyView) reformat() {
 	})
 	pv.buf.Delete(0, pv.buf.Len())
 	pv.buf.Insert(0, pretty)
+	// Not commitBufferState/afterEdit on purpose: a whole-buffer reformat clears search
+	// unconditionally (every match position moved) and must not schedule another settle or
+	// re-fire onChanged (Reformat handles that), so it runs its own reproject->caret->repaint tail.
 	pv.reprojectRaw()
 	pv.setCaretOff(newOff)
 	pv.applyGutter()
-	pv.ClearSearch() // matches from the pre-reformat layout are stale
+	pv.ClearSearch()
 	pv.refreshContent()
 	pv.revealCaret()
 }
