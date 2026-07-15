@@ -476,3 +476,52 @@ func TestApplyHitHonorsWordGrab(t *testing.T) {
 		t.Errorf("word-grab drag should span whole words 'hello'..'world'; got %q", got)
 	}
 }
+
+// TestHostShortcutFiresWhileFocused reproduces the gap SetHostShortcuts closes: a host
+// window shortcut registered only on the canvas never reaches PrettyView's TypedShortcut,
+// since Fyne routes the event to the focused widget's own Shortcutable implementation
+// instead of the canvas's Canvas.AddShortcut handlers. A host-registered entry must fire.
+func TestHostShortcutFiresWhileFocused(t *testing.T) {
+	pv := docPV("hello", FormatRaw)
+	save := &desktop.CustomShortcut{KeyName: fyne.KeyS, Modifier: fyne.KeyModifierShortcutDefault}
+	fired := 0
+	pv.SetHostShortcuts(map[string]func(){
+		save.ShortcutName(): func() { fired++ },
+	})
+
+	pv.TypedShortcut(save)
+	if fired != 1 {
+		t.Errorf("host shortcut fired %d times, want 1", fired)
+	}
+
+	// An unregistered shortcut name must be a silent no-op, not a panic.
+	pv.TypedShortcut(&desktop.CustomShortcut{KeyName: fyne.KeyG, Modifier: fyne.KeyModifierShortcutDefault})
+}
+
+// TestHostShortcutDoesNotOverrideBuiltins verifies SetHostShortcuts cannot shadow
+// PrettyView's own built-in shortcuts (SelectAll and the bundled Ctrl+F), even if a host
+// registers an entry under the same ShortcutName.
+func TestHostShortcutDoesNotOverrideBuiltins(t *testing.T) {
+	pv := docPV("hello world", FormatRaw)
+	requested := 0
+	pv.SetOnSearchRequested(func() { requested++ })
+
+	ctrlF := &desktop.CustomShortcut{KeyName: fyne.KeyF, Modifier: fyne.KeyModifierShortcutDefault}
+	hostFired := 0
+	pv.SetHostShortcuts(map[string]func(){
+		ctrlF.ShortcutName(): func() { hostFired++ }, // must never run: Ctrl+F is built-in
+	})
+
+	pv.TypedShortcut(ctrlF)
+	if requested == 0 {
+		t.Error("built-in Ctrl+F search-requested did not fire")
+	}
+	if hostFired != 0 {
+		t.Error("SetHostShortcuts entry ran for the built-in Ctrl+F shortcut, it must not")
+	}
+
+	pv.TypedShortcut(&fyne.ShortcutSelectAll{})
+	if got := pv.SelectedText(); !strings.Contains(got, "hello") || !strings.Contains(got, "world") {
+		t.Errorf("built-in SelectAll did not run; SelectedText() = %q", got)
+	}
+}

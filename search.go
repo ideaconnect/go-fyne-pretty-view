@@ -53,6 +53,19 @@ type searchState struct {
 // Ctrl+F handler coexist.
 func (pv *PrettyView) SetOnSearchRequested(fn func()) { pv.onSearchRequested = fn }
 
+// SetHostShortcuts lets a host window's own keyboard shortcuts keep firing
+// while this viewer holds keyboard focus. Fyne checks a focused widget's own
+// TypedShortcut instead of the canvas's Canvas.AddShortcut bindings whenever
+// the focused widget implements fyne.Shortcutable — which PrettyView does —
+// so a host shortcut registered only on the canvas is silently skipped
+// whenever this viewer has focus (the same reason registerFindShortcut exists
+// for the bundled Ctrl+F). Key each entry by the shortcut's ShortcutName(),
+// e.g. (&desktop.CustomShortcut{KeyName: fyne.KeyS, Modifier:
+// fyne.KeyModifierShortcutDefault}).ShortcutName(). Setting it replaces any
+// previously set table; pass nil to clear it. Entries never override the
+// viewer's own built-in shortcuts (Copy/SelectAll/Undo/Redo/Paste/Cut/Ctrl+F).
+func (pv *PrettyView) SetHostShortcuts(shortcuts map[string]func()) { pv.hostShortcuts = shortcuts }
+
 // Search starts or replaces the active search and reveals the first match. It is the
 // IMMEDIATE path: it scans synchronously and returns once matches are computed, and it
 // never debounces. For per-keystroke input from a host search field, prefer

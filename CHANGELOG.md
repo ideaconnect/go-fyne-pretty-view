@@ -14,6 +14,21 @@ checklist that gates dropping it).
 
 _Nothing pending._
 
+## [v2.4.0-alpha] — 2026-07-15 — `SetHostShortcuts`: host shortcuts keep firing while the viewer has focus
+
+One additive method — the **/v2** surface stays additively compatible (the exported-surface
+golden tracks the addition).
+
+### Added
+- **`PrettyView.SetHostShortcuts(map[string]func())`** lets a host window's own keyboard
+  shortcuts keep firing while the viewer holds keyboard focus. Fyne only dispatches a
+  detected shortcut to `Canvas.AddShortcut` handlers when the focused widget does *not*
+  implement `fyne.Shortcutable`; PrettyView does (for Copy/SelectAll/Undo/Redo/Paste/Cut and
+  the bundled Ctrl+F), so a host's canvas-level shortcut was previously silently skipped
+  whenever the viewer had focus — the same gap `registerFindShortcut` already worked around
+  for Ctrl+F, generalized to any host shortcut. Entries are keyed by `ShortcutName()` and
+  never override the viewer's own built-in bindings.
+
 ## [v2.3.0-alpha] — 2026-06-29 — deep-review passes 3–8: lossless JSONC comments, O(window) soft-wrap, security & docs/CI hardening
 
 Pre-alpha deep-review passes 3–8 (issues #87–#92, #106, #110–#123). No existing exported signature

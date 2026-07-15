@@ -144,6 +144,16 @@ type PrettyView struct {
 	onSearchChangedHooks   []func()
 	onSearchRequestedHooks []func()
 
+	// hostShortcuts, set via SetHostShortcuts, lets a host window's own keyboard
+	// shortcuts keep firing while this viewer holds keyboard focus. Fyne only
+	// dispatches a shortcut to the canvas's registered handlers when the
+	// focused widget does NOT itself implement fyne.Shortcutable — and
+	// PrettyView does (see TypedShortcut in selection.go) — so a host's
+	// Canvas.AddShortcut binding is otherwise silently skipped whenever this
+	// viewer has focus. Keyed by the shortcut's ShortcutName() (e.g.
+	// "CustomDesktop:Control+S"), same convention as fyne.ShortcutHandler.
+	hostShortcuts map[string]func()
+
 	// multi-click tracking for word/line selection
 	lastClickAt  time.Time
 	lastClickPos fyne.Position

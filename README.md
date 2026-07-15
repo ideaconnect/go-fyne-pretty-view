@@ -311,6 +311,7 @@ search box, e.g. on `Ctrl/Cmd+F`).
 | `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
 | `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
+| `SetHostShortcuts(map[string]func())` | keep a host window's own keyboard shortcuts firing while the viewer has focus (keyed by `ShortcutName()`) |
 | `Editable()` / `Reformat()` | report the constructed mode / pretty-print the edit buffer in place (caret-preserving) — *editing (v2)* |
 | `Undo()` / `Redo()` / `Cut()` / `Paste()` | edit history & clipboard (no-ops on a read-only viewer) — *editing (v2)* |
 | `Caret()` / `SetCaret(line, col)` | read / move the caret — *editing (v2)* |

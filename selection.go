@@ -411,6 +411,10 @@ func (pv *PrettyView) TypedShortcut(s fyne.Shortcut) {
 	case *desktop.CustomShortcut:
 		if sc.KeyName == fyne.KeyF && sc.Modifier == fyne.KeyModifierShortcutDefault {
 			pv.notifySearchRequested() // bundled search bar + host hook both fire (#99)
+			return
+		}
+		if fn := pv.hostShortcuts[sc.ShortcutName()]; fn != nil {
+			fn() // host shortcut registered via SetHostShortcuts
 		}
 	}
 }

@@ -90,6 +90,7 @@ prettyview method (*PrettyView) SelectedText() string
 prettyview method (*PrettyView) SetCaret(line, col int) bool
 prettyview method (*PrettyView) SetData(src []byte, format Format)
 prettyview method (*PrettyView) SetDefaultCollapseDepth(depth int)
+prettyview method (*PrettyView) SetHostShortcuts(shortcuts map[string]func())
 prettyview method (*PrettyView) SetInputConfig(c InputConfig)
 prettyview method (*PrettyView) SetOnChanged(fn func(string))
 prettyview method (*PrettyView) SetOnDataChanged(fn func())
