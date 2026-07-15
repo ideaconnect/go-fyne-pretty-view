@@ -14,6 +14,21 @@ checklist that gates dropping it).
 
 _Nothing pending._
 
+## [v2.4.1-alpha] — 2026-07-15 — bump the pinned Go toolchain to close GO-2026-5856
+
+`v2.4.0-alpha`'s release CI failed `govulncheck` on the pinned `go1.26.4` toolchain
+(`GO-2026-5856`, an Encrypted Client Hello privacy leak in `crypto/tls`, fixed in
+`go1.26.5`) — reachable only through the standard library's own TLS paths (`app.New`,
+`theme.jsonTheme.Font`), not through anything this module does. No Go release was ever
+published for `v2.4.0-alpha` (CI failed before the publish step), but the tag itself is
+already pushed and resolvable via the module proxy, so it is left in place rather than
+moved — this ships as a new patch instead.
+
+### Fixed
+- Bumped `toolchain` in `go.mod` from `go1.26.4` to `go1.26.5`, closing GO-2026-5856.
+  No source change; `make check` (gofmt + vet + `-race` tests) and `govulncheck` both
+  green on the new toolchain.
+
 ## [v2.4.0-alpha] — 2026-07-15 — `SetHostShortcuts`: host shortcuts keep firing while the viewer has focus
 
 One additive method — the **/v2** surface stays additively compatible (the exported-surface
