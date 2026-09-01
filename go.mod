@@ -2,7 +2,7 @@ module github.com/ideaconnect/go-fyne-pretty-view/v2
 
 go 1.25.0
 
-toolchain go1.26.5
+toolchain go1.26.7
 
 require (
 	fyne.io/fyne/v2 v2.7.4

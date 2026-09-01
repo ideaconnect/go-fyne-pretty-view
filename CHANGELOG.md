@@ -14,6 +14,23 @@ checklist that gates dropping it).
 
 _Nothing pending._
 
+## [v2.5.1-alpha] — 2026-09-01 — bump the pinned Go toolchain to close five stdlib advisories
+
+`v2.5.0-alpha`'s release CI failed `govulncheck` on the pinned `go1.26.5` toolchain: five
+standard-library advisories published after the previous release (`GO-2026-6088` and
+`GO-2026-5972`, recursion-depth guards in `encoding/xml` and `encoding/asn1`; `GO-2026-5026`,
+Punycode label handling reached through `net/http`; plus two more), all fixed in `go1.26.6`.
+They are reachable only through the standard library's own paths (`app.New`,
+`theme.jsonTheme.Font`, `xml.Decoder`) — nothing this module does differently. As with
+`v2.4.0-alpha`, no Go release was published for `v2.5.0-alpha` (CI failed before the publish
+step) but its tag is already pushed and resolvable via the module proxy, so it is left in
+place and this ships as a patch.
+
+### Fixed
+- Bumped `toolchain` in `go.mod` from `go1.26.5` to `go1.26.7` (the newest patch, which
+  carries the `go1.26.6` fixes). No source change; `make check` (gofmt + vet + `-race` tests)
+  and `govulncheck` are both green on the new toolchain.
+
 ## [v2.5.0-alpha] — 2026-09-01 — `SetOnWrapChanged`: hosts can observe and persist the soft-wrap toggle
 
 One additive method — the **/v2** surface stays additively compatible (the exported-surface
