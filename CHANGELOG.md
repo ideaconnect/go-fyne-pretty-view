@@ -14,6 +14,35 @@ checklist that gates dropping it).
 
 _Nothing pending._
 
+## [v2.5.2-alpha] — 2026-09-01 — dependency and CI-action refresh
+
+No source change and no API change — the exported-surface golden is untouched. Every bump
+below was validated by bumping it in a scratch copy and running the repo's real gate
+(`make check` + `make vulncheck`), not by reading release notes alone.
+
+### Changed
+- **`golang.org/x/net` 0.56.0 → 0.58.0** (the `x/net/html` parser behind the HTML format),
+  **`golang.org/x/image` 0.43.0 → 0.45.0** (keeping its deliberate pin ahead of Fyne's
+  request for tiff CVE coverage), **`github.com/yuin/goldmark` 1.7.8 → 1.8.5** and
+  **`github.com/stretchr/testify` 1.11.1 → 1.12.1** (test-only; it drops `go-spew` and
+  `go-difflib` and moves to `go.yaml.in/yaml/v3`, which `go mod tidy` reflects).
+  `golang.org/x/sys` and `golang.org/x/text` follow as transitive requirements.
+- **CI actions moved to their current majors**, keeping this repo's SHA-pin convention:
+  `actions/checkout` → `3d3c42e5` (v7.0.1) and `actions/setup-go` → `b7ad1dad` (v7.0.0),
+  both across all six call sites in `ci.yml`/`nightly.yml`/`release.yml`. Both v7 releases
+  are ESM-migration only — the `action.yml` input surface of `setup-go` is byte-identical to
+  v6.4.0, and `checkout` v7 only adds `allow-unsafe-pr-checkout`, whose companion breaking
+  change (blocking fork checkouts) applies to `pull_request_target` / `workflow_run`, which
+  no workflow here uses.
+- **`softprops/action-gh-release` → `efb35369` (v3.0.3)**, three patches on from the pinned
+  v3.0.0: it hardens streamed asset uploads and stops malformed GitHub API errors from
+  cascading into a secondary failure — both directly on this repo's release path.
+
+### Fixed
+- **The `codecov/codecov-action` pin was mislabelled.** Its SHA `fb8b3582` carries the
+  `v7.0.0`, `v7`, `v6.0.2` and `v6` tags simultaneously, so the job has been running v7 code
+  under a `# v6` comment. Corrected to `# v7`; zero bytes of behaviour change.
+
 ## [v2.5.1-alpha] — 2026-09-01 — bump the pinned Go toolchain to close five stdlib advisories
 
 `v2.5.0-alpha`'s release CI failed `govulncheck` on the pinned `go1.26.5` toolchain: five

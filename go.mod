@@ -7,15 +7,16 @@ toolchain go1.26.7
 require (
 	fyne.io/fyne/v2 v2.7.4
 	github.com/fyne-io/oksvg v0.2.0
-	golang.org/x/net v0.56.0
+	golang.org/x/net v0.58.0
 )
 
 require github.com/dweymouth/fyne-tooltip v0.4.0
 
+require go.yaml.in/yaml/v3 v3.0.5 // indirect
+
 require (
 	fyne.io/systray v1.12.1 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/fyne-io/gl-js v0.2.0 // indirect
@@ -33,15 +34,13 @@ require (
 	github.com/mattn/go-runewidth v0.0.17 // indirect
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646 // indirect
 	github.com/nicksnyder/go-i18n/v2 v2.5.1 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/rymdport/portal v0.4.2 // indirect
 	github.com/srwiley/oksvg v0.0.0-20221011165216-be6e8873101c // indirect
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
-	github.com/yuin/goldmark v1.7.8 // indirect
-	golang.org/x/image v0.43.0 // indirect; pinned ahead of Fyne's request for tiff CVE coverage (govulncheck gate)
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
+	github.com/stretchr/testify v1.12.1 // indirect
+	github.com/yuin/goldmark v1.8.5 // indirect
+	golang.org/x/image v0.45.0 // indirect; pinned ahead of Fyne's request for tiff CVE coverage (govulncheck gate)
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
 )
