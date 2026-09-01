@@ -40,7 +40,7 @@ jobs:
       - name: Install Fyne build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev xvfb
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev xvfb
 
       - name: gofmt + vet
         run: |
@@ -102,7 +102,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
 
       # (govulncheck + the full race/coverage suite ran in the `test` gate this job
       # depends on, on the released SHA — see the test job above.)

@@ -7,7 +7,9 @@ routes through the [Makefile](Makefile); run `make help` for the full list.
 
 - Go 1.26+
 - A C toolchain and the Fyne GUI build dependencies (CGO). On Debian/Ubuntu:
-  `sudo apt install gcc libgl1-mesa-dev xorg-dev`
+  `sudo apt install gcc pkg-config libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev`
+  (the Wayland/xkbcommon headers became mandatory for an untagged Linux build in Fyne 2.8;
+  `-tags x11` builds without them)
 - A display for `make run` (X11 or Wayland). Tests and screenshots need **no**
   display — Fyne's software renderer is used.
 

@@ -36,7 +36,7 @@ jobs:
       - name: Install Fyne build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev xvfb
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev xvfb
 
       - name: gofmt + vet + go.mod hygiene
         run: |
@@ -119,7 +119,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev
 
       # The Windows runner ships an MSYS2/MinGW gcc on PATH, which CGO needs;
       # surface it (and fail fast with a clear message if it is ever missing).

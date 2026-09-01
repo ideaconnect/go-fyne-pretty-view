@@ -14,13 +14,31 @@ checklist that gates dropping it).
 
 _Nothing pending._
 
-## [v2.5.2-alpha] — 2026-09-01 — dependency and CI-action refresh
+## [v2.6.0-alpha] — 2026-09-01 — Fyne 2.8, dependency and CI-action refresh
 
-No source change and no API change — the exported-surface golden is untouched. Every bump
-below was validated by bumping it in a scratch copy and running the repo's real gate
-(`make check` + `make vulncheck`), not by reading release notes alone.
+No source change and no API change — the exported-surface golden is untouched. This is a
+**minor** rather than a patch because Fyne 2.8 narrows the supported-platform window (see
+below), not because anything was added to the API. Every bump was validated by applying it
+and running the repo's real gate (`make check`, `make vulncheck`, the `-coverpkg` coverage
+gate and the `PV_SHOTS=1` screenshot render), not by reading release notes alone.
 
 ### Changed
+- **`fyne.io/fyne/v2` 2.7.4 → 2.8.1.** Two consequences worth knowing before you take this:
+  - **Wayland is now a default backend on Linux.** Fyne 2.8 moves to `go-gl/glfw` v3.4,
+    whose `c_glfw_lin_wayland.go` builds under `(linux && !x11 && !wayland)`, so an untagged
+    Linux build compiles *both* backends and needs the Wayland headers
+    (`libwayland-dev`, `libxkbcommon-dev`) that an X11-only build did not. Without them the
+    build fails at `wl_platform.h:27: wayland-client-core.h: No such file or directory`.
+    This repo's CI installs them now; downstreams must too, or build with `-tags x11`.
+    At runtime the demo binary will pick Wayland where the session offers it, instead of
+    going through XWayland.
+  - **Fyne 2.8 drops Windows 7/8 and macOS 10.14 and older.**
+  Rendering is unaffected: the `-race` suite, the cross-package coverage gate (96.0%, gate
+  is >95%) and the committed screenshots all pass, the last regenerating byte-identically.
+  Several transitive deps land on pre-release or pseudo-versions as a result
+  (`go-gl/glfw/v3.4` `v0.1.0-pre.1…`, `fyne.io/systray`, `fyne-io/gl-js`), and
+  `FyshOS/fancyfs`, `anthonynsimon/bild` and `clipperhouse/uax29/v2` join the graph while
+  `fredbi/uri` and `rivo/uniseg` leave it.
 - **`golang.org/x/net` 0.56.0 → 0.58.0** (the `x/net/html` parser behind the HTML format),
   **`golang.org/x/image` 0.43.0 → 0.45.0** (keeping its deliberate pin ahead of Fyne's
   request for tiff CVE coverage), **`github.com/yuin/goldmark` 1.7.8 → 1.8.5** and

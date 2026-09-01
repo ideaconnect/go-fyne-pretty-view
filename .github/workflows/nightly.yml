@@ -38,7 +38,7 @@ jobs:
       - name: Install Fyne build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libxkbcommon-dev xvfb
+          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev xvfb
 
       - name: Fuzz ${{ matrix.target }} (${{ matrix.pkg }})
         run: xvfb-run -a go test -run '^$' -fuzz='^${{ matrix.target }}$' -fuzztime=180s ${{ matrix.pkg }}
