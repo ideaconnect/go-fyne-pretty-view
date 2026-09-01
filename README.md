@@ -211,7 +211,8 @@ so you include exactly the ones you want:
 
 Each control is also available à la carte (`NewSearchBar`, `NewFormatSelect`,
 `NewFoldButtons`, `NewWrapToggle`) so you can place it anywhere, and host widgets
-can stay in sync via `SetOnSearchChanged` and `SetOnDataChanged`.
+can stay in sync via `SetOnSearchChanged`, `SetOnDataChanged` and
+`SetOnWrapChanged`.
 
 ## Construction options
 
@@ -289,8 +290,9 @@ myExpandButton.OnTapped = pv.ExpandAll
 `prettyview.NewSearchBar(pv)`, `prettyview.NewFormatSelect(pv)`,
 `prettyview.NewFoldButtons(pv)`, `prettyview.NewWrapToggle(pv)`. To keep host
 controls in sync, register `pv.SetOnSearchChanged(fn)` (match counter),
-`pv.SetOnDataChanged(fn)` (format), and `pv.SetOnSearchRequested(fn)` (focus the
-search box, e.g. on `Ctrl/Cmd+F`).
+`pv.SetOnDataChanged(fn)` (format), `pv.SetOnSearchRequested(fn)` (focus the
+search box, e.g. on `Ctrl/Cmd+F`), and `pv.SetOnWrapChanged(fn)` (soft-wrap mode
+— pair it with `WithWrap` to restore a remembered preference on the next launch).
 
 > **Note on the file dialog:** the built-in *Open* uses **Fyne's own** in-canvas
 > file browser, not the OS-native picker (Fyne draws all its UI on the GL canvas).
@@ -308,9 +310,9 @@ search box, e.g. on `Ctrl/Cmd+F`).
 | `SelectAll()` / `ClearSelection()` / `SelectedText()` | selection |
 | `CopySelection()` / `CopySubtree(byteOffset) bool` | clipboard (CopySubtree copies the pretty-printed subtree for any format) |
 | `Search(SearchQuery{...})` / `SearchNext()` / `SearchPrev()` / `ClearSearch()` / `SearchStatus()` / `Matches()` / `SearchError()` | search (drive it, read the `[]Match` list, or read the last regex-compile error) |
-| `SetWrap(WrapWord/WrapNone)` / `Wrap()` | soft-wrap long lines to the viewport, or scroll |
+| `SetWrap(WrapWord/WrapNone)` / `Wrap()` / `SetOnWrapChanged(fn)` | soft-wrap long lines to the viewport, or scroll; observe (and persist) the user's toggle |
 | `SetTheme(variant, Theme{...})` / `SetSyntaxColors(variant, SyntaxColors{...})` | theming (all colors / syntax-only) |
-| `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` | host hooks (focus search, sync counter, sync format) |
+| `SetOnSearchRequested(fn)` / `SetOnSearchChanged(fn)` / `SetOnDataChanged(fn)` / `SetOnWrapChanged(fn)` | host hooks (focus search, sync counter, sync format, sync/persist the wrap mode) |
 | `SetHostShortcuts(map[string]func())` | keep a host window's own keyboard shortcuts firing while the viewer has focus (keyed by `ShortcutName()`) |
 | `Editable()` / `Reformat()` | report the constructed mode / pretty-print the edit buffer in place (caret-preserving) — *editing (v2)* |
 | `Undo()` / `Redo()` / `Cut()` / `Paste()` | edit history & clipboard (no-ops on a read-only viewer) — *editing (v2)* |

@@ -131,9 +131,10 @@ type PrettyView struct {
 	destroyed         atomic.Bool // set on renderer teardown; guards the debounce callbacks
 	matchColor        color.Color
 	activeMatchColor  color.Color
-	onSearchRequested func() // invoked on Ctrl+F (e.g. to focus a search box)
-	onSearchChanged   func() // invoked after the match set / active match changes
-	onDataChanged     func() // invoked after SetData/Reparse swaps the document
+	onSearchRequested func()         // invoked on Ctrl+F (e.g. to focus a search box)
+	onSearchChanged   func()         // invoked after the match set / active match changes
+	onDataChanged     func()         // invoked after SetData/Reparse swaps the document
+	onWrapChanged     func(WrapMode) // invoked when SetWrap changes the long-line handling mode
 
 	// Internal control-sync hooks. The bundled controls (NewFormatSelect, NewSearchBar)
 	// subscribe through these so they fire ALONGSIDE — never instead of — a host's own
@@ -461,14 +462,28 @@ func (pv *PrettyView) SetScrollOffset(p fyne.Position) {
 // SetWrap switches long-line handling between WrapNone (horizontal scroll) and
 // WrapWord (soft-wrap to the viewport width) and refreshes. Wrapping is purely
 // presentational: the model, selection, search, and copy are unchanged — a wrapped
-// line still copies as one logical line.
+// line still copies as one logical line. Setting the current mode is a no-op.
 func (pv *PrettyView) SetWrap(mode WrapMode) {
+	if mode == pv.cfg.wrap {
+		return
+	}
 	pv.cfg.wrap = mode
 	pv.refreshContent() // reflow -> syncWrap reconciles the projection + scroll direction
+	if pv.onWrapChanged != nil {
+		pv.onWrapChanged(mode)
+	}
 }
 
 // Wrap reports the current long-line handling mode.
 func (pv *PrettyView) Wrap() WrapMode { return pv.cfg.wrap }
+
+// SetOnWrapChanged registers a callback invoked whenever the long-line handling
+// mode changes via SetWrap — including through the bundled NewWrapToggle toolbar
+// control, which routes its flips through SetWrap. Use it to observe or persist
+// the user's soft-wrap preference. Setting it replaces any previous callback;
+// it never fires for the construction-time WithWrap option or for a redundant
+// SetWrap of the already-current mode.
+func (pv *PrettyView) SetOnWrapChanged(fn func(WrapMode)) { pv.onWrapChanged = fn }
 
 // wrapColsTable rebuilds (into a reused buffer) the per-depth text-column budget for
 // the current viewport width and metrics, which the model consumes to wrap lines.

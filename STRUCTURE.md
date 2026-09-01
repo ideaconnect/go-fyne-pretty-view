@@ -102,7 +102,8 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 - root `prettyview`: `selection_test`, `search_test`, `renderer_test`
   (virtualization bound), `memory_test` (heap ceiling + long-line culling),
   `perf_test` (single-build-per-reflow, incremental reveal), `wrap_view_test`
-  (wrap rendering + virtualization), `context_menu_test` (right-click menu),
+  (wrap rendering + virtualization), `wrap_callback_test` (the `SetOnWrapChanged`
+  host hook), `context_menu_test` (right-click menu),
   `fold_tap_test`, `controls_test`, `theme_test`, `icons_test`, `e2e_test`,
   `polish_test`, `bench_test`, `screenshot_test` (software-rendered PNGs, gated
   by `PV_SHOTS=1`), the `*_coverage_test` files (`api_`, `controls_`, `input_`,

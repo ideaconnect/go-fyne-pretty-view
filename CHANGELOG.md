@@ -14,6 +14,27 @@ checklist that gates dropping it).
 
 _Nothing pending._
 
+## [v2.5.0-alpha] — 2026-09-01 — `SetOnWrapChanged`: hosts can observe and persist the soft-wrap toggle
+
+One additive method — the **/v2** surface stays additively compatible (the exported-surface
+golden tracks the addition).
+
+### Added
+- **`PrettyView.SetOnWrapChanged(func(WrapMode))`** reports every soft-wrap mode change,
+  including the flips made through the bundled `NewWrapToggle` / `ToolbarConfig.ShowWrap`
+  control (which route through `SetWrap`). A host could previously *set* the mode
+  (`WithWrap`, `SetWrap`) and *read* it (`Wrap()`), but had no way to learn that the user
+  had toggled it — so remembering the preference across launches meant polling `Wrap()` at
+  shutdown. Pair the hook with `WithWrap` to restore a stored preference at construction.
+  The callback never fires for the construction-time `WithWrap` option.
+
+### Changed
+- **`SetWrap` now returns early when the requested mode is already current.** It previously
+  ran a full `refreshContent()` reflow for a redundant set; that reflow was pure waste (the
+  projection is already reconciled) and would have made the new hook fire on non-changes.
+  Visible behaviour is otherwise unchanged — `SetWrap` is still the only way to flip the
+  mode, and a real flip reflows exactly as before.
+
 ## [v2.4.1-alpha] — 2026-07-15 — bump the pinned Go toolchain to close GO-2026-5856
 
 `v2.4.0-alpha`'s release CI failed `govulncheck` on the pinned `go1.26.4` toolchain
