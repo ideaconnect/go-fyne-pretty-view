@@ -11,6 +11,8 @@ A memory-efficient, virtualized [Fyne](https://fyne.io) widget for viewing
 structured data — **JSON, JSONC, XML, HTML, and raw text** — in the style of
 [Bruno](https://www.usebruno.com)'s response viewer.
 
+> **Additional frozen methods:** `CollapseToDepth(depth int)` and `ExpandToDepth(depth int)` fold the loaded document to a given depth at runtime; `Matches() []Match` returns the current search matches; `SearchError() error` returns the last search error.
+
 ![JSON and XML views](docs/sample-two.png)
 
 ## Contents
