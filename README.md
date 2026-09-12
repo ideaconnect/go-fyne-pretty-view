@@ -80,14 +80,14 @@ rasterize a ~1 GB bitmap for the line).
 go get github.com/ideaconnect/go-fyne-pretty-view/v2
 ```
 
-Requires **Go 1.25+** (the floor set by the `golang.org/x/net` and `golang.org/x/image`
+Requires **Go 1.26+** (the floor set by the `golang.org/x/net` and `golang.org/x/image`
 dependencies) and the usual Fyne build dependencies (a C compiler and, on Linux, the
 OpenGL, X11 **and Wayland** headers — `libgl1-mesa-dev xorg-dev libwayland-dev
 libxkbcommon-dev` on Debian/Ubuntu; Wayland became a default backend in Fyne 2.8, so an
 untagged Linux build compiles both backends unless you pass `-tags x11`). The repo's own
-CI and release builds use Go 1.26.7 via the `toolchain`
+CI and release builds use Go 1.26.8 via the `toolchain`
 directive in [go.mod](go.mod), for CVE-patched stdlib coverage; consumers may build with
-their own Go 1.25+ (`GOTOOLCHAIN=local`). Upgrading from v1? It is a one-line import-path
+their own Go 1.26+ (`GOTOOLCHAIN=local`). Upgrading from v1? It is a one-line import-path
 change — see [MIGRATION.md](MIGRATION.md).
 
 **Fyne compatibility.** Built and tested against **Fyne v2.8.x** (the version pinned

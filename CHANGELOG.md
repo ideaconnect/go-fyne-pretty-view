@@ -12,7 +12,23 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
-_Nothing pending._
+### Changed
+- **Go floor is now 1.26** (`go 1.26.0` in go.mod). The `golang.org/x/net` 0.59.0,
+  `x/image` 0.46.0, `x/sys` 0.48.0 and `x/text` 0.42.0 releases all require Go 1.26, and
+  Go 1.27 is out, so 1.26 is the older of the two supported releases. The pinned toolchain
+  moves to go1.26.8 (bug fixes to cgo, the compiler, the runtime, `debug/elf` and `os`; no
+  security content). Fyne, `fyne-tooltip` and `oksvg` are already at their latest releases
+  and all six CI action pins already match the current release SHAs, so nothing else moved.
+- **govulncheck pin v1.5.0 to v1.8.0** (`GOVULNCHECK_VERSION` in the Makefile). Scan is clean.
+
+### Fixed
+- **Nightly fuzz job for `FuzzEditUndoRoundTrip` died every night with exit 143.** Each fuzz
+  exec opened its own `test.NewApp()` and window; `test.NewApp` clears Fyne's font cache so
+  every exec re-parsed the fonts, and Fyne's global renderer cache kept every closed window's
+  renderers (and those fonts) alive for a minute, so four workers ran the runner out of
+  memory in under a minute. The target now shares one app and window and resets the widget
+  with `SetText("")` per input. Workers stay flat at ~160 MB; throughput went from ~110 to
+  ~850 execs/s.
 
 ## [v2.6.0-alpha] — 2026-09-01 — Fyne 2.8, dependency and CI-action refresh
 

@@ -26,7 +26,7 @@ MUT_EFFICACY     ?= 95
 GREMLINS_VERSION ?= v0.6.0
 # Pin the govulncheck *binary* (was @latest) so a scanner release can't flip a green
 # SHA red on re-run; the advisory database it queries stays live (#119).
-GOVULNCHECK_VERSION ?= v1.5.0
+GOVULNCHECK_VERSION ?= v1.8.0
 # The mutation/vulncheck targets `go install` the pinned versions UNCONDITIONALLY: an
 # `[ -x binary ] ||` existence guard would silently run a stale preinstalled binary and
 # defeat the pin. Online this re-resolves an already-built version cheaply; the install is
