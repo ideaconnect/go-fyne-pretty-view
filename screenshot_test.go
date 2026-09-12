@@ -6,102 +6,151 @@ import (
 	"testing"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/software"
 	"fyne.io/fyne/v2/test"
+	"fyne.io/fyne/v2/theme"
+
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/fonttheme"
 )
 
-// TestCaptureScreenshots renders the widget on several fixtures to PNGs under
-// /tmp for visual inspection. It is a development aid, not an assertion.
+// TestCaptureScreenshots renders the README's image set under docs/ (and a copy under
+// /tmp for inspection) with Fyne's software painter, so it needs no display. It is a
+// development aid, not an assertion: run it with `make shots` (PV_SHOTS=1) after a
+// rendering change and read the PNGs.
+//
+// Every shot is rendered at 2x scale with the bundled JetBrains Mono / Inter faces
+// (fonttheme) on Fyne's default theme, so the images are crisp on high-DPI displays and
+// look like the demo binaries rather than the test theme.
 func TestCaptureScreenshots(t *testing.T) {
 	if os.Getenv("PV_SHOTS") == "" {
 		t.Skip("set PV_SHOTS=1 to render screenshots")
 	}
-	shots := []struct{ file, out string }{
-		{"testdata/openapi.json", "/tmp/pv_openapi.png"},
-		{"testdata/catalog.xml", "/tmp/pv_xml.png"},
-		{"testdata/page.html", "/tmp/pv_html.png"},
-	}
-	for _, s := range shots {
-		src, err := os.ReadFile(s.file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		test.NewApp()
-		pv := NewWithData(src, FormatAuto)
-		win := test.NewWindow(pv)
-		win.Resize(fyne.NewSize(900, 600))
-		pv.Refresh()
-
-		// Save a clean hero shot for the README before adding decorations.
-		if s.file == "testdata/openapi.json" {
-			if f, err := os.Create("docs/shot-json.png"); err == nil {
-				_ = png.Encode(f, win.Canvas().Capture())
-				f.Close()
-			}
-		}
-
-		// Select a few mid-document rows and run a search to visualize highlights.
-		if total := pv.doc.TotalVisibleRows(); total > 8 {
-			la := pv.doc.LineAtRow(3)
-			lb := pv.doc.LineAtRow(6)
-			pv.sel = selection{anchor: modelPos{la, 2}, focus: modelPos{lb, 8}, active: true}
-			pv.refreshSelectionView()
-		}
-		pv.Search(SearchQuery{Text: "type"})
-
-		img := win.Canvas().Capture()
-		f, err := os.Create(s.out)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := png.Encode(f, img); err != nil {
-			t.Fatal(err)
-		}
-		f.Close()
-		win.Close()
-		t.Logf("wrote %s (%v)", s.out, img.Bounds())
-	}
-
-	// Editor (v2): the editable widget with the line-number gutter, live syntax colors,
-	// and a rendered caret — pretty-printed in place by Reformat. Saved for the README's
-	// Editing section.
+	captureHero(t)
+	captureXML(t)
+	captureHTML(t)
+	captureLight(t)
 	captureEditor(t)
-	captureFoldSearch(t)
 	captureLiveTyping(t)
 }
 
-// captureFoldSearch renders the read-only viewer with deeper nodes folded (collapse
-// summaries showing) and a search highlight — for the README's feature section.
-func captureFoldSearch(t *testing.T) {
-	src, err := os.ReadFile("testdata/openapi.json")
+// shotApp installs a fresh test app with the bundled fonts on top of base (the default
+// theme, or theme.LightTheme() for the light shot).
+func shotApp(base fyne.Theme) {
+	a := test.NewApp()
+	a.Settings().SetTheme(fonttheme.New(base))
+}
+
+// shotWindow opens content in a 2x window of the given logical size and refreshes pv.
+func shotWindow(content fyne.CanvasObject, pv *PrettyView, w, h float32) fyne.Window {
+	win := test.NewWindow(content)
+	win.Canvas().(software.WindowlessCanvas).SetScale(2)
+	win.Resize(fyne.NewSize(w, h))
+	pv.Refresh()
+	return win
+}
+
+func fixture(t *testing.T, name string) []byte {
+	t.Helper()
+	src, err := os.ReadFile("testdata/" + name)
 	if err != nil {
 		t.Fatal(err)
 	}
-	test.NewApp()
-	pv := NewWithData(src, FormatJSON, WithLineNumbers())
-	win := test.NewWindow(pv)
-	win.Resize(fyne.NewSize(880, 460))
-	pv.Refresh()
-	pv.CollapseToDepth(3) // leave the top levels open; fold deeper ones to their summaries
-	pv.Search(SearchQuery{Text: "type"})
-	pv.Refresh()
+	return src
+}
 
-	writePNG(t, win, "docs/fold-search.png")
+// captureHero is the README's opening image: the full built-in toolbar over a JSON
+// document with line numbers, a few nodes folded to their summaries, and a search
+// with its match counter and highlights.
+func captureHero(t *testing.T) {
+	shotApp(theme.DefaultTheme())
+	pv := NewWithData(fixture(t, "openapi.json"), FormatJSON, WithLineNumbers())
+	bar := NewToolbar(pv, ToolbarConfig{ShowFormat: true, ShowExpandCollapse: true, ShowWrap: true, ShowSearch: true})
+	win := shotWindow(container.NewBorder(bar, nil, nil, nil, pv), pv, 960, 600)
+	pv.CollapseToDepth(3)
+	pv.Search(SearchQuery{Text: "type"})
+	pv.SearchNext()
+	pv.SearchNext()
+	// Drive the search bar's entry so the counter and the query match what the viewer
+	// shows (the bar registers the search-changed hook, so the counter updates itself).
+	if entry := findSearchEntry(bar); entry != nil {
+		entry.SetText("type")
+	}
+	// The counter's text grew after the bar was laid out; a real driver re-lays out
+	// containers whose min size changed before each paint, the headless canvas does not.
+	bar.Refresh()
+	pv.Refresh()
+	writePNG(t, win, "docs/hero.png")
 	win.Close()
 }
 
-// captureLiveTyping renders the editor mid-edit: a minified buffer that is colored as typed
-// (NOT reformatted), with the caret — the contrast to the prettified docs/editor.png.
+// captureXML shows the XML view with fold summaries ("<tag> N children") and a selection.
+func captureXML(t *testing.T) {
+	shotApp(theme.DefaultTheme())
+	pv := NewWithData(fixture(t, "catalog.xml"), FormatXML, WithLineNumbers())
+	win := shotWindow(pv, pv, 880, 412)
+	pv.CollapseToDepth(3)
+	if total := pv.doc.TotalVisibleRows(); total > 8 {
+		la, lb := pv.doc.LineAtRow(3), pv.doc.LineAtRow(5)
+		pv.sel = selection{anchor: modelPos{la, 4}, focus: modelPos{lb, 10}, active: true}
+		pv.refreshSelectionView()
+	}
+	pv.Refresh()
+	writePNG(t, win, "docs/xml.png")
+	win.Close()
+}
+
+// captureHTML shows the HTML view: tags, attributes, and a folded <script> body.
+func captureHTML(t *testing.T) {
+	shotApp(theme.DefaultTheme())
+	pv := NewWithData(fixture(t, "page.html"), FormatHTML, WithLineNumbers(), WithWrap(WrapWord))
+	win := shotWindow(pv, pv, 880, 412)
+	pv.CollapseToDepth(4)
+	pv.Refresh()
+	writePNG(t, win, "docs/html.png")
+	win.Close()
+}
+
+// captureLight renders the JSON view under the light variant. The test app reports no
+// variant preference, so the light syntax palette is installed explicitly the way a host
+// would with WithSyntaxColors; the structural colors follow theme.LightTheme().
+func captureLight(t *testing.T) {
+	shotApp(theme.LightTheme())
+	variant := fyne.CurrentApp().Settings().ThemeVariant()
+	pv := NewWithData(fixture(t, "small.json"), FormatJSON, WithLineNumbers(),
+		WithSyntaxColors(variant, defaultSyntaxColors(theme.VariantLight)))
+	win := shotWindow(pv, pv, 880, 360)
+	pv.Search(SearchQuery{Text: "title"})
+	pv.Refresh()
+	writePNG(t, win, "docs/light.png")
+	win.Close()
+}
+
+// captureEditor renders the editable widget: line-number gutter, live syntax colors, and
+// a rendered caret on a buffer that Reformat pretty-printed in place.
+func captureEditor(t *testing.T) {
+	shotApp(theme.DefaultTheme())
+	ed := New(WithEditable(), WithLineNumbers())
+	ed.SetData([]byte(`{"name":"prettyview","editable":true,"nested":{"a":1,"b":[1,2,3],"ok":true},"items":["one","two","three"],"count":42}`), FormatJSON)
+	win := shotWindow(ed, ed, 880, 430)
+	ed.FocusGained()
+	ed.Reformat()
+	ed.SetCaret(5, 9)
+	ed.Refresh()
+	writePNG(t, win, "docs/editor.png")
+	win.Close()
+}
+
+// captureLiveTyping renders the editor mid-edit: a minified buffer colored as typed, not
+// reformatted, with the caret. The contrast to docs/editor.png.
 func captureLiveTyping(t *testing.T) {
-	test.NewApp()
+	shotApp(theme.DefaultTheme())
 	ed := New(WithEditable(), WithLineNumbers())
 	ed.SetData([]byte(`{"id":42,"tags":["go","fyne","editor"],"ok":true,"nested":{"k":"v"}}`), FormatJSON)
-	win := test.NewWindow(ed)
-	win.Resize(fyne.NewSize(880, 92)) // a tight band: one minified, colored line
-	ed.Refresh()
+	win := shotWindow(ed, ed, 880, 92)
 	ed.FocusGained()
-	ed.SetCaret(0, 24) // caret mid-line, no reformat -> stays minified but colored
+	ed.SetCaret(0, 24)
 	ed.Refresh()
-
 	writePNG(t, win, "docs/editor-live.png")
 	win.Close()
 }
@@ -123,8 +172,8 @@ func writePNG(t *testing.T, win fyne.Window, path string) {
 	t.Logf("wrote %s (%v)", path, img.Bounds())
 }
 
-// filepathBase is the trailing file name of a /-separated path (avoids importing path/filepath
-// for this dev-only helper).
+// filepathBase is the trailing file name of a /-separated path (avoids importing
+// path/filepath for this dev-only helper).
 func filepathBase(p string) string {
 	for i := len(p) - 1; i >= 0; i-- {
 		if p[i] == '/' {
@@ -132,33 +181,4 @@ func filepathBase(p string) string {
 		}
 	}
 	return p
-}
-
-// captureEditor renders the v2 editable widget on a JSON sample and writes a hero shot for
-// the README to docs/editor.png (and /tmp for inspection).
-func captureEditor(t *testing.T) {
-	test.NewApp()
-	ed := New(WithEditable(), WithLineNumbers())
-	ed.SetData([]byte(`{"name":"prettyview","editable":true,"nested":{"a":1,"b":[1,2,3],"ok":true},"items":["one","two","three"],"count":42}`), FormatJSON)
-	win := test.NewWindow(ed)
-	win.Resize(fyne.NewSize(880, 430)) // tight to the ~19 reformatted lines, little dead space
-	ed.Refresh()
-	ed.FocusGained()
-	ed.Reformat() // pretty-print the buffer in place (colored, caret preserved)
-	ed.SetCaret(5, 9)
-	ed.Refresh()
-
-	img := win.Canvas().Capture()
-	for _, out := range []string{"docs/editor.png", "/tmp/pv_editor.png"} {
-		f, err := os.Create(out)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := png.Encode(f, img); err != nil {
-			t.Fatal(err)
-		}
-		f.Close()
-	}
-	win.Close()
-	t.Logf("wrote docs/editor.png (%v)", img.Bounds())
 }

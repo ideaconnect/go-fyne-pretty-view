@@ -21,6 +21,13 @@ checklist that gates dropping it).
   fields and nothing else changes.
 
 ### Changed
+- **README rewritten in plain English** with the sponsorship section moved above the
+  table of contents, every exported capability covered (scroll offset, `ResetTheme`,
+  `AcceptsTab`, host shortcuts, the new icon colors, the `fonttheme` resource variables)
+  and a new screenshot set: `docs/hero.png`, `xml.png`, `html.png`, `light.png`,
+  `editor.png` and `editor-live.png`, all rendered at 2x with the bundled JetBrains Mono
+  and Inter faces by `make shots`. `docs/sample-two.png`, `fold-search.png` and the stray
+  `shot-json.png` are gone.
 - **Toolbar glyphs are now `theme.ThemedResource`s instead of static SVGs with the theme
   foreground baked in at construction.** Two consequences. They track a runtime light/dark
   switch (the old note about rebuilding the toolbar after a theme change no longer
@@ -37,6 +44,11 @@ checklist that gates dropping it).
 - **govulncheck pin v1.5.0 to v1.8.0** (`GOVULNCHECK_VERSION` in the Makefile). Scan is clean.
 
 ### Fixed
+- **The search glyph rasterized as a half-filled disc.** Font Awesome's magnifying glass
+  draws its inner circle as two exact 180-degree arcs, the ambiguous case for the SVG arc
+  command, and Fyne's rasterizer picked the wrong sweep for one of them at every size and
+  on every resource path. The vendored `search.svg` now draws that circle with cubic
+  curves; the outer shape and the attribution comment are unchanged.
 - **Two explicit icon bakes of the same glyph shared one raster.** Fyne caches rasterized
   SVGs by resource name, so a static resource named `fa-wrap-text.svg` drawn once in one
   color kept that raster for every later resource of the same name. This was latent in the

@@ -72,7 +72,7 @@ index and the selection/search state mutate, always on the Fyne goroutine.
 | `options.go` | `config`, functional `Option`s (`WithFormat`, `WithWrap`, …), `SearchConfig`. |
 | `theme.go` | `SyntaxColors`, the default dark/light palettes, the `palette()` builder, theme-color helpers. |
 | `controls.go` | **Optional** ready-made controls: `NewToolbar` (+ `ToolbarConfig`), `NewSearchBar`, `NewFormatSelect`, `NewFoldButtons`, `NewWrapToggle`, `ShowOpenDialog`. |
-| `icons.go` | Embedded Font Awesome Free toolbar glyphs (`icons/fontawesome/*.svg`, CC BY 4.0) recolored to the theme foreground (`iconResource`). |
+| `icons.go` | Embedded Font Awesome Free toolbar glyphs (`icons/fontawesome/*.svg`, CC BY 4.0) as themed resources colored at draw time, or with an explicit color baked in (`iconResource`). |
 | `renderer.go` | `prettyViewRenderer`: manual `container.Scroll` virtualization, `reflow`, `contentLayout`, `contentSize`, metric/palette recompute. |
 | `row.go` | `rowWidget` + `rowRenderer`: per-row colored text (horizontally culled), indent guides, fold triangle. |
 | `widget_input.go` | Input-interface assertions, `Tapped` (fold toggle), `TappedSecondary` (right-click Copy / Select-all menu), `Cursor`, coordinate conversion. |

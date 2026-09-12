@@ -57,7 +57,7 @@ The widget renders through Fyne's software painter in tests, so you can produce
 real PNGs headlessly:
 
 ```sh
-make shots          # writes /tmp/pv_*.png and docs/shot-json.png
+make shots          # renders the README screenshot set to docs/ (copies under /tmp/pv_*.png)
 ```
 
 `screenshot_test.go` (gated by `PV_SHOTS=1`) drives JSON/XML/HTML fixtures,
