@@ -2,6 +2,7 @@ package prettyview
 
 import (
 	"fmt"
+	"image/color"
 	"io"
 
 	ttwidget "github.com/dweymouth/fyne-tooltip/widget"
@@ -39,6 +40,26 @@ type ToolbarConfig struct {
 	ShowSearch         bool        // a find box with prev/next and a match counter
 	Window             fyne.Window // enables the built-in Open dialog and Ctrl/Cmd+F focus
 	OnOpen             func()      // overrides the built-in Open behavior, if set
+
+	// IconColor sets the glyph color of every icon button the toolbar builds (Open,
+	// Expand all, Collapse all, the wrap toggle while wrapping is off, the search
+	// magnifier and the prev/next arrows). Nil, the default, follows the theme's
+	// foreground color and tracks a runtime theme switch.
+	IconColor color.Color
+	// ActiveIconColor sets the wrap toggle's glyph color while wrapping is on, when the
+	// button is drawn with the theme's primary fill. Nil, the default, uses the theme's
+	// foregroundOnPrimary: the contrast color a theme defines for content on that fill
+	// (near-black on a light primary, white on a dark one). A host whose theme leaves
+	// foregroundOnPrimary unreadable against its primary sets an explicit color here;
+	// theme.Color(theme.ColorNameBackground) gives a cut-out look.
+	ActiveIconColor color.Color
+}
+
+// iconStyle is the resolved glyph coloring NewToolbar threads to the control builders:
+// idle is the color of every glyph, active the wrap toggle's while wrapping is on. A nil
+// entry means "let the theme decide" (see ToolbarConfig.IconColor / ActiveIconColor).
+type iconStyle struct {
+	idle, active color.Color
 }
 
 // DefaultToolbarConfig enables every control bound to win: the Open button (its
@@ -55,9 +76,10 @@ func DefaultToolbarConfig(win fyne.Window) ToolbarConfig {
 // controls are omitted. The result is a plain fyne.CanvasObject; place it where
 // you like (typically the top of a container.NewBorder around the PrettyView).
 func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
+	st := iconStyle{idle: cfg.IconColor, active: cfg.ActiveIconColor}
 	left := container.NewHBox()
 	if cfg.ShowOpen && (cfg.OnOpen != nil || cfg.Window != nil) {
-		left.Add(iconBtn(iconFolder(), "Open file…", func() {
+		left.Add(iconBtn(iconFolder(st.idle), "Open file…", func() {
 			if cfg.OnOpen != nil {
 				cfg.OnOpen()
 				return
@@ -69,14 +91,14 @@ func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject {
 		left.Add(NewFormatSelect(pv))
 	}
 	if cfg.ShowExpandCollapse {
-		left.Add(NewFoldButtons(pv))
+		left.Add(newFoldButtons(pv, st))
 	}
 	if cfg.ShowWrap {
-		left.Add(NewWrapToggle(pv))
+		left.Add(newWrapToggle(pv, st))
 	}
 
 	if cfg.ShowSearch {
-		bar := NewSearchBar(pv)
+		bar := newSearchBar(pv, st)
 		if cfg.Window != nil {
 			registerFindShortcut(cfg.Window, pv)
 		}
@@ -112,26 +134,53 @@ func iconLabel(icon fyne.Resource, tip string) *ttwidget.Button {
 	return b
 }
 
-// NewFoldButtons returns an expand-all / collapse-all icon pair bound to pv.
-func NewFoldButtons(pv *PrettyView) fyne.CanvasObject {
+// NewFoldButtons returns an expand-all / collapse-all icon pair bound to pv. The glyphs
+// follow the theme foreground; for explicit colors build the pair through NewToolbar
+// with only ShowExpandCollapse set and IconColor filled in.
+func NewFoldButtons(pv *PrettyView) fyne.CanvasObject { return newFoldButtons(pv, iconStyle{}) }
+
+func newFoldButtons(pv *PrettyView, st iconStyle) fyne.CanvasObject {
 	return container.NewHBox(
-		iconBtn(iconExpand(), "Expand all", pv.ExpandAll),
-		iconBtn(iconCollapse(), "Collapse all", pv.CollapseAll),
+		iconBtn(iconExpand(st.idle), "Expand all", pv.ExpandAll),
+		iconBtn(iconCollapse(st.idle), "Collapse all", pv.CollapseAll),
 	)
 }
 
 // NewWrapToggle returns a wrap-text icon toggle bound to pv: it flips between
 // soft-wrap (WrapWord) and horizontal scroll (WrapNone), and is highlighted
-// (HighImportance) while wrapping is on so the state is visible.
-func NewWrapToggle(pv *PrettyView) fyne.CanvasObject {
+// (HighImportance, the theme's primary fill) while wrapping is on so the state is
+// visible. The glyph follows the theme: foreground while off, foregroundOnPrimary
+// while on. For explicit colors build the toggle through NewToolbar with only ShowWrap
+// set and IconColor / ActiveIconColor filled in.
+func NewWrapToggle(pv *PrettyView) fyne.CanvasObject { return newWrapToggle(pv, iconStyle{}) }
+
+func newWrapToggle(pv *PrettyView, st iconStyle) fyne.CanvasObject {
+	// Two prebuilt resources so a toggle never re-parses SVG: with st.active == nil both
+	// are the same ThemedResource and Fyne's button does the on-primary recolor itself
+	// (widget.Button wraps a ThemedResource icon in the fill's contrast color for a
+	// HighImportance button and restores it on Refresh once the importance drops).
+	// With an explicit active color the glyph is a static bake Fyne never touches, so
+	// the toggle swaps the icon by hand.
+	off := iconWrapText(st.idle)
+	on := off
+	if st.active != nil {
+		on = iconWrapText(st.active)
+	}
+	iconFor := func() fyne.Resource {
+		if pv.Wrap() == WrapWord {
+			return on
+		}
+		return off
+	}
 	var btn *ttwidget.Button
-	btn = iconBtn(iconWrapText(), "Toggle soft-wrap", func() {
+	btn = iconBtn(iconFor(), "Toggle soft-wrap", func() {
 		if pv.Wrap() == WrapWord {
 			pv.SetWrap(WrapNone)
 		} else {
 			pv.SetWrap(WrapWord)
 		}
 		btn.Importance = wrapImportance(pv)
+		btn.Icon = iconFor()
 		btn.Refresh()
 	})
 	btn.Importance = wrapImportance(pv)
@@ -222,8 +271,12 @@ func (e *searchEntry) TypedKey(key *fyne.KeyEvent) {
 // NewSearchBar returns a find box (with case-sensitive and regex toggles, prev/next,
 // and a self-updating match counter) bound to pv. It registers PrettyView's
 // search-changed and search-requested hooks so the counter stays in sync and
-// Ctrl/Cmd+F focuses it. Enter finds next, Shift+Enter finds previous, Esc clears.
-func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
+// Ctrl/Cmd+F focuses it. Enter finds next, Shift+Enter finds previous, Esc clears. The
+// glyphs follow the theme foreground; for an explicit color build the bar through
+// NewToolbar with only ShowSearch set and IconColor filled in.
+func NewSearchBar(pv *PrettyView) fyne.CanvasObject { return newSearchBar(pv, iconStyle{}) }
+
+func newSearchBar(pv *PrettyView, st iconStyle) fyne.CanvasObject {
 	entry := newSearchEntry()
 	// A canvas.Text (not a widget.Label) for the match counter: a Label's inner
 	// padding would make the entry→counter gap wider than the gap between the nav
@@ -317,12 +370,12 @@ func NewSearchBar(pv *PrettyView) fyne.CanvasObject {
 	regexBtn.Importance = widget.LowImportance
 	regexBtn.SetToolTip("Regular expression")
 
-	prev := iconBtn(iconArrowUp(), "Previous match", pv.SearchPrev)
-	next := iconBtn(iconArrowDown(), "Find next", pv.SearchNext)
+	prev := iconBtn(iconArrowUp(st.idle), "Previous match", pv.SearchPrev)
+	next := iconBtn(iconArrowDown(st.idle), "Find next", pv.SearchNext)
 
 	// The entry expands (Border center); the counter, toggles and nav buttons sit in
 	// one HBox so the inter-control gaps are all one padding wide.
-	return container.NewBorder(nil, nil, iconLabel(iconSearch(), "Search"),
+	return container.NewBorder(nil, nil, iconLabel(iconSearch(st.idle), "Search"),
 		container.NewHBox(container.NewCenter(count), caseBtn, regexBtn, prev, next), entry)
 }
 

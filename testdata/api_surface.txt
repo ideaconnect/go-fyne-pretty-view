@@ -124,5 +124,5 @@ prettyview type SearchMode uint8
 prettyview type SearchQuery struct { CaseSensitive bool; Mode SearchMode; Text string }
 prettyview type SyntaxColors struct { Attr color.Color; Bool color.Color; Comment color.Color; Key color.Color; Null color.Color; Number color.Color; Punct color.Color; String color.Color; Tag color.Color }
 prettyview type Theme struct { ActiveMatch color.Color; Attr color.Color; Bool color.Color; Comment color.Color; Foreground color.Color; IndentGuide color.Color; Key color.Color; Match color.Color; Null color.Color; Number color.Color; Punct color.Color; Selection color.Color; String color.Color; Summary color.Color; Tag color.Color }
-prettyview type ToolbarConfig struct { OnOpen func(); ShowExpandCollapse bool; ShowFormat bool; ShowOpen bool; ShowSearch bool; ShowWrap bool; Window fyne.Window }
+prettyview type ToolbarConfig struct { ActiveIconColor color.Color; IconColor color.Color; OnOpen func(); ShowExpandCollapse bool; ShowFormat bool; ShowOpen bool; ShowSearch bool; ShowWrap bool; Window fyne.Window }
 prettyview type WrapMode uint8

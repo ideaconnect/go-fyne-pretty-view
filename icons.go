@@ -14,14 +14,16 @@ import (
 // the CC BY 4.0 license — see icons/fontawesome/LICENSE.txt and the README's
 // attribution (the original licence/attribution comment is preserved inside each
 // SVG). They are solid (fill-drawn) icons; the vendored copies carry
-// fill="currentColor" on every path. Fyne's themed-resource colorizer would also
-// work for fill icons, but we keep the same explicit bake the project has always
-// used: substitute the installed theme's foreground color (for the active
-// light/dark variant) for currentColor when the resource is built. The color is
-// therefore resolved at construction (when NewToolbar / the iconBtn helpers run),
-// matching whatever theme is installed then; it does not re-resolve on a later
-// runtime light/dark switch, so an app that toggles variant mid-session should
-// rebuild the toolbar to recolor its glyphs.
+// fill="currentColor" on every path.
+//
+// By default each glyph is wrapped in a theme.ThemedResource, so Fyne colorizes it
+// from the theme's foreground at draw time: it tracks a runtime light/dark switch,
+// and, because widget.Button recolors a ThemedResource icon to the contrast color of
+// its fill (foregroundOnPrimary on a HighImportance button), the wrap toggle's glyph
+// stays readable while it sits on the primary fill. A host that wants a specific
+// color instead (ToolbarConfig.IconColor / ActiveIconColor) gets the older bake: the
+// hex is substituted for currentColor when the resource is built, and Fyne leaves a
+// plain static resource alone.
 
 //go:embed icons/fontawesome/search.svg
 var svgSearch []byte
@@ -44,41 +46,39 @@ var svgArrowUp []byte
 //go:embed icons/fontawesome/arrow-down.svg
 var svgArrowDown []byte
 
-// foregroundHex returns the installed theme's foreground color, for the active
-// light/dark variant, as an SVG hex string. It resolves through themeColor (the
-// same helper the viewer's structural colors use), so the toolbar icons track a
-// custom app theme's foreground rather than only the bundled default's.
-func foregroundHex() string {
-	variant := fyne.ThemeVariant(theme.VariantDark)
-	if a := fyne.CurrentApp(); a != nil && a.Settings() != nil {
-		variant = a.Settings().ThemeVariant()
-	}
-	return colorToHex(themeColor(theme.ColorNameForeground, variant))
-}
-
+// colorToHex renders c as a 6-digit SVG hex, reading straight (non-premultiplied)
+// NRGBA channels like withAlpha in theme.go: c.RGBA() yields alpha-PREMULTIPLIED
+// values, so a non-opaque color would otherwise bake a darkened/desaturated hex. (A
+// 6-digit hex can't carry alpha, so a translucent color still renders opaque — but at
+// its true, undistorted color.)
 func colorToHex(c color.Color) string {
-	// Convert through the straight (non-premultiplied) NRGBA model first, like
-	// withAlpha in theme.go: reading c.RGBA() directly yields alpha-PREMULTIPLIED
-	// channels, so a non-opaque themed foreground would bake a darkened/desaturated
-	// hex. (A 6-digit SVG hex can't carry alpha, so a translucent foreground still
-	// renders opaque — but at its true, undistorted color.)
 	nc := color.NRGBAModel.Convert(c).(color.NRGBA)
 	return fmt.Sprintf("#%02x%02x%02x", nc.R, nc.G, nc.B)
 }
 
-// iconResource returns a Font Awesome SVG as a Fyne resource, recolored to the
-// current theme foreground (see the package note above). name is used for the
-// resource id.
-func iconResource(name string, svg []byte) fyne.Resource {
-	colored := bytes.ReplaceAll(svg, []byte("currentColor"), []byte(foregroundHex()))
-	return fyne.NewStaticResource(name+".svg", colored)
+// iconResource returns a Font Awesome SVG as a Fyne resource. With c == nil it is a
+// theme.ThemedResource colorized from the theme foreground at draw time (and recolored
+// by widget.Button to the contrast color of a highlighted fill); with a color it is a
+// static resource with that exact color baked in for currentColor, which Fyne never
+// recolors. name is used for the resource id; the explicit bake carries its hex in the
+// id because Fyne's rasterized-SVG cache is keyed by resource name, so two bakes of the
+// same glyph in different colors would otherwise share one raster and the first drawn
+// color would win (the wrap toggle's on/off swap, or a toolbar rebuilt in a new theme).
+func iconResource(name string, svg []byte, c color.Color) fyne.Resource {
+	if c == nil {
+		return theme.NewThemedResource(fyne.NewStaticResource(name+".svg", svg))
+	}
+	hex := colorToHex(c)
+	colored := bytes.ReplaceAll(svg, []byte("currentColor"), []byte(hex))
+	return fyne.NewStaticResource(name+"-"+hex[1:]+".svg", colored)
 }
 
-// The toolbar icon set (resolved against the active theme at call time).
-func iconSearch() fyne.Resource    { return iconResource("fa-search", svgSearch) }
-func iconFolder() fyne.Resource    { return iconResource("fa-folder", svgFolder) }
-func iconWrapText() fyne.Resource  { return iconResource("fa-wrap-text", svgWrapText) }
-func iconExpand() fyne.Resource    { return iconResource("fa-expand", svgExpand) }
-func iconCollapse() fyne.Resource  { return iconResource("fa-collapse", svgCollapse) }
-func iconArrowUp() fyne.Resource   { return iconResource("fa-arrow-up", svgArrowUp) }
-func iconArrowDown() fyne.Resource { return iconResource("fa-arrow-down", svgArrowDown) }
+func iconSearch(c color.Color) fyne.Resource   { return iconResource("fa-search", svgSearch, c) }
+func iconFolder(c color.Color) fyne.Resource   { return iconResource("fa-folder", svgFolder, c) }
+func iconWrapText(c color.Color) fyne.Resource { return iconResource("fa-wrap-text", svgWrapText, c) }
+func iconExpand(c color.Color) fyne.Resource   { return iconResource("fa-expand", svgExpand, c) }
+func iconCollapse(c color.Color) fyne.Resource { return iconResource("fa-collapse", svgCollapse, c) }
+func iconArrowUp(c color.Color) fyne.Resource  { return iconResource("fa-arrow-up", svgArrowUp, c) }
+func iconArrowDown(c color.Color) fyne.Resource {
+	return iconResource("fa-arrow-down", svgArrowDown, c)
+}

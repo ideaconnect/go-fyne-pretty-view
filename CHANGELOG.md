@@ -12,7 +12,22 @@ checklist that gates dropping it).
 
 ## [Unreleased]
 
+### Added
+- **`ToolbarConfig.IconColor` and `ToolbarConfig.ActiveIconColor`.** `IconColor` sets the
+  glyph color of every icon button `NewToolbar` builds; `ActiveIconColor` sets the wrap
+  toggle's glyph while wrapping is on, when it sits on the theme's primary fill. Both are
+  nil by default, which means "follow the theme". To style a single control, build a
+  toolbar with only that control enabled. Additive: the exported-surface golden gains the two
+  fields and nothing else changes.
+
 ### Changed
+- **Toolbar glyphs are now `theme.ThemedResource`s instead of static SVGs with the theme
+  foreground baked in at construction.** Two consequences. They track a runtime light/dark
+  switch (the old note about rebuilding the toolbar after a theme change no longer
+  applies). And the wrap toggle is readable while it is on: `widget.Button` recolors a
+  themed icon to the theme's `foregroundOnPrimary` on a `HighImportance` button, so a host
+  theme with a light primary and a light foreground (a bright green with a light-gray
+  foreground, say) now gets its own contrast color on the fill instead of light-on-light.
 - **Go floor is now 1.26** (`go 1.26.0` in go.mod). The `golang.org/x/net` 0.59.0,
   `x/image` 0.46.0, `x/sys` 0.48.0 and `x/text` 0.42.0 releases all require Go 1.26, and
   Go 1.27 is out, so 1.26 is the older of the two supported releases. The pinned toolchain
@@ -22,6 +37,12 @@ checklist that gates dropping it).
 - **govulncheck pin v1.5.0 to v1.8.0** (`GOVULNCHECK_VERSION` in the Makefile). Scan is clean.
 
 ### Fixed
+- **Two explicit icon bakes of the same glyph shared one raster.** Fyne caches rasterized
+  SVGs by resource name, so a static resource named `fa-wrap-text.svg` drawn once in one
+  color kept that raster for every later resource of the same name. This was latent in the
+  old bake (a toolbar rebuilt after a theme switch could keep the previous foreground) and
+  would have broken the new `ActiveIconColor` swap; explicit bakes now carry their hex in
+  the resource name.
 - **Nightly fuzz job for `FuzzEditUndoRoundTrip` died every night with exit 143.** Each fuzz
   exec opened its own `test.NewApp()` and window; `test.NewApp` clears Fyne's font cache so
   every exec re-parsed the fonts, and Fyne's global renderer cache kept every closed window's
