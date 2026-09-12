@@ -18,20 +18,34 @@ func FuzzEditUndoRoundTrip(f *testing.F) {
 	f.Add("中é\tx\x01y")
 	f.Add("")
 	f.Add(strings.Repeat("a\n", 300)) // #72: forces >200 ops; would over-evict at the default undo cap
+	// One app + window for the whole run, NOT one per input. Fyne's global renderer cache
+	// keeps every widget's renderer (and, through it, the parsed font faces) alive for at
+	// least a minute after its window closes, and the test driver only runs the cleaner on
+	// Capture(). Four workers opening a window per exec therefore grew past the CI runner's
+	// memory in under a minute and the nightly job died with SIGTERM (exit 143), never
+	// reaching a verdict. A single widget reset with SetText("") per input is bounded:
+	// SetData re-seeds the buffer and drops the undo/redo history, which is exactly the
+	// fresh start the round-trip oracle needs.
+	test.NewApp()
+	// An effectively-unlimited undo so the round-trip oracle is sound: with the default
+	// cap a long input legitimately evicts the oldest ops, and undo-all then cannot reach
+	// the empty start — correct behavior the round-trip must not mistake for a bug.
+	pv := New(WithEditable(), WithUndoLimit(1<<30), WithInputConfig(InputConfig{AutoFormat: AutoFormatOff}))
+	win := test.NewWindow(pv)
+	defer win.Close()
+	win.Resize(fyne.NewSize(400, 300))
+	pv.Refresh()
+	pv.FocusGained()
+
 	f.Fuzz(func(t *testing.T, s string) {
 		if len(s) > 1000 {
 			return
 		}
-		test.NewApp()
-		// An effectively-unlimited undo so the round-trip oracle is sound: with the default
-		// cap a long input legitimately evicts the oldest ops, and undo-all then cannot reach
-		// the empty start — correct behavior the round-trip must not mistake for a bug.
-		pv := New(WithEditable(), WithUndoLimit(1<<30), WithInputConfig(InputConfig{AutoFormat: AutoFormatOff}))
-		win := test.NewWindow(pv)
-		defer win.Close()
-		win.Resize(fyne.NewSize(400, 300))
-		pv.Refresh()
-		pv.FocusGained()
+		pv.SetText("") // fresh buffer, empty history, caret at 0
+		if len(pv.hist.undo) != 0 || len(pv.hist.redo) != 0 || pv.buf.Len() != 0 {
+			t.Fatalf("SetText(\"\") did not reset the editor: undo=%d redo=%d len=%d",
+				len(pv.hist.undo), len(pv.hist.redo), pv.buf.Len())
+		}
 
 		for _, r := range s {
 			pv.editInsert([]byte(string(r)))
