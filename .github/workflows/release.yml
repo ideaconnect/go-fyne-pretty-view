@@ -1,8 +1,11 @@
 name: Release
 
 # Cut a release by pushing a version tag:  git tag v1.2.3 && git push origin v1.2.3
-# The cross-platform demo is built, each binary is zipped together with the
-# testdata/ fixtures, and the zips are attached to a generated GitHub Release.
+# The tag must have a "## [v1.2.3]" section in CHANGELOG.md: that section becomes the
+# release body (what the release contains), and the heading's title becomes the release
+# name. The full test gate then runs on the released SHA, the cross-platform demo is
+# built, each binary is zipped together with the testdata/ fixtures and license texts,
+# and the zips plus a SHA256SUMS manifest are attached to the GitHub Release.
 on:
   push:
     tags:
@@ -18,12 +21,47 @@ permissions:
   contents: read
 
 jobs:
+  # Fail fast, before any build minute is spent, when the tag has no CHANGELOG section:
+  # a release must always carry a written account of what it contains. The extracted
+  # body and name are passed to the publish job so the release notes come from the
+  # CHANGELOG and not from a commit list.
+  notes:
+    name: Release notes from CHANGELOG
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      name: ${{ steps.extract.outputs.name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Extract the tag's CHANGELOG section
+        id: extract
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          .github/scripts/release-notes.sh "$TAG" > release-body.md
+          name=$(.github/scripts/release-notes.sh --title "$TAG")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "Release name: $name"
+          echo "--- release body ---"
+          cat release-body.md
+
+      - name: Upload release body
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-body
+          path: release-body.md
+          if-no-files-found: error
+
   # Re-assert the authoritative gate on the EXACT released SHA before any artifact is
   # built. A tag push does not trigger ci.yml (it fires on branches + PRs, not tags), so
   # without this a release could ship binaries from code whose race detector, >95%
   # coverage gate, perf guards, and API-freeze golden never ran (#96). build needs this.
   test:
     name: Test & coverage (Linux)
+    needs: notes # no point running the 30-minute gate for a tag that cannot be published
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -157,7 +195,7 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: build
+    needs: [notes, build]
     runs-on: ubuntu-latest
     timeout-minutes: 10 # cap a stuck upload/release publish (#105)
     permissions:
@@ -168,16 +206,26 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+          pattern: prettyview-demo-*
+
+      - name: Download the release body
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-body
 
       # A checksum manifest so downloaders can verify each zip's integrity
       # (sha256sum -c SHA256SUMS).
       - name: Generate SHA256SUMS
         run: (cd dist && sha256sum *.zip > SHA256SUMS)
 
+      # The body is the tag's CHANGELOG section; generate_release_notes appends GitHub's
+      # own "Full Changelog" compare link below it.
       - name: Create / update the release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: ${{ needs.notes.outputs.name }}
+          body_path: release-body.md
           files: |
             dist/*.zip
             dist/SHA256SUMS

@@ -15,7 +15,7 @@ added to the frozen v1 surface (Go [semantic import versioning](https://go.dev/r
 ## The one required change (read-only hosts)
 
 ```sh
-go get github.com/ideaconnect/go-fyne-pretty-view/v2@v2.0.0-alpha
+go get github.com/ideaconnect/go-fyne-pretty-view/v2@latest
 ```
 
 ```diff

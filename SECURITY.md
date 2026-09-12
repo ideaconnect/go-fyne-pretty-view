@@ -2,11 +2,12 @@
 
 ## Supported versions
 
-The module is on the **`/v2`** major and ships `vX.Y.Z-alpha` releases (the `-alpha`
-suffix marks pre-production maturity, not API churn — the exported surface is frozen).
-Security fixes are made on the **latest `v2.x.y-alpha` tag** and `main`; the frozen **v1**
-line receives critical/security fixes only, on the **`v1-maintenance`** branch (tagged
-`v1.x.y`). Older alphas are not maintained — pin a tag and upgrade to pick up fixes.
+The module is on the **`/v2`** major and ships `vX.Y.Z` releases under semantic
+versioning; the exported surface is frozen within the major. Security fixes are made on
+the **latest `v2.x.y` tag** and `main`; the frozen **v1** line receives critical and
+security fixes only, on the **`v1-maintenance`** branch (tagged `v1.x.y`). Older v2
+releases, including the `v2.x.y-alpha` tags that preceded v2.7.0, are not maintained:
+pin a tag and upgrade to pick up fixes.
 
 ## Reporting a vulnerability
 

@@ -115,21 +115,57 @@ commit.
 
 ## Releasing
 
-This is a library; consumers pin a tag.
+This is a library; consumers pin a tag. A release is cut by pushing a version tag, and
+the tag must have a matching section in [CHANGELOG.md](CHANGELOG.md):
 
 ```sh
-make check                      # must be green
-git tag vX.Y.Z && git push --tags
+# 1. Move the [Unreleased] entries under a "## [vX.Y.Z] - YYYY-MM-DD - title" heading
+#    and add the compare link at the bottom of CHANGELOG.md.
+# 2. make check must be green; push and wait for CI on the commit you will tag.
+git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
-Pushing a `vX.Y.Z` tag also triggers the **release** workflow
-([.github/workflows/release.yml](.github/workflows/release.yml)): it builds the
-demo for Linux/Windows/macOS, zips each binary together with the `testdata/`
-fixtures, and attaches the zips to a GitHub Release with auto-generated notes. The
-zip filenames embed the tag (e.g. `prettyview-demo-linux-amd64-v2.0.0-alpha.zip`),
-so v1.x and v2.x release assets never collide. A tag with a pre-release suffix (e.g.
-`v2.0.0-alpha`) is marked as a pre-release; you can also re-run it manually from the
-Actions tab (workflow_dispatch) against an existing tag.
+Pushing the tag triggers the **release** workflow
+([.github/workflows/release.yml](.github/workflows/release.yml)):
+
+1. **Release notes.** `.github/scripts/release-notes.sh` extracts the tag's CHANGELOG
+   section; the job fails before anything is built if the section is missing or empty.
+   The section becomes the release body and the heading's title (the text after the
+   date) becomes the release name, so the release page says what the version contains.
+   GitHub's generated "Full Changelog" link is appended below.
+2. **Gate.** gofmt, vet, the `-race` suite with the cross-package coverage threshold,
+   the benchmark smoke run and `govulncheck`, all on the exact tagged SHA.
+3. **Build.** The demo for Linux, Windows and macOS, each zipped with the `testdata/`
+   fixtures, README, LICENSE and the third-party license texts. Zip names embed the tag
+   (`prettyview-demo-linux-amd64-v2.7.0.zip`) so v1 and v2 assets never collide.
+4. **Publish.** The zips and a `SHA256SUMS` manifest are attached to the GitHub Release.
+   A tag with a pre-release suffix (`v2.8.0-rc1`) is marked as a pre-release.
+
+The workflow can also be re-run from the Actions tab (workflow_dispatch) against an
+existing tag, for example after fixing a runner-side failure.
+
+### Release checklist
+
+Every release, patch or minor, must satisfy all of these on the commit being tagged:
+
+- [ ] **Green CI on all three OSes** (Linux test + Windows/macOS build and test).
+- [ ] **`govulncheck` clean** (the CI gate passes; no unaddressed advisories).
+- [ ] **Surface golden committed**: `TestExportedSurfaceGolden` passes and any change to
+      `testdata/api_surface.txt` is additive and called out in the CHANGELOG (a removal
+      or signature change means a new major, not a release on this line).
+- [ ] **`make check` green** and **cross-package coverage > 95 %** (the CI gate).
+- [ ] **`make mutation` at or above the efficacy gate** on the pure logic packages when a
+      change touched them (the nightly workflow also runs it).
+- [ ] **CHANGELOG cut**: the `[Unreleased]` section is moved under the new version
+      heading with the date, and the compare link is added at the bottom.
+- [ ] **Version choice per semver**: a patch for fixes only, a minor for any addition to
+      the exported surface or a platform/support change, a new major module path for a
+      breaking change.
+
+Releases up to v2.6.0-alpha carried an `-alpha` suffix that marked pre-production
+maturity rather than API churn; the exported surface had been frozen since v2.0.0. The
+suffix was dropped at v2.7.0 once the checklist above (then including a maturity soak
+decision, issue #67) was met.
 
 ### v1 / v2 branch & tag policy
 

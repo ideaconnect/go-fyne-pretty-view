@@ -6,11 +6,22 @@ All notable changes to this project are documented here. The format is based on
 major; the exported surface of `prettyview`/`fonttheme` is **frozen** (pinned by
 `TestExportedSurfaceGolden`): additions ship as a minor, and any breaking change ships only
 under a new major module path (`.../v3`), called out under **Changed**/**Removed**. Releases
-carry a `-alpha` suffix that marks pre-production maturity — not API churn (see
-[SECURITY.md](SECURITY.md) for the support model and [WORKFLOWS.md](WORKFLOWS.md) for the
-checklist that gates dropping it).
+before v2.7.0 carried a `-alpha` suffix that marked pre-production maturity, not API churn
+(see [SECURITY.md](SECURITY.md) for the support model and [WORKFLOWS.md](WORKFLOWS.md) for
+the release checklist). Each release's section here is also its GitHub release body.
 
 ## [Unreleased]
+
+_Nothing pending._
+
+## [v2.7.0] - 2026-09-12 - first release without the alpha suffix: readable toolbar icons, Go 1.26, nightly fuzz fix
+
+This is the first tag on the `/v2` line without an `-alpha` suffix. Nothing about the API
+changed to make that happen: the exported surface has been frozen since v2.0.0 and every
+gate in the release checklist ([WORKFLOWS.md](WORKFLOWS.md#release-checklist)) is green.
+The suffix only ever marked pre-production maturity, and the widget has now had enough
+real-world mileage (it is the response viewer in a shipping desktop client) to stand
+behind the stability promise. Releases also now take their notes from this file.
 
 ### Added
 - **`ToolbarConfig.IconColor` and `ToolbarConfig.ActiveIconColor`.** `IconColor` sets the
@@ -28,6 +39,12 @@ checklist that gates dropping it).
   `editor.png` and `editor-live.png`, all rendered at 2x with the bundled JetBrains Mono
   and Inter faces by `make shots`. `docs/sample-two.png`, `fold-search.png` and the stray
   `shot-json.png` are gone.
+- **Release workflow takes its notes from this file.** A new `notes` job runs first and
+  extracts the tag's `## [vX.Y.Z]` section with `.github/scripts/release-notes.sh`; a tag
+  with no section, or an empty one, fails before a build minute is spent. The section is
+  the release body and the heading's title is the release name; GitHub's generated
+  compare link is appended. The gate, the three-platform build and the `SHA256SUMS`
+  manifest are unchanged. `TestReleaseNotesScript` exercises the extractor.
 - **Toolbar glyphs are now `theme.ThemedResource`s instead of static SVGs with the theme
   foreground baked in at construction.** Two consequences. They track a runtime light/dark
   switch (the old note about rebuilding the toolbar after a theme change no longer
@@ -635,7 +652,8 @@ guarded by `TestExportedSurfaceGolden`; see the README **Stability** section. Af
   search with reveal-into-folds, optional soft-wrap, and an opt-in toolbar — built to
   a hard memory budget (only viewport-many rows are ever live widgets).
 
-[Unreleased]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v1.1.0-alpha...HEAD
+[Unreleased]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v2.7.0...HEAD
+[v2.7.0]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v2.6.0-alpha...v2.7.0
 [v1.1.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v1.0.0-alpha...v1.1.0-alpha
 [v1.0.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v0.9.0-alpha...v1.0.0-alpha
 [v0.9.0-alpha]: https://github.com/ideaconnect/go-fyne-pretty-view/compare/v0.5.0-alpha...v0.9.0-alpha

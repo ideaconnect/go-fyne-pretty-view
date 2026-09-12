@@ -28,10 +28,9 @@
 // this package you redistribute those fonts; the OFL only asks that you carry the
 // license text (which is embedded here) — see the README's licensing notes.
 //
-// Stability: this package shares the module's versioning — on the /v2 major, its exported
-// surface is frozen under semantic import versioning (the vX.Y.Z-alpha tags signal
-// pre-production maturity, not API churn). See the prettyview package doc and the README
-// Stability section.
+// Stability: this package shares the module's versioning. On the /v2 major its exported
+// surface is frozen under semantic import versioning. See the prettyview package doc and
+// the README's "Stability and versioning" section.
 package fonttheme
 
 import (

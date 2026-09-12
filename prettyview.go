@@ -37,11 +37,12 @@
 //
 // # Stability
 //
-// The module is on the /v2 major and ships vX.Y.Z-alpha releases; the -alpha suffix marks
-// pre-production maturity, not API churn. The exported surface is frozen under semantic
-// import versioning: additions ship as a minor and any breaking change ships under a new
-// major module path (.../v3), never as a minor bump. The frozen surface is pinned by
-// TestExportedSurfaceGolden; see CHANGELOG.md for every change.
+// The module is on the /v2 major and follows semantic versioning. The exported surface is
+// frozen under semantic import versioning: additions ship as a minor, fixes as a patch, and
+// any breaking change ships under a new major module path (.../v3), never as a minor bump.
+// The frozen surface is pinned by TestExportedSurfaceGolden; see CHANGELOG.md for every
+// change. Releases before v2.7.0 carried an -alpha suffix that marked pre-production
+// maturity, not API churn.
 package prettyview
 
 import (
