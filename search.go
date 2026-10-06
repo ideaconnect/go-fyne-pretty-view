@@ -63,7 +63,8 @@ func (pv *PrettyView) SetOnSearchRequested(fn func()) { pv.onSearchRequested = f
 // e.g. (&desktop.CustomShortcut{KeyName: fyne.KeyS, Modifier:
 // fyne.KeyModifierShortcutDefault}).ShortcutName(). Setting it replaces any
 // previously set table; pass nil to clear it. Entries never override the
-// viewer's own built-in shortcuts (Copy/SelectAll/Undo/Redo/Paste/Cut/Ctrl+F).
+// viewer's own built-in shortcuts (Copy/SelectAll/Undo/Redo/Paste/Cut/Ctrl+F and
+// the word-wise caret moves, Ctrl or Option + Left/Right with or without Shift).
 func (pv *PrettyView) SetHostShortcuts(shortcuts map[string]func()) { pv.hostShortcuts = shortcuts }
 
 // Search starts or replaces the active search and reveals the first match. It is the

@@ -65,7 +65,9 @@ Thank you to everyone who already supports the project.
   whole logical lines either way.
 - **Keyboard navigation.** Arrows scroll, `Space`, `PageDown` and `PageUp` page,
   `Home` and `End` jump to the top and bottom. `Shift` plus any of these extends a
-  selection. `Enter` toggles the fold on the caret's line, `Esc` clears the selection,
+  selection, `Shift+Left/Right` one character at a time. `Ctrl+Left/Right`
+  (`Option+Left/Right` on macOS) moves the caret by a word, and extends by a word with
+  `Shift`. `Enter` toggles the fold on the caret's line, `Esc` clears the selection,
   `Ctrl/Cmd+F` focuses search.
 - **Optional line-number gutter**, drawn from the model rather than from per-line
   widgets.

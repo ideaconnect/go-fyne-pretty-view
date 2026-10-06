@@ -79,3 +79,62 @@ func (pv *PrettyView) lineBounds(line int32) (modelPos, modelPos) {
 	vl := pv.doc.VisibleLine(line)
 	return modelPos{line: vl, col: 0}, modelPos{line: vl, col: pv.doc.LineRuneLen(vl)}
 }
+
+// stepPos returns the caret position one rune (word false) or one word (word true) before
+// or after p, a visible position. A word step skips any whitespace, then the run of one
+// class (classOf, the same classes a double-click selects). At a line end a forward step
+// lands on the next visible line's start, and at a line start a backward step lands on the
+// previous visible line's end, as in widget.Entry; at either end of the document p is
+// returned unchanged.
+func (pv *PrettyView) stepPos(p modelPos, forward, word bool) modelPos {
+	n := pv.doc.LineRuneLen(p.line)
+	if forward && p.col >= n {
+		row := pv.doc.RowOfLine(p.line) + pv.doc.RowsOfLine(p.line)
+		if row >= pv.doc.TotalVisibleRows() {
+			return p
+		}
+		next, _ := pv.doc.LineAndSubRowAtRow(row)
+		return modelPos{line: next, col: 0}
+	}
+	if !forward && p.col <= 0 {
+		row := pv.doc.RowOfLine(p.line) - 1
+		if row < 0 {
+			return p
+		}
+		prev, _ := pv.doc.LineAndSubRowAtRow(row)
+		return modelPos{line: prev, col: pv.doc.LineRuneLen(prev)}
+	}
+	if !word {
+		if forward {
+			p.col++
+		} else {
+			p.col--
+		}
+		return p
+	}
+	runes := pv.displayRunes(p.line)
+	col := min(p.col, len(runes))
+	if forward {
+		for col < len(runes) && classOf(runes[col]) == classSpace {
+			col++
+		}
+		if col < len(runes) {
+			cls := classOf(runes[col])
+			for col < len(runes) && classOf(runes[col]) == cls {
+				col++
+			}
+		}
+	} else {
+		for col > 0 && classOf(runes[col-1]) == classSpace {
+			col--
+		}
+		if col > 0 {
+			cls := classOf(runes[col-1])
+			for col > 0 && classOf(runes[col-1]) == cls {
+				col--
+			}
+		}
+	}
+	p.col = col
+	return p
+}

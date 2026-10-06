@@ -234,8 +234,9 @@ func (pv *PrettyView) editDelete(forward bool) {
 	}
 }
 
-// caretStepRune moves the caret one rune left/right, collapsing any selection. It walks
-// raw byte offsets, so it crosses line boundaries naturally.
+// caretStepRune moves the caret one rune left/right. An active selection instead collapses
+// onto its left/right end, as in widget.Entry. It walks raw byte offsets, so it crosses line
+// boundaries naturally.
 func (pv *PrettyView) caretStepRune(forward bool) {
 	if pv.buf == nil {
 		return
@@ -243,6 +244,15 @@ func (pv *PrettyView) caretStepRune(forward bool) {
 	pv.coalesceBreak = true // a caret move ends the current typing run for undo
 	if !pv.sel.placed {     // first arrow just places the caret at the top of the buffer
 		pv.setCaretOff(0)
+		pv.revealCaret()
+		return
+	}
+	if lo, hi, ok := pv.ordered(); ok {
+		edge := lo
+		if forward {
+			edge = hi
+		}
+		pv.setCaretOff(pv.buf.ByteOffAt(int(edge.line), edge.col))
 		pv.revealCaret()
 		return
 	}

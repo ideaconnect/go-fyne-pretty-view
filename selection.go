@@ -2,6 +2,7 @@ package prettyview
 
 import (
 	"cmp"
+	"runtime"
 	"strings"
 	"time"
 
@@ -268,8 +269,8 @@ func (pv *PrettyView) KeyUp(key *fyne.KeyEvent) {
 
 // TypedKey handles Escape (clear selection) and keyboard scrolling/navigation: Up/Down scroll
 // one row, PageUp/PageDown one viewport, Home/End jump to the top/bottom; with Shift held (see
-// KeyDown) the arrows extend the keyboard selection instead. A multi-megabyte viewer should be
-// navigable without the mouse.
+// KeyDown) the arrows extend the keyboard selection instead (Left/Right by one rune). A
+// multi-megabyte viewer should be navigable without the mouse.
 func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 	if pv.r == nil {
 		if ev.Name == fyne.KeyEscape {
@@ -287,6 +288,12 @@ func (pv *PrettyView) TypedKey(ev *fyne.KeyEvent) {
 			return
 		case fyne.KeyUp:
 			pv.keyExtend(-1, keepCol, false, false)
+			return
+		case fyne.KeyLeft:
+			pv.caretStep(false, false, true)
+			return
+		case fyne.KeyRight:
+			pv.caretStep(true, false, true)
 			return
 		case fyne.KeyHome:
 			pv.keyExtend(0, 0, true, false)
@@ -341,12 +348,7 @@ func (pv *PrettyView) keyExtend(dRows, col int, toLineStart, toLineEnd bool) {
 	if pv.doc == nil || pv.r == nil || pv.doc.TotalVisibleRows() == 0 {
 		return // pv.r guard: keyExtend reads r.firstRow; every sibling guards r == nil (#76)
 	}
-	if !pv.sel.placed {
-		li := pv.doc.LineAtRow(int32(max(pv.r.firstRow, 0)))
-		pv.sel.anchor = modelPos{line: li, col: 0}
-		pv.sel.focus = pv.sel.anchor
-		pv.sel.placed = true
-	}
+	pv.placeKeyCaret()
 	f := pv.sel.focus
 	vl := pv.doc.VisibleLine(f.line)
 	if dRows != 0 {
@@ -380,6 +382,52 @@ func (pv *PrettyView) keyExtend(dRows, col int, toLineStart, toLineEnd bool) {
 	pv.refreshSelectionView()
 }
 
+// placeKeyCaret establishes a caret at the top visible line if none exists, so the first
+// keyboard move has somewhere to start from. Callers guard pv.doc and pv.r.
+func (pv *PrettyView) placeKeyCaret() {
+	if pv.sel.placed {
+		return
+	}
+	li := pv.doc.LineAtRow(int32(max(pv.r.firstRow, 0)))
+	pv.sel.anchor = modelPos{line: li, col: 0}
+	pv.sel.focus = pv.sel.anchor
+	pv.sel.placed = true
+}
+
+// caretStep moves the keyboard caret one rune (word false) or one word (word true) left or
+// right, crossing line ends into the adjacent visible line (see stepPos). With extend the
+// anchor stays put, so Shift+Left/Right and Shift+word moves grow the selection; without it
+// the selection collapses onto the new caret. Either way the move ends the current typing
+// run for undo.
+func (pv *PrettyView) caretStep(forward, word, extend bool) {
+	if pv.doc == nil || pv.r == nil || pv.doc.TotalVisibleRows() == 0 {
+		return
+	}
+	pv.coalesceBreak = true
+	pv.placeKeyCaret()
+	f := pv.stepPos(pv.snap(pv.sel.focus), forward, word)
+	if !extend {
+		pv.sel.anchor = f
+	}
+	pv.sel.focus = f
+	pv.sel.active = pv.sel.anchor != pv.sel.focus
+	pv.sel.grab = grabNone
+	pv.centerOnLine(f.line, f.col) // keep the moving caret in view
+	pv.refreshSelectionView()
+}
+
+// wordStepModifier is the modifier that, with Left/Right, moves the caret by a word.
+var wordStepModifier = wordModifierFor(runtime.GOOS)
+
+// wordModifierFor returns the word-step modifier for an OS: Option (Alt) on macOS, Ctrl
+// elsewhere — the same mapping widget.Entry uses, so both widgets agree in one window.
+func wordModifierFor(goos string) fyne.KeyModifier {
+	if goos == "darwin" {
+		return fyne.KeyModifierAlt
+	}
+	return fyne.KeyModifierControl
+}
+
 // keyToggleFold toggles the fold on the caret's line when it is a fold head.
 func (pv *PrettyView) keyToggleFold() {
 	if pv.doc == nil || !pv.sel.placed {
@@ -411,6 +459,13 @@ func (pv *PrettyView) TypedShortcut(s fyne.Shortcut) {
 	case *desktop.CustomShortcut:
 		if sc.KeyName == fyne.KeyF && sc.Modifier == fyne.KeyModifierShortcutDefault {
 			pv.notifySearchRequested() // bundled search bar + host hook both fire (#99)
+			return
+		}
+		// Word-wise caret moves (Ctrl or Option + Left/Right; with Shift they extend the
+		// selection). Fyne delivers any non-Shift modifier+arrow here, never to TypedKey.
+		if (sc.KeyName == fyne.KeyLeft || sc.KeyName == fyne.KeyRight) &&
+			sc.Modifier&^fyne.KeyModifierShift == wordStepModifier {
+			pv.caretStep(sc.KeyName == fyne.KeyRight, true, sc.Modifier&fyne.KeyModifierShift != 0)
 			return
 		}
 		if fn := pv.hostShortcuts[sc.ShortcutName()]; fn != nil {

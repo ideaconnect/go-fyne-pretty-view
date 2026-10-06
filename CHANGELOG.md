@@ -12,7 +12,18 @@ the release checklist). Each release's section here is also its GitHub release b
 
 ## [Unreleased]
 
-_Nothing pending._
+### Fixed
+- **`Shift+Left`/`Shift+Right` did not extend the selection, and there was no word-wise
+  caret movement** (#129). `Shift+Left/Right` now grow or shrink the selection one rune at a
+  time from the caret, in the viewer and the editor alike, crossing a line end into the
+  adjacent visible line (past a collapsed node's hidden lines and past every sub-row of a
+  soft-wrapped line). `Ctrl+Left/Right` (Linux, Windows) and `Option+Left/Right` (macOS),
+  the same mapping `widget.Entry` uses, move the caret to the previous/next word boundary
+  with the classes a double-click selects; with `Shift` they extend the selection to it. At
+  a line end a word step goes to the next line's start, and back symmetrically. In the
+  editor a plain `Left`/`Right` with a selection now collapses it onto its left/right end,
+  as `widget.Entry` does, instead of stepping one rune from the focus, and a word step ends
+  the current undo typing run like every other caret move. No exported API changed.
 
 ## [v2.7.0] - 2026-09-12 - first release without the alpha suffix: readable toolbar icons, Go 1.26, nightly fuzz fix
 
