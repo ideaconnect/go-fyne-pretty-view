@@ -81,6 +81,10 @@ type PrettyView struct {
 	// live edit allocates ~nothing instead of rebuilding the whole Document each time (#80).
 	// Lazily created on the first reproject; nil for a read-only widget.
 	pool *parse.EditPool
+	// editIndentUnit is the indent unit (columns per guide level) detected from the edit
+	// buffer on every reproject; the editable rows draw their indent guides at multiples of
+	// it, since the projection keeps indentation as literal whitespace at depth 0.
+	editIndentUnit int
 
 	// live-format engine. The displayed doc is always the colorized-raw projection of buf,
 	// so the caret is an exact buffer (line, col) — no separate structured display mode.

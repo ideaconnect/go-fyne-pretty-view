@@ -12,7 +12,17 @@ the release checklist). Each release's section here is also its GitHub release b
 
 ## [Unreleased]
 
-_Nothing pending._
+### Added
+- **Indent guides in the editor.** An editable widget (`WithEditable()`) now draws the same
+  subtle vertical indent guides the read-only viewer does, one per indent level. The editor
+  keeps indentation as literal whitespace (display runes map 1:1 to buffer runes), so the
+  guides come from each line's leading whitespace and sit on the indentation columns, under
+  the first character of the enclosing line, instead of shifting any text. The indent unit
+  (columns per level) is detected from the buffer on every reproject: the most frequent
+  1-8 column step between consecutive non-blank lines, so two-space, four-space and
+  tab-indented buffers all get one guide per level. Blank lines continue the guides of the
+  block they sit in. Capped at 32 guides per row like the viewer; a soft-wrapped line's
+  continuation rows show none. No API change; folding in the editor is not part of this.
 
 ## [v2.7.0] - 2026-09-12 - first release without the alpha suffix: readable toolbar icons, Go 1.26, nightly fuzz fix
 

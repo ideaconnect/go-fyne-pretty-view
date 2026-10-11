@@ -2,6 +2,7 @@ package prettyview
 
 import (
 	"image/color"
+	"math"
 	"strconv"
 	"sync/atomic"
 	"unicode/utf8"
@@ -11,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/geometry"
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
+	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/parse"
 )
 
 const maxIndentGuides = 32
@@ -114,8 +116,14 @@ func (rr *rowRenderer) build() {
 	line := &pv.doc.Lines[r.line]
 	depth := line.Depth
 
-	// Indent guides: one subtle vertical rule per nesting level.
-	rr.layoutGuides(depth, m, pv.guideColor)
+	// Indent guides: one subtle vertical rule per nesting level. The editable projection
+	// keeps indentation as literal whitespace at depth 0, so its guides come from the
+	// line's leading whitespace and sit on the indentation columns instead.
+	if pv.cfg.editable {
+		rr.layoutEditGuides(r, m, pv.guideColor)
+	} else {
+		rr.layoutGuides(depth, m, pv.guideColor)
+	}
 
 	// Fold triangle in the gutter — only on the line's first visual row; a wrapped
 	// line's continuation rows (sub > 0) show indent guides but no triangle.
@@ -274,6 +282,42 @@ func (rr *rowRenderer) layoutGuides(depth uint8, m geometry.Metrics, c color.Col
 		g.Show()
 	}
 	rr.hideGuides(n)
+}
+
+// layoutEditGuides draws an editable row's indent guides: one per indent level of the
+// line's leading whitespace (blank lines continue their block's guides), each on the
+// middle of the indentation column it marks, i.e. under the first character of the
+// enclosing line. The guides sit in content space like the text, so the horizontal
+// scroll moves them with it. A soft-wrapped line's continuation rows show none: their
+// text restarts at column 0, where a guide would run through it.
+func (rr *rowRenderer) layoutEditGuides(r *rowWidget, m geometry.Metrics, c color.Color) {
+	pv := r.pv
+	if r.sub > 0 {
+		rr.hideGuides(0)
+		return
+	}
+	unit := max(pv.editIndentUnit, 1) // set on every reproject; 0 only before the first one
+	n := parse.EditGuideLevel(pv.doc, r.line, unit)
+	if n > maxIndentGuides {
+		n = maxIndentGuides
+	}
+	depth := pv.doc.Lines[r.line].Depth
+	for i := 0; i < n; i++ {
+		g := rr.guide(i)
+		x := editGuideX(m, depth, i*unit)
+		g.StrokeColor = c
+		g.StrokeWidth = 1
+		g.Position1 = fyne.NewPos(x, 0)
+		g.Position2 = fyne.NewPos(x, m.RowH)
+		g.Show()
+	}
+	rr.hideGuides(n)
+}
+
+// editGuideX is the content-space x of an editable indent guide on column col: the middle
+// of the column's cell, rounded to a whole pixel so the 1px rule stays crisp.
+func editGuideX(m geometry.Metrics, depth uint8, col int) float32 {
+	return float32(math.Round(float64(m.ColX(depth, col) + m.CharWidth/2)))
 }
 
 func (rr *rowRenderer) layoutTriangle(depth uint8, m geometry.Metrics, collapsed bool, c color.Color) {

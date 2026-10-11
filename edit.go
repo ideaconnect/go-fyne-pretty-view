@@ -311,6 +311,7 @@ func (pv *PrettyView) reprojectRaw() {
 	// rebuilt in lockstep, so nothing is left aliasing a stale snapshot.
 	src := pv.buf.BytesInto(pv.pool.Snapshot())
 	pv.doc = pv.pool.Reproject(src, pv.resolveFormat(src), pv.cfg.collapseDepth)
+	pv.editIndentUnit = parse.EditIndentUnit(pv.doc) // leading-whitespace walk, no allocation
 }
 
 // rerenderProjection repaints the live colorized-raw projection in place: re-color the
