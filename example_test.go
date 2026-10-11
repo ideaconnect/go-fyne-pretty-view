@@ -1,6 +1,7 @@
 package prettyview_test
 
 import (
+	"bytes"
 	"fmt"
 
 	"fyne.io/fyne/v2/app"
@@ -51,4 +52,57 @@ func ExamplePrettyView_CopySubtree() {
 	// Byte offset of the '{' opening the "user" object in the source.
 	fmt.Println(pv.CopySubtree(8)) // true; the "user" subtree is now on the clipboard
 	// Output: true
+}
+
+// iniColorizer is a minimal host grammar for INI-style files such as a WireGuard .conf:
+// "[Section]" headers, "Key = Value" pairs and "#" / ";" comment lines. It appends its
+// spans to dst, so the widget can reuse the slice from one call to the next.
+func iniColorizer(dst []prettyview.ColorSpan, src []byte) []prettyview.ColorSpan {
+	for start := 0; start < len(src); {
+		end := bytes.IndexByte(src[start:], '\n')
+		if end < 0 {
+			end = len(src)
+		} else {
+			end += start
+		}
+		line := src[start:end]
+		body := bytes.TrimLeft(line, " \t")
+		at := start + len(line) - len(body) // byte offset of the first non-blank
+		switch {
+		case len(body) == 0:
+		case body[0] == '#' || body[0] == ';':
+			dst = append(dst, prettyview.ColorSpan{Start: at, End: end, Role: prettyview.RoleComment})
+		case body[0] == '[':
+			dst = append(dst, prettyview.ColorSpan{Start: at, End: end, Role: prettyview.RoleTag})
+		default:
+			if eq := bytes.IndexByte(body, '='); eq >= 0 {
+				dst = append(dst,
+					prettyview.ColorSpan{Start: at, End: at + eq, Role: prettyview.RoleKey},
+					prettyview.ColorSpan{Start: at + eq, End: at + eq + 1, Role: prettyview.RolePunct},
+					prettyview.ColorSpan{Start: at + eq + 1, End: end, Role: prettyview.RoleString})
+			}
+		}
+		start = end + 1
+	}
+	return dst
+}
+
+// ExampleWithColorizer colors a format the library has no parser for, here an INI-style
+// WireGuard config, with a host-supplied grammar. It applies to FormatRaw text in the
+// read-only viewer and in the editor alike; the roles resolve through the active Theme.
+func ExampleWithColorizer() {
+	test.NewApp()
+	conf := []byte("[Interface]\n# client\nAddress = 10.0.0.2/32\n")
+	pv := prettyview.NewWithData(conf, prettyview.FormatRaw, prettyview.WithColorizer(iniColorizer))
+	_ = pv // add it to a window like any other widget
+
+	for _, s := range iniColorizer(nil, conf) {
+		fmt.Printf("%d %q\n", s.Role, conf[s.Start:s.End])
+	}
+	// Output:
+	// 7 "[Interface]"
+	// 9 "# client"
+	// 1 "Address "
+	// 6 "="
+	// 2 " 10.0.0.2/32"
 }

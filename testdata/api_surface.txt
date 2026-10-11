@@ -17,6 +17,17 @@ prettyview const FormatJSON = model.FormatJSON
 prettyview const FormatJSONC = model.FormatJSONC
 prettyview const FormatRaw = model.FormatRaw
 prettyview const FormatXML = model.FormatXML
+prettyview const RoleAttr = model.RoleAttr
+prettyview const RoleBool = model.RoleBool
+prettyview const RoleComment = model.RoleComment
+prettyview const RoleKey = model.RoleKey
+prettyview const RoleMuted = model.RoleMuted
+prettyview const RoleNull = model.RoleNull
+prettyview const RoleNumber = model.RoleNumber
+prettyview const RolePlain = model.RolePlain
+prettyview const RolePunct = model.RolePunct
+prettyview const RoleString = model.RoleString
+prettyview const RoleTag = model.RoleTag
 prettyview const SearchPlain SearchMode = iota
 prettyview const SearchRegex
 prettyview const WrapNone WrapMode = iota
@@ -30,6 +41,7 @@ prettyview func NewToolbar(pv *PrettyView, cfg ToolbarConfig) fyne.CanvasObject
 prettyview func NewWithData(src []byte, format Format, opts ...Option) *PrettyView
 prettyview func NewWrapToggle(pv *PrettyView) fyne.CanvasObject
 prettyview func ShowOpenDialog(pv *PrettyView, win fyne.Window)
+prettyview func WithColorizer(c Colorizer) Option
 prettyview func WithDefaultCollapseDepth(d int) Option
 prettyview func WithEditable() Option
 prettyview func WithFormat(f Format) Option
@@ -113,6 +125,9 @@ prettyview method (*PrettyView) TypedShortcut(s fyne.Shortcut)
 prettyview method (*PrettyView) Undo()
 prettyview method (*PrettyView) Wrap() WrapMode
 prettyview type AutoFormatMode uint8
+prettyview type ColorRole = model.ColorRole
+prettyview type ColorSpan = model.ColorSpan
+prettyview type Colorizer func(dst []ColorSpan, src []byte) []ColorSpan
 prettyview type Format = model.Format
 prettyview type InputConfig struct { AutoFormat AutoFormatMode; DebounceFor time.Duration; MaxEditBytes int }
 prettyview type Match struct { ColEnd int; ColStart int; Line int }

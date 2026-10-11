@@ -12,7 +12,22 @@ the release checklist). Each release's section here is also its GitHub release b
 
 ## [Unreleased]
 
-_Nothing pending._
+### Added
+- **`WithColorizer`: color your own line-oriented formats.** A host passes a `Colorizer`,
+  `func(dst []ColorSpan, src []byte) []ColorSpan`, that appends byte-range
+  `ColorSpan{Start, End, Role}`s for the text. The widget uses it whenever the effective
+  format is `FormatRaw`, in the read-only viewer (tabs still expand to `WithTabWidth`) and in
+  the editor's live projection (on every keystroke, display runes still 1:1 with buffer runes,
+  within the existing 2 MiB live-color budget and 16 KiB per-line limit). JSON, XML and HTML
+  keep their built-in parsers, and a structured document that fails to parse still falls back
+  to plain raw. Spans are sanitized: sorted, de-overlapped first-wins, clamped, unknown roles
+  mapped to plain, and color changes only at a rune start. A panicking colorizer leaves the
+  text uncolored. The append signature lets the pooled editor reuse the span slice, so the
+  keystroke reproject stays allocation-free in steady state (#80). The color slots are now
+  public as `ColorRole` with `RolePlain`, `RoleKey`, `RoleString`, `RoleNumber`, `RoleBool`,
+  `RoleNull`, `RolePunct`, `RoleTag`, `RoleAttr`, `RoleComment` and `RoleMuted`, each tied to
+  its `Theme` field. Additive: the exported-surface golden gains `WithColorizer`, `Colorizer`,
+  `ColorSpan`, `ColorRole` and the role constants. See `ExampleWithColorizer`.
 
 ## [v2.7.0] - 2026-09-12 - first release without the alpha suffix: readable toolbar icons, Go 1.26, nightly fuzz fix
 

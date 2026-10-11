@@ -76,6 +76,14 @@ const (
 	NumColorRoles
 )
 
+// ColorSpan assigns the color role Role to the source bytes [Start, End). It is the unit a
+// host colorizer (prettyview.WithColorizer) reports; the parse package sanitizes spans
+// (clamps, orders, de-overlaps, snaps to rune starts) before they reach any segment.
+type ColorSpan struct {
+	Start, End int
+	Role       ColorRole
+}
+
 // Buffer selectors for a Segment's byte range.
 const (
 	BufSrc uint8 = 0 // range is into Document.Src (zero-copy)

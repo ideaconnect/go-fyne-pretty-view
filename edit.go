@@ -305,6 +305,7 @@ func (pv *PrettyView) commitBufferState(caretOff int) {
 func (pv *PrettyView) reprojectRaw() {
 	if pv.pool == nil {
 		pv.pool = parse.NewEditPool()
+		pv.pool.SetColorizer(pv.cfg.colorizer)
 	}
 	// Reuse the prior snapshot's backing array and the pooled Document arenas, so a keystroke
 	// reproject allocates ~nothing in steady state (#80). The pooled Document and snapshot are

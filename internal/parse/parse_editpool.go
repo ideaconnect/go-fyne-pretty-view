@@ -20,11 +20,17 @@ type EditPool struct {
 	bld      *model.Builder
 	snapshot []byte
 	scratch  []model.Seg // reused per-line segment build buffer, persisted across reprojects (#84)
+	host     *hostColor  // host colorizer for FormatRaw text (SetColorizer); nil => monochrome raw
 }
 
 // NewEditPool returns an empty pool. The first Reproject allocates the arenas; every subsequent
 // one reuses them.
 func NewEditPool() *EditPool { return &EditPool{} }
+
+// SetColorizer installs a host colorizer for FormatRaw buffers (nil removes it). Its span
+// scratch lives in the pool, so a host that appends into the dst it is given keeps the
+// steady-state reproject allocation-free.
+func (p *EditPool) SetColorizer(c Colorizer) { p.host = newHostColor(c) }
 
 // Snapshot returns the pool's reusable snapshot backing slice, intended for
 // buf.BytesInto(pool.Snapshot()) so the materialized buffer reuses one allocation too.
@@ -42,6 +48,6 @@ func (p *EditPool) Reproject(src []byte, format Format, collapseDepth int) *mode
 	} else {
 		p.bld.ResetBuilder(src, format, collapseDepth)
 	}
-	parseEditableInto(p.bld, src, format, &p.scratch)
+	parseEditableInto(p.bld, src, format, &p.scratch, p.host)
 	return p.bld.Finish()
 }

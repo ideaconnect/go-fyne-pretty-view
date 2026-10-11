@@ -343,6 +343,7 @@ pv := prettyview.New(
     prettyview.WithSearchConfig(prettyview.SearchConfig{MaxMatches: 5000}),
     prettyview.WithTheme(theme.VariantDark, prettyview.Theme{Key: myKeyColor}),
     prettyview.WithSyntaxColors(theme.VariantLight, prettyview.SyntaxColors{Number: myNumberColor}),
+    prettyview.WithColorizer(myGrammar),                 // color FormatRaw text with your own grammar
 
     // Editing. Only meaningful together with WithEditable.
     prettyview.WithEditable(),                           // construct as an editor
@@ -419,6 +420,30 @@ pv.ResetTheme(theme.VariantDark)
 `Tag`, `Attr`, `Comment`) and the structural colors (`Foreground`, `Summary`,
 `IndentGuide`, `Selection`, `Match`, `ActiveMatch`). `SyntaxColors` is the token-only
 shorthand.
+
+### Coloring your own formats
+
+For a line-oriented format the library has no parser for (an INI-style config, share URIs,
+log lines), pass a `Colorizer` with `WithColorizer`. It receives the whole text and appends
+`ColorSpan{Start, End, Role}` byte ranges to the slice it is given. The `Role*` constants
+resolve through the active theme, so a host grammar follows `WithTheme` like the built-in
+formats do.
+
+```go
+func conf(dst []prettyview.ColorSpan, src []byte) []prettyview.ColorSpan {
+    // ... find sections, keys, values, comments in src ...
+    return append(dst, prettyview.ColorSpan{Start: 0, End: 11, Role: prettyview.RoleTag})
+}
+
+pv := prettyview.New(prettyview.WithColorizer(conf), prettyview.WithEditable())
+pv.SetData(wgConf, prettyview.FormatRaw)
+```
+
+The colorizer applies whenever the effective format is `FormatRaw`, both in the viewer and
+in the editor. In the editor it runs on every keystroke, for buffers up to the 2 MiB
+live-color budget. JSON, XML and HTML keep their built-in parsers. Spans may be unsorted,
+overlapping or out of range: the widget clamps and orders them, and it never changes color
+inside a multi-byte rune. A complete INI example is `ExampleWithColorizer`.
 
 ### Fonts
 

@@ -82,6 +82,7 @@ type config struct {
 	input         InputConfig // edit-mode live-formatting knobs (only used when editable)
 	undoLimit     int         // cap on undo history entries (default 200)
 	themeOverride map[fyne.ThemeVariant]Theme
+	colorizer     Colorizer // host grammar for FormatRaw text (WithColorizer); nil = monochrome
 }
 
 // setThemeOverride merges t's non-nil fields into the per-variant override, so

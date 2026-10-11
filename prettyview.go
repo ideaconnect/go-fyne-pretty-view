@@ -229,7 +229,7 @@ func (pv *PrettyView) SetData(src []byte, format Format) {
 		pv.reprojectRaw()
 		pv.setParseStatus(pv.statusFor(nil, pv.buf.Bytes())) // initial validity for the gutter/status
 	} else {
-		pv.doc = parse.Parse(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth)
+		pv.doc = parse.ParseWithColorizer(src, format, pv.cfg.collapseDepth, pv.cfg.tabWidth, pv.cfg.colorizer)
 		// Surface validity to read-only hosts too: a tolerant parse that recovered errors
 		// (KindError markers) or a forced format that fell back to raw is otherwise visible
 		// only as on-screen tint, unreachable by host code (#87). Mirrors the editable branch.

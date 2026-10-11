@@ -2,6 +2,7 @@ package parse
 
 import (
 	"math"
+	"unicode/utf8"
 
 	"github.com/ideaconnect/go-fyne-pretty-view/v2/internal/model"
 )
@@ -51,6 +52,7 @@ type editColorParser struct {
 	format   Format
 	colorize bool         // false => skip token lexing; every line is monochrome edit-raw (#65)
 	scratch  *[]model.Seg // reused per-line segment build buffer; nil => Parse uses a local (#84)
+	host     *hostColor   // host colorizer for FormatRaw text; nil => raw stays monochrome
 }
 
 func (p editColorParser) Parse(src []byte, b *model.Builder) error {
@@ -59,7 +61,11 @@ func (p editColorParser) Parse(src []byte, b *model.Builder) error {
 		p.scratch = &local
 	}
 	var spans []colorSpan
-	if p.colorize {
+	switch {
+	case !p.colorize:
+	case p.format == FormatRaw && p.host != nil:
+		spans = p.host.spansFor(src) // the host's grammar colors raw text (WithColorizer)
+	default:
 		spans = lexColorSpans(src, p.format)
 	}
 	si := 0
@@ -101,6 +107,9 @@ func appendColorLine(b *model.Builder, src []byte, start, end int, spans []color
 		role := model.RolePlain
 		if *si < len(spans) && spans[*si].start <= i {
 			role = spans[*si].role
+		}
+		if haveRun && !utf8.RuneStart(src[i]) {
+			role = runRole // a role change only lands on a rune start: never split a rune
 		}
 		if isGridHostile(src[i]) {
 			flush(i)
@@ -155,7 +164,17 @@ func ParseEditableColored(src []byte, format Format, collapseDepth int) *model.D
 	src = clampEditableSrc(src)
 	b := model.NewBuilder(src, format, collapseDepth)
 	var scratch []model.Seg // grown once, reused across this parse's lines
-	parseEditableInto(b, src, format, &scratch)
+	parseEditableInto(b, src, format, &scratch, nil)
+	return b.Finish()
+}
+
+// parseEditableColoredWith is ParseEditableColored with a host colorizer for FormatRaw text:
+// the free counterpart of a pooled EditPool with SetColorizer, used to pin their equality.
+func parseEditableColoredWith(src []byte, format Format, collapseDepth int, c Colorizer) *model.Document {
+	src = clampEditableSrc(src)
+	b := model.NewBuilder(src, format, collapseDepth)
+	var scratch []model.Seg
+	parseEditableInto(b, src, format, &scratch, newHostColor(c))
 	return b.Finish()
 }
 
@@ -172,9 +191,9 @@ func clampEditableSrc(src []byte) []byte {
 // the shared core of the free ParseEditableColored and the pooled EditPool.Reproject (#80), so
 // both produce a byte-identical Document. #65: above the live-color budget colorize is skipped
 // (every line monochrome) so a large buffer never re-lexes per keystroke.
-func parseEditableInto(b *model.Builder, src []byte, format Format, scratch *[]model.Seg) {
+func parseEditableInto(b *model.Builder, src []byte, format Format, scratch *[]model.Seg, host *hostColor) {
 	colorize := WithinLiveColorBudget(len(src))
-	_ = editColorParser{format: format, colorize: colorize, scratch: scratch}.Parse(src, b)
+	_ = editColorParser{format: format, colorize: colorize, scratch: scratch, host: host}.Parse(src, b)
 }
 
 // --- JSON / JSONC colorizer -------------------------------------------------------------
